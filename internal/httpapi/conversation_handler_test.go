@@ -24,9 +24,9 @@ func (fakeChat) StartChatTask(_ context.Context, _ string, _ []attachment.Ref, _
 func TestChatHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/chat", chatHandler(fakeChat{}))
+	r.POST("/conversations", startConversationHandler(fakeChat{}))
 
-	req := httptest.NewRequest("POST", "/chat", strings.NewReader(`{"brief":"扫这个"}`))
+	req := httptest.NewRequest("POST", "/conversations", strings.NewReader(`{"brief":"扫这个"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -231,10 +231,10 @@ func TestListConversationsHandler_SearchPassedToListAndCount(t *testing.T) {
 func TestChatHandler_TooManyAttachments(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/chat", chatHandler(fakeChat{}))
+	r.POST("/conversations", startConversationHandler(fakeChat{}))
 	refs := make([]attachment.Ref, 11)
 	body, _ := json.Marshal(ChatRequest{Brief: "x", Attachments: refs})
-	req := httptest.NewRequest("POST", "/chat", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/conversations", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -249,11 +249,11 @@ func TestMessageHandlers_BlankTextRejected(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	fu := &fakeFollowUp{handleIntent: "accepted"}
 	r := gin.New()
-	r.POST("/chat", chatHandler(fakeChat{}))
+	r.POST("/conversations", startConversationHandler(fakeChat{}))
 	r.POST("/conversations/:id/messages", followUpHandler(fu))
 	cases := []struct{ path, body string }{
-		{"/chat", `{"brief":"   "}`},
-		{"/chat", `{"brief":"\n\t "}`},
+		{"/conversations", `{"brief":"   "}`},
+		{"/conversations", `{"brief":"\n\t "}`},
 		{"/conversations/c1/messages", `{"content":"  \n "}`},
 	}
 	for _, tc := range cases {
@@ -274,9 +274,9 @@ func TestMessageHandlers_BlankTextRejected(t *testing.T) {
 func TestMessageHandlers_BlankTextWithAttachmentAccepted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/chat", chatHandler(fakeChat{}))
+	r.POST("/conversations", startConversationHandler(fakeChat{}))
 	body, _ := json.Marshal(ChatRequest{Brief: "  ", Attachments: []attachment.Ref{{Name: "a.txt"}}})
-	req := httptest.NewRequest("POST", "/chat", bytes.NewReader(body))
+	req := httptest.NewRequest("POST", "/conversations", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

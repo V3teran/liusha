@@ -72,9 +72,9 @@ EXCLUDES=(
 # 信息域 / factDomainHeadings：观察类别（ObservationCategory）曾被称为「信息域」，与业务领域撞名，
 #   统一称类别。
 # 夺旗：出厂场景 ctf 的名称统一为「CTF」（迁移 0236 改写存量快照）。
-# LLM 配置：模型接入页统一称「模型配置」——向量与重排模型不是 LLM，页面承载全部模型接入
-#   （对话模型、能力路由、检索模型），以「模型」统称。
-# LLM 审计：LLM 调用记录页统一称「模型日志」，与「服务器日志」「审计日志」同列观测组。
+# LLM 配置：模型接入页是侧边栏「配置」组里的「模型」（对话模型、能力路由、检索模型——向量与重排
+#   模型不是 LLM，以「模型」统称），不叫 LLM 配置。
+# LLM 审计：LLM 调用记录页叫「模型调用」，与「服务器」「操作」同列「观测」组。
 # registry.Allows / override.Wildcard：名单判定下沉为独立的 allowlist 包。名单的使用方（技能
 #   视图、工具清单、HTTP 接口……）不再为此引用工具注册表，再由它带上模型框架与出厂自定义
 #   引擎——沙盒服务端的依赖面曾因此背上这两样。
@@ -194,14 +194,29 @@ FORBIDDEN=(
   'get_global_state'
   'publish_decision'
   'replay_for_verification'
+  # 接口路径与资源命名对齐（迁移见升级说明）：模型调用记录的列表、单条不再带 search / detail；
+  #   档位路由的列表与单行是同一个资源 routes；发起对话挂在 /conversations 下；列表接口的文本筛选
+  #   参数统一叫 search。旧路径与旧参数名不得回流。
+  'llm/invocations/search'
+  'llm/invocations/detail'
+  'models/routing'
+  '"/chat"'
+  'api/chat'
+  '(agents|scenarios|skills|tools|llm/invocations)\?[a-z_=&]*q='
+  # 页面地址是与后端资源同名的一级路径；模型调用页的地址与代码标识符随页面名走。
+  '/config/(agents|scenarios|tools|skills|models|system)([^A-Za-z]|$)'
+  'llm-audit'
+  'LlmAudit'
+  'llmaudit'
 )
 
-# 术语豁免：某条术语在含「豁免串」的行里不算残留。术语 → 豁免串（留空 = 不豁免任何行）。
+# 术语豁免：某条术语在含「豁免串」的行里不算残留。写法是「术语||豁免串」——分隔符用两个竖线，
+# 因为术语是正则，多选一的括号里自带竖线。
 #   drive_browser：沙盒里 browser-use 命令的报错原文里有一个事件名 drive_browser.browser…
 #   （Event handler drive_browser.browser…），Go 代码靠匹配它识别浏览器退化。它与旧工具名
 #   恰好同形，不是本项目的概念。git grep -E 是 POSIX 正则，表达不了「后面不跟点」，所以在这里豁免。
 FORBIDDEN_EXEMPT=(
-  "drive_browser|Event handler drive_browser.browser"
+  "drive_browser||Event handler drive_browser.browser"
   # 升级文档的改名对照表（deployments/README.md）：旧名 → 新名各占一行，表里的这些行不算残留。
   # 只豁免对照表的行本身；README 的其余部分照常扫，正文里用旧名仍然会被拦下。
   'search_corpus|| `search_corpus` | `corpus_search` |'
@@ -217,6 +232,15 @@ FORBIDDEN_EXEMPT=(
   'get_global_state|| `get_global_state` | `task_survey` |'
   'publish_decision|| `publish_decision` | `decision_publish` |'
   'replay_for_verification|| `replay_for_verification` | `repro_replay` |'
+  # 升级文档里的接口与页面地址对照表（旧地址带反引号写在表里）：只豁免表里的行本身。
+  #   每条写「术语||豁免串」。
+  'llm/invocations/search|| `GET /llm/invocations/search'
+  'llm/invocations/detail||`/llm/invocations/detail'
+  'models/routing|| `GET /models/routing'
+  '"/chat"||`POST /chat`'
+  '(agents|scenarios|skills|tools|llm/invocations)\?[a-z_=&]*q=||`q`'
+  '/config/(agents|scenarios|tools|skills|models|system)([^A-Za-z]|$)||`/config/'
+  'llm-audit||`/llm-audit`'
 )
 
 MODE="${1:-check}"
@@ -225,8 +249,8 @@ MODE="${1:-check}"
 exempt_fragments() {
   local term="$1" pair
   for pair in "${FORBIDDEN_EXEMPT[@]}"; do
-    if [ "${pair%%|*}" = "$term" ]; then
-      printf '%s\n' "${pair#*|}"
+    if [ "${pair%%||*}" = "$term" ]; then
+      printf '%s\n' "${pair#*||}"
     fi
   done
 }

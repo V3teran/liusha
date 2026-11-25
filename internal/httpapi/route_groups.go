@@ -47,10 +47,11 @@ func registerLLMInvocationRoutes(r gin.IRouter, d Deps) {
 		return
 	}
 	// 注意：更具体的路由必须在通配路由之前注册
-	r.GET("/llm/invocations/search", llmInvocationsSearchHandler(d.Invocations))
-	r.GET("/llm/invocations/search/stat", llmInvocationsSearchStatHandler(d.Invocations))
-	r.GET("/llm/invocations/search/facets", llmInvocationsFacetsHandler(d.Invocations))
-	r.GET("/llm/invocations/detail/:id", llmInvocationDetailByIDHandler(d.Invocations))
+	// 静态子路由先于参数路由注册，避免 gin 树冲突：stat / facets 是列表的两个侧面，:id 取单条。
+	r.GET("/llm/invocations", listLlmInvocationsHandler(d.Invocations))
+	r.GET("/llm/invocations/stat", llmInvocationsStatHandler(d.Invocations))
+	r.GET("/llm/invocations/facets", llmInvocationsFacetsHandler(d.Invocations))
+	r.GET("/llm/invocations/:id", getLlmInvocationHandler(d.Invocations))
 }
 
 // registerAgentConfigRoutes 注册 agent 配置路由
@@ -206,13 +207,14 @@ func registerModelsRoutes(r gin.IRouter, d Deps) {
 	r.DELETE("/models/providers/:code", deleteProviderHandler(d.Models))
 
 	// 档位路由
-	r.GET("/models/routing", listRoutingHandler(d.Models))
+	r.GET("/models/routes", listRoutesHandler(d.Models))
 	r.PUT("/models/routes/:role", saveRoleRouteHandler(d.Models))
 	r.DELETE("/models/routes/:role", deleteRoleRouteHandler(d.Models))
 
 	// 检索模型配置（单行；保存路径同样必须能加密明文密钥才开）
 	r.GET("/models/retrieval", getRetrievalHandler(d.Models))
-	r.DELETE("/models/retrieval", clearRetrievalKeyHandler(d.Models))
+	// 只清密钥，地址与模型名保留：所以是 key 这个子资源，不是整个检索模型配置
+	r.DELETE("/models/retrieval/key", clearRetrievalKeyHandler(d.Models))
 	if d.KeyEncrypter != nil {
 		r.PUT("/models/retrieval", saveRetrievalHandler(d.Models, d.KeyEncrypter, d.RetrievalModelIndex))
 	}
@@ -243,7 +245,8 @@ func registerChatRoutes(r gin.IRouter, d Deps) {
 	if d.Chat == nil {
 		return
 	}
-	r.POST("/chat", chatHandler(d.Chat))
+	// 发起一个对话（首条消息）；之后的消息走 POST /conversations/:id/messages
+	r.POST("/conversations", startConversationHandler(d.Chat))
 }
 
 // registerConversationRoutes 注册会话管理路由

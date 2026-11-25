@@ -1,24 +1,24 @@
 import type { LLMInvocationSummary } from '@/api/types'
-import { buildLlmAuditColumns, type LlmAuditTableMeta } from './llmAuditColumns'
+import { buildModelCallColumns, type ModelCallTableMeta } from './modelCallColumns'
 import { DataTable } from '@/components/DataTable'
 
-interface LlmAuditTableProps {
+interface ModelCallTableProps {
   rows: LLMInvocationSummary[]
   loading: boolean
   hasFilter: boolean
   showProvider: boolean
   llmTimeoutMs?: number
-  meta: LlmAuditTableMeta
+  meta: ModelCallTableMeta
   onRowClick: (row: LLMInvocationSummary) => void
 }
 
-// 密集审计表：列定义在 llmAuditColumns 单点声明，表外壳走 DataTable 通用组件。
-export function LlmAuditTable({ rows, loading, hasFilter, showProvider, llmTimeoutMs, meta, onRowClick }: LlmAuditTableProps) {
+// 密集审计表：列定义在 modelCallColumns 单点声明，表外壳走 DataTable 通用组件。
+export function ModelCallTable({ rows, loading, hasFilter, showProvider, llmTimeoutMs, meta, onRowClick }: ModelCallTableProps) {
   return (
     <DataTable
       ariaLabel="LLM 调用列表"
       rows={rows}
-      columns={buildLlmAuditColumns(showProvider, llmTimeoutMs) as never}
+      columns={buildModelCallColumns(showProvider, llmTimeoutMs) as never}
       stickyHeader
       loading={loading}
       hasFilter={hasFilter}

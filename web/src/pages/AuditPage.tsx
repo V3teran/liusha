@@ -7,8 +7,8 @@ import { useAuditFilters } from '@/features/audit/useAuditFilters'
 import { useAuditList } from '@/features/audit/useAuditQueries'
 
 /**
- * 审计日志页：系统级敏感操作的审计链（只读）。
- * 数据流与 模型日志页同构：筛选/分页进 URL、服务端筛选与分页、动作下拉来自后端词表。
+ * 「操作」页：系统级敏感操作的审计链（只读）——谁在何时做了什么。
+ * 数据流与 模型调用页同构：筛选/分页进 URL、服务端筛选与分页、动作下拉来自后端词表。
  */
 export function AuditPage() {
   const { query, filters, page, size, setQuery, setFilters, setPage, setSize, resetFilters } = useAuditFilters()
@@ -23,7 +23,7 @@ export function AuditPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="审计日志" />
+      <PageHeader title="操作" />
 
       <AuditFilterBar
         filters={filters}

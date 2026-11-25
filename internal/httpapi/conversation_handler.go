@@ -27,7 +27,7 @@ var sseLog = logx.New("httpapi.sse")
 
 // conversation_handler.go：会话式平台的 HTTP 入口。
 //
-//   - POST /chat            发起会话扫描：建 conversation + task（assignment 派生），入队带 conversationID
+//   - POST /conversations  发起会话扫描：建 conversation + task（assignment 派生），入队带 conversationID
 //   - GET  /conversations            列表（UI 侧栏）
 //   - GET  /conversations/:id/messages   回看（afterSeq 增量）
 //   - GET  /conversations/:id/stream     SSE：补历史 + 实时推 agent 过程事件
@@ -59,7 +59,7 @@ type EventStream interface {
 	Subscribe(ctx context.Context, conversationID string) EventSubscription
 }
 
-// ChatRequest 是 POST /chat 请求体。Attachments 是随首条消息提交的附件引用
+// ChatRequest 是 POST /conversations 请求体。Attachments 是随首条消息提交的附件引用
 // （上传端点已落位，服务端按会话合法根逐条校验后随任务落 inbox）。
 type ChatRequest struct {
 	Brief       string           `json:"brief"`
@@ -80,14 +80,15 @@ func isEmptyMessage(text string, refs []attachment.Ref) bool {
 	return strings.TrimSpace(text) == "" && len(refs) == 0
 }
 
-// ChatResponse 是 POST /chat 响应：前端用 conversation_id 订阅 SSE。
+// ChatResponse 是 POST /conversations 响应：前端用 conversation_id 订阅 SSE。
 type ChatResponse struct {
 	ConversationID string `json:"conversation_id"`
 	TaskID         string `json:"task_id"`
 }
 
-// chatHandler 处理 POST /chat：校验 brief 非空，发起会话扫描。
-func chatHandler(api ChatAPI) gin.HandlerFunc {
+// startConversationHandler 处理 POST /conversations：校验首条消息非空，发起会话（建对话、按需建任务并下发）。
+// 对话的其它操作（消息、重命名、删除、事件流）都在 /conversations/:id 下，发起也挂在同一个资源上。
+func startConversationHandler(api ChatAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ChatRequest
 		if err := c.ShouldBindJSON(&req); err != nil {

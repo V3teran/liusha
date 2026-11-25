@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -103,6 +105,25 @@ func TestListSkills_MarksCustomized(t *testing.T) {
 	w := serve(r, http.MethodGet, "/skills", "")
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"customized":["body"]`) {
 		t.Fatalf("列表项应标出已自定义字段: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// 文本筛选参数叫 search（与其它列表接口同名）；没有命中时是空表而不是报错。
+func TestListSkills_Search(t *testing.T) {
+	r := skillRouter(newFakeSkills())
+	w := serve(r, http.MethodGet, "/skills?search=bac", "")
+	var hit struct {
+		Total int `json:"total"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &hit); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusOK || hit.Total != 1 {
+		t.Errorf("search=bac 应命中 1 条，得 %d（状态码 %d）", hit.Total, w.Code)
+	}
+	w = serve(r, http.MethodGet, "/skills?search="+url.QueryEscape("没有这个技能"), "")
+	if miss := json.Unmarshal(w.Body.Bytes(), &hit); miss != nil || hit.Total != 0 {
+		t.Errorf("没有命中时应为空表，得 %d（%v）", hit.Total, miss)
 	}
 }
 

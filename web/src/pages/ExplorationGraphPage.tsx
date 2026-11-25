@@ -109,7 +109,7 @@ export function ExplorationGraphPage() {
         scopeLabel={scopeLabel}
         onTaskChange={selectTask}
         scopeJumps={
-          taskId ? <TaskJumpLinks taskId={taskId} size="sm" targets={['task', 'conversation', 'findings', 'llmAudit']} /> : null
+          taskId ? <TaskJumpLinks taskId={taskId} size="sm" targets={['task', 'conversation', 'findings', 'modelCall']} /> : null
         }
         disabled={loading}
         refreshing={graphQuery.isFetching}

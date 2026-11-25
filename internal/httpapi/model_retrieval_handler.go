@@ -1,4 +1,4 @@
-// Package httpapi: 检索模型配置 handler（前端「模型配置」页「检索模型」分区，/models/retrieval）。
+// Package httpapi: 检索模型配置 handler（前端「模型」页「检索模型」分区，/models/retrieval）。
 //
 // 检索模型（向量 + 重排）可配置四样：服务地址、向量模型名、重排模型名、一把密钥——
 // 空字段 = 出厂默认（Jina），与对话 provider 的表单同构但只保留有意义的字段（单值鉴权、
@@ -134,7 +134,7 @@ func saveRetrievalHandler(api ModelAPI, enc KeyEncrypter, index RetrievalModelIn
 	}
 }
 
-// clearRetrievalKeyHandler 处理 DELETE /models/retrieval：清除密钥（幂等），保留地址与
+// clearRetrievalKeyHandler 处理 DELETE /models/retrieval/key：只清除密钥（幂等），保留地址与
 // 模型名的自定义。知识库回到字面检索；重配密钥即恢复。
 func clearRetrievalKeyHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {

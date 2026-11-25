@@ -34,7 +34,7 @@ type SkillAPI interface {
 	ToggleAgent(ctx context.Context, code, field, elem string, on bool) (agent.Agent, error)
 }
 
-// listSkillsHandler 处理 GET /skills?q=&page=&size= → {skills, total}。
+// listSkillsHandler 处理 GET /skills?search=&page=&size= → {skills, total}。
 // 每项为生效技能，附已自定义字段名与是否遮蔽同名内置技能；未带 page 返回全部。
 // 带 deleted=true 时返回被删除、可恢复的内置技能（内容为当前出厂）。
 func listSkillsHandler(api SkillAPI) gin.HandlerFunc {
@@ -57,7 +57,7 @@ func listSkillsHandler(api SkillAPI) gin.HandlerFunc {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		q := c.Query("q")
+		q := c.Query("search")
 		items := make([]gin.H, 0, len(all))
 		for _, d := range all {
 			sk := d.Skill

@@ -29,7 +29,7 @@ func buildFilter(p ListParams) (string, []any) {
 		args = append(args, string(p.Kind))
 		conds = append(conds, fmt.Sprintf("kind=$%d", len(args)))
 	}
-	if q := strings.TrimSpace(p.Q); q != "" {
+	if q := strings.TrimSpace(p.Search); q != "" {
 		args = append(args, db.ContainsPattern(q))
 		conds = append(conds, fmt.Sprintf("(name ILIKE $%d OR description ILIKE $%d)", len(args), len(args)))
 	}

@@ -39,7 +39,7 @@ describe('agentLabel', () => {
     expect(agentLabel('assistant')).toBe('助手')
   })
 
-  // 后端写进模型日志的角色名（internal/*/… 的 CallMeta.Role 与 generateStream 的调用方）：
+  // 后端写进模型调用的角色名（internal/*/… 的 CallMeta.Role 与 generateStream 的调用方）：
   // 每一个都要在这里登记过中文名。登记的名字与后端差一个字母，页面上就会显示英文原样——
   // 「压缩」曾因为登记成 compactor、后端写的是 compaction 而显示成英文。
   it('后端会写出的每个角色名都有中文标签', () => {

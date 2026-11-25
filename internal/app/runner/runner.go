@@ -143,7 +143,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	llmStore := llmstore.New(pool, cache)
 	sysSettings := settingstore.New(pool, cache, settingstore.DefaultsFrom(cfg))
 
-	// 知识库：检索模型密钥运行期现取（模型配置页热改、失效广播即时生效），未配置退字面检索。
+	// 知识库：检索模型密钥运行期现取（「模型」页热改、失效广播即时生效），未配置退字面检索。
 	kb := newCorpus(st.corpus, llmStore, keyCipher, rdb, logger)
 
 	router := llm.NewRouterWithOpts(llmStore.AsRouterStore(keyCipher), llmstore.RetryOptions(cfg.LLM.Retry), cfg.LLM.AccountConcurrency)
@@ -315,7 +315,7 @@ func startBackgroundLoops(ctx context.Context, cfg config.AppConfig, pool *pgxpo
 		cfg.LLM.InvocationRetentionDays, cfg.Tools.InvocationRetentionDays, cfg.Traffic.RetentionDays, logger)
 }
 
-// newCorpus 装配知识库服务：检索模型密钥每次操作现取（模型配置页热改、跨进程失效），
+// newCorpus 装配知识库服务：检索模型密钥每次操作现取（「模型」页热改、跨进程失效），
 // 未配置时知识库只做字面检索，不阻塞对话与任务。
 func newCorpus(store *corpus.Store, models *llmstore.Store, cipher *cryptx.Cipher, rdb *redis.Client, logger zerolog.Logger) *corpus.Service {
 	return corpus.NewService(store, models.RetrievalModels(cipher), retrievalstatus.NewSink(rdb, logger), logger)

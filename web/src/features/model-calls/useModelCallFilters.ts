@@ -6,11 +6,12 @@ import { useUrlPageState } from '@/hooks/useUrlPageState'
 // 筛选态迁移进 URL search params（对齐 web/patterns.md「筛选/排序/分页应作为 URL state」）：
 // 刷新页面、前进/后退、把链接发给同事复核，搜索词、筛选条件与翻页位置都能还原。
 //
-// 参数名：q / role / model / only_err / start / end / page / size，以及范围 task / conversation
+// 参数名：search / role / model / only_err / start / end / page / size，以及范围 task / conversation
+// （search 与其它列表页、列表接口同名）
 // （从任务或对话跳来时带着，与任务页、发现页、探索图页同一对参数）。
 // offset 分页（非游标）：对齐流量/发现模块的「共 X 条 + N/M 页 + 每页条数」体验。
 
-export interface LlmAuditUrlState {
+export interface ModelCallUrlState {
   query: string
   filters: LLMInvocationFilters
   page: number // 1-based
@@ -22,10 +23,10 @@ export interface LlmAuditUrlState {
   resetFilters: () => void
 }
 
-export function useLlmAuditFilters(): LlmAuditUrlState {
+export function useModelCallFilters(): ModelCallUrlState {
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const query = searchParams.get('q') ?? ''
+  const query = searchParams.get('search') ?? ''
   const { page, size, setPage, setSize } = useUrlPageState()
   const filters = useMemo<LLMInvocationFilters>(
     () => ({
@@ -45,8 +46,8 @@ export function useLlmAuditFilters(): LlmAuditUrlState {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
-        if (q) next.set('q', q)
-        else next.delete('q')
+        if (q) next.set('search', q)
+        else next.delete('search')
         next.delete('page') // 换搜索词回到第一页
         return next
       },

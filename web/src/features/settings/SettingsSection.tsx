@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/Button'
 import { InlineError } from '@/components/ui/InlineError'
 import { LoadingState } from '@/components/ui/LoadingState'
 
-// SettingsSection 是系统配置页每组设置的分区卡：标题 + 说明 + 表单体 + 底部保存条。
+// SettingsSection 是「系统」页每组设置的分区卡：标题 + 说明 + 表单体 + 底部保存条。
 // 每组独立加载/保存/错误态，互不影响（一组保存失败不阻塞其他组）。
 // 「放弃」撤销未保存的编辑；「全部恢复出厂」清除本组全部自定义（即时生效）。
 export function SettingsSection({

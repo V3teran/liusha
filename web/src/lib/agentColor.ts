@@ -49,7 +49,7 @@ const FIXED: Record<string, AgentProfile> = {
     label: '助手'
   },
   // 不在认知循环里的调用方（没有独立的配置行）：api 侧的意图分类与标题生成、runner 侧的
-  // 会话历史压缩。键是后端写进模型日志的角色名（CallMeta.Role），两边的拼写必须一致——
+  // 会话历史压缩。键是后端写进模型调用的角色名（CallMeta.Role），两边的拼写必须一致——
   // 对不上时页面上就会显示英文原样。
   inspector: {
     accent: catColor('cyan'),

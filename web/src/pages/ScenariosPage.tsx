@@ -9,7 +9,7 @@ import { ScenarioEditor } from '@/features/scenarios/ScenarioEditor'
 import { SCENARIOS_KEY, useDeletedScenarios } from '@/features/scenarios/useScenarioQueries'
 import { useSelectedParam, type HistoryOptions } from '@/hooks/useSelectedParam'
 
-// 场景页（/config/scenarios）：列表 + 编辑抽屉。场景是任务所处情境的说明——下发时选定并快照，
+// 场景页（/scenarios）：列表 + 编辑抽屉。场景是任务所处情境的说明——下发时选定并快照，
 // 整份拼在四个智能体系统提示词的末尾。打开的场景写在 ?selected=。
 
 export function ScenariosPage() {

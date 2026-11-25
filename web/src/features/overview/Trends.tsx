@@ -71,7 +71,7 @@ export function UsageTrend({
       action={
         <div className="flex items-center gap-3">
           <RangePills value={days} onChange={onDaysChange} />
-          <PanelLink to="/llm-audit">模型日志</PanelLink>
+          <PanelLink to="/model-calls">模型调用</PanelLink>
         </div>
       }
     >

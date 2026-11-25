@@ -46,15 +46,15 @@ describe('config API 客户端', () => {
     await expect(deleteSkill('mine')).resolves.toBeUndefined()
   })
 
-  it('listTools 分页透传 page/size/q/kind 到 query', async () => {
+  it('listTools 分页透传 page/size/search/kind 到 query', async () => {
     const fn = mockFetch(200, { tools: [], total: 0 })
-    await listTools({ page: 2, size: 12, q: 'nmap', kind: 'cli' })
+    await listTools({ page: 2, size: 12, search: 'nmap', kind: 'cli' })
     const url = fn.mock.calls[0][0] as string
     expect(url).toMatch(/^\/api\/tools\?/)
     const qs = new URLSearchParams(url.split('?')[1])
     expect(qs.get('page')).toBe('2')
     expect(qs.get('size')).toBe('12')
-    expect(qs.get('q')).toBe('nmap')
+    expect(qs.get('search')).toBe('nmap')
     expect(qs.get('kind')).toBe('cli')
   })
 

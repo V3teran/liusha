@@ -57,7 +57,7 @@ liusha 是一个程序，组件是它的子命令：`api`（控制台与 API）�
 | `LIUSHA_REDIS_URL` | `redis.url` | 二进制：Redis 连接串 `redis://[用户名]:密码@主机:端口/库号`，TLS 用 `rediss://` | 除 sandbox 外全部 |
 
 密钥与密码用 `openssl rand -hex` 生成：只含十六进制字符，放进连接串无需转义。LLM provider 与
-检索模型的密钥都在控制台「模型配置」页维护，加密保存在数据库（检索模型不配则知识库只做字面检索）。
+检索模型的密钥都在控制台「模型」页维护，加密保存在数据库（检索模型不配则知识库只做字面检索）。
 
 **数据目录**（`data_dir`）是持久数据的根：`workspace/`（任务工作区）、`logs/`（日志）、`certs/`
 （代理的根证书与私钥）都在其下。单镜像与多镜像的数据库数据也放在同一目录
@@ -312,6 +312,36 @@ make dev-down             # 收工（-v 清数据）
   自定义章程、定时模板的任务说明。升级后建议搜一遍旧名字，改成新的，否则智能体按旧名字找不到工具。
 - 没改过正文的内置技能与场景会跟随新版，自动拿到新名字，不用处理。
 
+**接口与页面地址改名**
+
+接口路径按资源命名对齐了（只影响自己调接口的脚本与集成；控制台已跟着改，不用操作）：
+
+| 原来 | 现在 |
+|---|---|
+| `GET /llm/invocations/search` | `GET /llm/invocations` |
+| `GET /llm/invocations/search/stat` | `GET /llm/invocations/stat` |
+| `GET /llm/invocations/search/facets` | `GET /llm/invocations/facets` |
+| `/llm/invocations/detail/:id` | `GET /llm/invocations/:id` |
+| `GET /models/routing` | `GET /models/routes` |
+| `DELETE /models/retrieval` | `DELETE /models/retrieval/key`（只清密钥，行为没变） |
+| `POST /chat` | `POST /conversations` |
+| 列表接口的文本筛选参数 `q` | `search`（模型调用记录、智能体、场景、技能、工具） |
+
+页面的地址改成与后端资源同名的一级路径，浏览器里收藏的旧地址会落到「页面不存在」，按新地址重新收藏：
+
+| 原来 | 现在 | 侧边栏里的名字 |
+|---|---|---|
+| `/config/agents` | `/agents` | 智能体 |
+| `/config/scenarios` | `/scenarios` | 场景 |
+| `/config/tools` | `/tools` | 工具 |
+| `/config/skills` | `/skills` | 技能 |
+| `/config/models` | `/models` | 模型（原「模型配置」） |
+| `/config/system` | `/settings` | 系统（原「系统配置」） |
+| `/llm-audit` | `/model-calls` | 模型调用（原「模型日志」） |
+
+「观测」组的条目去掉了「日志」后缀：「服务器日志」改叫「服务器」，「审计日志」改叫「操作」，地址不变
+（`/logs`、`/audit`）。模型调用页与操作页地址栏里的搜索参数由 `q` 改为 `search`。
+
 ## 从 0.14 升级
 
 **所有部署方式**
@@ -392,7 +422,7 @@ make dev-down             # 收工（-v 清数据）
   `LIUSHA_EMBEDDING_API_KEY`；`LIUSHA_POSTGRES_DSN` → `LIUSHA_POSTGRES_URL`；`LIUSHA_REDIS_ADDR` +
   `LIUSHA_REDIS_PASSWORD` → `LIUSHA_REDIS_URL`。`LIUSHA_ENV`、`LIUSHA_INSTANCE` 删除（日志格式改
   `log.format`；实例名固定为「进程号@主机名」）。
-- **LLM 种子删除**：`config.yaml` 不再声明 provider，LLM 只在控制台「模型配置」页接入。原先靠环境
+- **LLM 种子删除**：`config.yaml` 不再声明 provider，LLM 只在控制台「模型」页接入。原先靠环境
   变量取密钥的 provider（由种子导入、未在页面上填过密钥）升级后显示「未设置密钥」，在页面上重新填写
   一次即可；对应的环境变量可以删掉。
 - **MITM 根证书**移到 `<data_dir>/certs`：二进制部署原在 `~/.liusha`，把其中的 `cacert.pem` /

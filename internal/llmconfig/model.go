@@ -1,7 +1,7 @@
 // Package llmconfig 是模型配置（provider / 复杂度路由）的持久化层。
 // 两表对应 migration：llm_provider / llm_role_route。
 //
-// 事实源是 DB（前端「模型配置」页改这里），配置文件不涉及 LLM 接入。
+// 事实源是 DB（前端「模型」页改这里），配置文件不涉及 LLM 接入。
 // 运行期消费方经 internal/llmstore（多级缓存）读，不直连本包 Store（跨进程一致性）。
 //
 // 路由模型：调用方 → 档位 → provider 两跳。

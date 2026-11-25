@@ -21,7 +21,7 @@ import (
 
 // ViewProcesses 是日志视图的进程域：进程名即 liusha 子命令名。serve 是单进程全组件
 // （二进制 / 单镜像部署），其余是分进程部署（多镜像、本地开发）的各组件；一种部署只会产生
-// 其中一种布局，所以服务器日志页只列出有日志文件的进程（LogProcesses）。
+// 其中一种布局，所以「服务器」页只列出有日志文件的进程（LogProcesses）。
 var ViewProcesses = []string{"serve", "api", "proxy", "runner", "sandbox"}
 
 // defaultReadLimit 是 Limit 非法时的兜底值（handler 已 clamp，这里再守一道）。

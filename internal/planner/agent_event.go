@@ -14,7 +14,7 @@ import (
 // 终结任务——轮询重撞既不会自愈，失败调用又会被僵尸回收当作「仍有活动」，任务将
 // 永远停在 active。
 func (a *Agent) Run(ctx context.Context) error {
-	// 模型日志维度：规划调用归 task/本轮 run、角色 planner。
+	// 模型调用维度：规划调用归 task/本轮 run、角色 planner。
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{TaskID: a.taskID, AgentRunID: a.agentRunID, Role: "planner"})
 
 	a.logger.Info().Msg("Agent 启动")

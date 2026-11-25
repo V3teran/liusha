@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Composer } from './Composer'
-import { followUp, startChat } from '@/api/conversations'
+import { followUp, startConversation } from '@/api/conversations'
 import { uploadAttachment } from '@/api/attachments'
 import { useConversationStore } from '@/stores/conversation'
 
 vi.mock('@/api/conversations', () => ({
   followUp: vi.fn(),
-  startChat: vi.fn(),
+  startConversation: vi.fn(),
 }))
 
 vi.mock('@/api/attachments', () => ({
@@ -19,11 +19,11 @@ describe('Composer', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()
     vi.mocked(followUp).mockReset()
-    vi.mocked(startChat).mockReset()
+    vi.mocked(startConversation).mockReset()
   })
 
-  it('无 convId 发送时调用 startChat 并触发 onStarted', async () => {
-    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
+  it('无 convId 发送时调用 startConversation 并触发 onStarted', async () => {
+    vi.mocked(startConversation).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
     const onStarted = vi.fn()
     render(<Composer onStarted={onStarted} onAppended={vi.fn()}  />)
 
@@ -33,7 +33,7 @@ describe('Composer', () => {
     await userEvent.click(sendBtn)
 
     await waitFor(() => {
-      expect(startChat).toHaveBeenCalledWith('扫一下 example.com', [], undefined)
+      expect(startConversation).toHaveBeenCalledWith('扫一下 example.com', [], undefined)
       expect(onStarted).toHaveBeenCalledWith('new-conv')
     })
   })
@@ -137,7 +137,7 @@ describe('Composer', () => {
   })
 
   it('Enter 触发发送', async () => {
-    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
+    vi.mocked(startConversation).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
     const onStarted = vi.fn()
     render(<Composer onStarted={onStarted} onAppended={vi.fn()}  />)
 
@@ -146,7 +146,7 @@ describe('Composer', () => {
     await userEvent.keyboard('{Enter}')
 
     await waitFor(() => {
-      expect(startChat).toHaveBeenCalled()
+      expect(startConversation).toHaveBeenCalled()
       expect(onStarted).toHaveBeenCalledWith('new-conv')
     })
   })
@@ -160,7 +160,7 @@ describe('Composer', () => {
     await userEvent.keyboard('{Shift>}{Enter}{/Shift}')
     await userEvent.type(textarea, '第二行')
 
-    expect(startChat).not.toHaveBeenCalled()
+    expect(startConversation).not.toHaveBeenCalled()
     expect(textarea.value).toBe('第一行\n第二行')
   })
 
@@ -169,7 +169,7 @@ describe('Composer', () => {
     const sendBtn = screen.getByRole('button', { name: '发送' })
     expect(sendBtn).toBeDisabled()
     await userEvent.click(sendBtn)
-    expect(startChat).not.toHaveBeenCalled()
+    expect(startConversation).not.toHaveBeenCalled()
   })
 })
 
@@ -177,7 +177,7 @@ describe('Composer 附件流', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()
     vi.mocked(followUp).mockReset()
-    vi.mocked(startChat).mockReset()
+    vi.mocked(startConversation).mockReset()
     vi.mocked(uploadAttachment).mockReset()
   })
 
@@ -185,7 +185,7 @@ describe('Composer 附件流', () => {
     vi.mocked(uploadAttachment).mockResolvedValue({
       name: 'targets.txt', size: 12, path: '.staging/pending/u1/targets.txt',
     })
-    vi.mocked(startChat).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
+    vi.mocked(startConversation).mockResolvedValue({ conversation_id: 'new-conv', task_id: 't-new' })
     const onStarted = vi.fn()
     render(<Composer onStarted={onStarted} onAppended={vi.fn()} />)
 
@@ -198,12 +198,12 @@ describe('Composer 附件流', () => {
       expect(screen.getByText('targets.txt')).toBeTruthy()
     })
 
-    // 空文本 + 有附件：发送按钮可用，引用随 startChat 提交后清空
+    // 空文本 + 有附件：发送按钮可用，引用随 startConversation 提交后清空
     const sendBtn = screen.getByRole('button', { name: '发送' })
     expect(sendBtn).not.toBeDisabled()
     await userEvent.click(sendBtn)
     await waitFor(() => {
-      expect(startChat).toHaveBeenCalledWith(
+      expect(startConversation).toHaveBeenCalledWith(
         '',
         [{ name: 'targets.txt', size: 12, path: '.staging/pending/u1/targets.txt' }],
         undefined,
@@ -245,7 +245,7 @@ describe('Composer 跨会话', () => {
   beforeEach(() => {
     useConversationStore.getState().reset()
     vi.mocked(followUp).mockReset()
-    vi.mocked(startChat).mockReset()
+    vi.mocked(startConversation).mockReset()
     vi.mocked(uploadAttachment).mockReset()
   })
 

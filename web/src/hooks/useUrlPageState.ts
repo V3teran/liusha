@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '@/lib/pageSize'
 import type { HistoryOptions } from './useSelectedParam'
 
-// URL 分页/筛选状态的单一实现（此前 task/traffic/finding/llm-audit 四个
+// URL 分页/筛选状态的单一实现（此前 task/traffic/finding/model-calls 四个
 // hook 各自复制同一套 numOr 解析、size 白名单校验、setOrDel 写回、reset——
 // 语义漂移已实际发生：useFindingFilters 漏了 resetFilters）。
 //

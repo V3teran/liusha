@@ -1,11 +1,11 @@
 import { PageHeader } from '@/components/PageHeader'
 import { useMemo } from 'react'
 import { useSelectedParam } from '@/hooks/useSelectedParam'
-import { LlmAuditFilterBar } from '@/features/llm-audit/LlmAuditFilterBar'
-import { LlmAuditTable } from '@/features/llm-audit/LlmAuditTable'
-import { LlmInvocationDrawer } from '@/features/llm-audit/LlmInvocationDrawer'
-import { useLlmAuditFilters } from '@/features/llm-audit/useLlmAuditFilters'
-import { useLlmAuditFacets, useLlmAuditSearch, useLlmAuditStat, useLlmInvocationDetail, useRuntimeSettings } from '@/features/llm-audit/useLlmAuditQueries'
+import { ModelCallFilterBar } from '@/features/model-calls/ModelCallFilterBar'
+import { ModelCallTable } from '@/features/model-calls/ModelCallTable'
+import { LlmInvocationDrawer } from '@/features/model-calls/LlmInvocationDrawer'
+import { useModelCallFilters } from '@/features/model-calls/useModelCallFilters'
+import { useModelCallFacets, useModelCallSearch, useModelCallStat, useLlmInvocationDetail, useRuntimeSettings } from '@/features/model-calls/useModelCallQueries'
 import type { LLMInvocationSummary } from '@/api/types'
 import { cacheRatePct, compactNumber, humanTokens } from '@/lib/format'
 import { PaginationToolbar } from '@/components/ui/PaginationToolbar'
@@ -13,16 +13,16 @@ import { StatChip } from '@/components/StatChip'
 import { catColor } from '@/lib/categoricalColor'
 import { ErrorState } from '@/components/ui/ErrorState'
 
-export function LlmAuditPage() {
+export function ModelCallsPage() {
   // 打开的调用写在 URL（?selected=）：刷新、跳到任务 / 对话再后退都还原抽屉
   const [selected, select] = useSelectedParam()
   const selectedId = selected && Number.isFinite(Number(selected)) ? Number(selected) : null
 
   // 搜索词与筛选/分页同住 URL state（?q=）：刷新、分享链接都能还原完整查询上下文。
-  const { query, filters, page, size, setQuery, setFilters, setPage, setSize, resetFilters } = useLlmAuditFilters()
+  const { query, filters, page, size, setQuery, setFilters, setPage, setSize, resetFilters } = useModelCallFilters()
 
   // 全局搜索：空搜索时返回所有数据（按时间倒序）
-  const searchQueryResult = useLlmAuditSearch({
+  const searchQueryResult = useModelCallSearch({
     search: query,
     page,
     size,
@@ -31,7 +31,7 @@ export function LlmAuditPage() {
 
   // 统计是服务端对整个筛选结果集的合计（与翻页无关）——此前用当页行前端聚合，
   // 50 条/页时会显示「调用 50」而分页器写「共 197 条」，同屏自相矛盾。
-  const statQuery = useLlmAuditStat({ search: query, ...filters })
+  const statQuery = useModelCallStat({ search: query, ...filters })
   const stats = statQuery.data
 
   // 单步 LLM 看门狗（runtime 配置现读）：审计页「超时」判定与 runner 执行同源——
@@ -54,13 +54,13 @@ export function LlmAuditPage() {
   }, [rows])
 
   // 角色 / 模型选项来自服务端（整个筛选结果集），不从当前页的行推导
-  const facetsQuery = useLlmAuditFacets({ search: query, ...filters })
+  const facetsQuery = useModelCallFacets({ search: query, ...filters })
   const roles = facetsQuery.data?.roles ?? []
   const models = facetsQuery.data?.models ?? []
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="模型日志" />
+      <PageHeader title="模型调用" />
 
       {/* 指标区：整个筛选结果集的服务端合计。预留一行高度，数据到达前后布局不跳动。 */}
       <div className="flex min-h-[52px] flex-shrink-0 flex-wrap items-center gap-2 border-b border-border-subtle px-6 py-3">
@@ -80,7 +80,7 @@ export function LlmAuditPage() {
         )}
       </div>
 
-      <LlmAuditFilterBar
+      <ModelCallFilterBar
         filters={filters}
         roles={roles}
         models={models}
@@ -114,7 +114,7 @@ export function LlmAuditPage() {
             onRetry={() => void searchQueryResult.refetch()}
           />
         ) : (
-          <LlmAuditTable
+          <ModelCallTable
             rows={rows}
             loading={searchQueryResult.isPending}
             hasFilter={hasFilter || !!query}

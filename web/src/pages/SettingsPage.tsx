@@ -6,11 +6,11 @@ import { RuntimeSection } from '@/features/settings/RuntimeSection'
 import { ProxyFilterSection } from '@/features/settings/ProxyFilterSection'
 import { useState, useMemo } from 'react'
 
-// 系统配置页：三组设置（会话压缩 / 工具运行时 / 代理流量过滤）分区独立保存。
+// 「系统」页：三组设置（会话压缩 / 工具运行时 / 代理流量过滤）分区独立保存。
 // 出厂默认来自程序与 config.yaml，这里编辑的是用户自定义：只提交改动的字段，与出厂
 // 相同的值不算自定义，每个已自定义字段可对比出厂、单独恢复默认。保存后经后端失效广播
 // 生效——runner 现读即新值，proxy 热换过滤链（无需重启）。
-export function SystemConfigPage() {
+export function SettingsPage() {
   const [query, setQuery] = useState('')
 
   // 定义各分区的元数据，用于搜索匹配
@@ -47,7 +47,7 @@ export function SystemConfigPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader title="系统配置" />
+      <PageHeader title="系统" />
 
       {/* 搜索归筛选栏（全站筛选控件唯一位置）：放进页头右槽会在窄屏把标题挤到零宽。 */}
       <FilterBar label="系统配置筛选" canReset={query !== ''} onReset={() => setQuery('')}>

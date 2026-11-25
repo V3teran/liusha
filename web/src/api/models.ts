@@ -95,9 +95,9 @@ export async function saveRetrievalModel(p: RetrievalModelDraft): Promise<Retrie
   return (await put<{ retrieval: RetrievalModelConfig }>('/models/retrieval', p)).retrieval
 }
 
-/** 清除检索模型密钥（幂等）：知识库回到字面检索，地址与模型名的自定义保留。 */
-export async function clearRetrievalModel(): Promise<void> {
-  await del('/models/retrieval')
+/** 清除检索模型密钥（幂等）：知识库回到字面检索，地址与模型名的自定义保留。只清密钥这一项。 */
+export async function clearRetrievalKey(): Promise<void> {
+  await del('/models/retrieval/key')
 }
 
 /**
@@ -112,9 +112,9 @@ export async function diagnoseRetrievalModel(
 
 // ── 档位路由（档位 → provider 直连） ──────────────────────────────────────
 
-/** 拉路由全景：档位 → provider 路由表。 */
-export async function getRouting(): Promise<RoutingResponse> {
-  return get<RoutingResponse>('/models/routing')
+/** 拉路由全景：档位 → provider 路由表（列表与单行的读写是同一个资源 routes）。 */
+export async function listRoutes(): Promise<RoutingResponse> {
+  return get<RoutingResponse>('/models/routes')
 }
 
 /** upsert 档 → provider 映射。档名非三档之一 → 400；provider 不存在 → 409，抛中文原因。 */

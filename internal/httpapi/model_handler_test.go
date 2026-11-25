@@ -323,7 +323,7 @@ func TestDeleteProvider_RestrictConflict(t *testing.T) {
 	}
 }
 
-// TestListRouting_ReturnsRoutes：GET /models/routing 返回档位 → provider 路由全景。
+// TestListRouting_ReturnsRoutes：GET /models/routes 返回档位 → provider 路由全景。
 func TestListRouting_ReturnsRoutes(t *testing.T) {
 	fm := &fakeModel{
 		routes: []llmconfig.RoleRoute{
@@ -334,7 +334,7 @@ func TestListRouting_ReturnsRoutes(t *testing.T) {
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
 
-	code, body := doJSON(t, "GET", srv.URL+"/api/models/routing", nil)
+	code, body := doJSON(t, "GET", srv.URL+"/api/models/routes", nil)
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}

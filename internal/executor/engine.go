@@ -39,7 +39,7 @@ type Engine struct {
 	distiller           runtime.Distiller          // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
 	compactionTimeouts  runtime.CompactionTimeouts // 压缩链的时间预算（由单步 LLM 上限推导）
 	toolOutputTailBytes int                        // 工具输出全局尾部钳制字节（0=不钳）
-	agentRunID          string                     // 本轮认知循环的 agent_run.id（模型日志归属）
+	agentRunID          string                     // 本轮认知循环的 agent_run.id（模型调用归属）
 	thoughts            reasoning.Tap              // 思考流出口（nil=不流式）
 	activity            *ActivityTracker           // 动作进展记录（每完成一步推理记一次，供看门狗判停摆）
 	repro               *repro.Registry            // 复现配方形状（配方落图时按形状归一化）
@@ -67,7 +67,7 @@ type EngineConfig struct {
 	CompactionTimeouts runtime.CompactionTimeouts
 	// ToolOutputTailBytes 是工具输出进上下文前的全局尾部钳制字节（0=不钳）。
 	ToolOutputTailBytes int
-	AgentRunID          string // 本轮认知循环的 agent_run.id（模型日志归属；空 = 审计行不挂 run）
+	AgentRunID          string // 本轮认知循环的 agent_run.id（模型调用归属；空 = 审计行不挂 run）
 	// Thoughts 是思考流出口（认知循环注入 reasoning.Tap；nil=不流式）。
 	Thoughts reasoning.Tap
 	// Activity 是动作进展记录（与执行者 Agent 共用同一个；nil = 不记录）。
@@ -135,7 +135,7 @@ func (e *Engine) Execute(ctx context.Context, action explorationgraph.Node) (Out
 		return OutcomeDone, fmt.Errorf("读取任务目标: %w", err)
 	}
 
-	// 2. 设置 模型日志上下文
+	// 2. 设置 模型调用上下文
 	ctx = llm.WithCallMeta(ctx, llm.CallMeta{
 		TaskID:     action.TaskID,
 		AgentRunID: e.agentRunID,

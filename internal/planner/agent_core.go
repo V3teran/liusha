@@ -20,7 +20,7 @@ import (
 // - 发布 EventActionProposed 事件
 type Agent struct {
 	taskID        string
-	agentRunID    string // 本轮认知循环的 agent_run.id（模型日志归属）
+	agentRunID    string // 本轮认知循环的 agent_run.id（模型调用归属）
 	graph         *explorationgraph.Store
 	planner       GraphPlanner
 	eventBus      bus.EventBus
@@ -56,7 +56,7 @@ type Agent struct {
 // AgentConfig 配置
 type AgentConfig struct {
 	TaskID        string
-	AgentRunID    string // 本轮认知循环的 agent_run.id（模型日志归属）
+	AgentRunID    string // 本轮认知循环的 agent_run.id（模型调用归属）
 	Graph         *explorationgraph.Store
 	Planner       GraphPlanner
 	EventBus      bus.EventBus

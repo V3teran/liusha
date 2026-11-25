@@ -58,7 +58,7 @@ const (
 	maxToolPageSize     = 100
 )
 
-// listToolsHandler 处理 GET /tools?kind=&q=&page=&size= → {tools, total}。
+// listToolsHandler 处理 GET /tools?kind=&search=&page=&size= → {tools, total}。
 // kind 空 = 两套体系都要；page 缺省 = 不分页返回过滤后全量（智能体选工具器依赖此契约，
 // 绝不能被默认 size 截断）；page 存在才分页，从 1 起，非法回退默认页。
 func listToolsHandler(api ToolCatalogAPI, inv SandboxInventoryAPI) gin.HandlerFunc {
@@ -68,7 +68,7 @@ func listToolsHandler(api ToolCatalogAPI, inv SandboxInventoryAPI) gin.HandlerFu
 			c.JSON(http.StatusBadRequest, gin.H{"error": "非法 kind（应为 function|cli 或留空）"})
 			return
 		}
-		params := toolstore.ListParams{Q: c.Query("q"), Kind: kind}
+		params := toolstore.ListParams{Search: c.Query("search"), Kind: kind}
 		// page 显式传入才分页；缺省时 Limit 留 0 → store 返回全量（供选择器）。
 		if raw := c.Query("page"); raw != "" {
 			page, size := parsePagination(raw, c.Query("size"), defaultToolPageSize, maxToolPageSize)

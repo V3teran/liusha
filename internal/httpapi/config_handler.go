@@ -45,7 +45,7 @@ var contracts = map[string]string{
 	constants.AgentCodeEvaluator: evaluatorcontract.Text,
 }
 
-// listAgentsHandler 处理 GET /agents?q=&page=&size= → {agents, total}。
+// listAgentsHandler 处理 GET /agents?search=&page=&size= → {agents, total}。
 // 每项为生效配置，附已自定义字段名与是否有待处理的提示词归档；未带 page 返回全部。
 func listAgentsHandler(api ConfigAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -54,7 +54,7 @@ func listAgentsHandler(api ConfigAPI) gin.HandlerFunc {
 			respondErr(c, http.StatusInternalServerError, err)
 			return
 		}
-		q := c.Query("q")
+		q := c.Query("search")
 		items := make([]gin.H, 0, len(all))
 		for _, d := range all {
 			p := d.Agent

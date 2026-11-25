@@ -62,7 +62,7 @@ func TestLLMInvocationsHandler_Detail(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/detail/5", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/5", nil)
 		req.AddCookie(testSessionCookie())
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -90,7 +90,7 @@ func TestLLMInvocationsHandler_SearchStat(t *testing.T) {
 		srv := newTestServer(t, Deps{Invocations: fake})
 		defer srv.Close()
 
-		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/search/stat?only_err=1", nil)
+		req, _ := http.NewRequest("GET", srv.URL+"/api/llm/invocations/stat?only_err=1", nil)
 		req.AddCookie(testSessionCookie())
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -122,7 +122,7 @@ func TestLLMInvocationsHandler_Facets(t *testing.T) {
 	srv := newTestServer(t, Deps{Invocations: fake})
 	defer srv.Close()
 
-	code, body := doJSON(t, "GET", srv.URL+"/api/llm/invocations/search/facets?model=glm&only_err=1", nil)
+	code, body := doJSON(t, "GET", srv.URL+"/api/llm/invocations/facets?model=glm&only_err=1", nil)
 	if code != 200 {
 		t.Fatalf("status=%d", code)
 	}
@@ -139,7 +139,7 @@ func TestLLMInvocationsHandler_Facets(t *testing.T) {
 func TestLLMInvocationsHandler_InvalidTimeRejected(t *testing.T) {
 	srv := newTestServer(t, Deps{Invocations: &fakeInvocations{}})
 	defer srv.Close()
-	for _, path := range []string{"/api/llm/invocations/search", "/api/llm/invocations/search/stat", "/api/llm/invocations/search/facets"} {
+	for _, path := range []string{"/api/llm/invocations", "/api/llm/invocations/stat", "/api/llm/invocations/facets"} {
 		for _, q := range []string{"start=bad", "end=2026-02-30T00:00:00Z"} {
 			resp := doReq(t, "GET", srv.URL+path+"?"+q, "")
 			_ = resp.Body.Close()
@@ -150,7 +150,7 @@ func TestLLMInvocationsHandler_InvalidTimeRejected(t *testing.T) {
 	}
 }
 
-// 范围（task / conversation）：从任务或对话跳到模型日志时只看它名下的调用——列表、统计、分面
+// 范围（task / conversation）：从任务或对话跳到模型调用时只看它名下的调用——列表、统计、分面
 // 收到同一份范围；不是合法的 ID 时 400，而不是把它带进 SQL。
 func TestLLMInvocationsHandler_Scope(t *testing.T) {
 	taskID, conversationID := uuid.NewString(), uuid.NewString()
@@ -160,9 +160,9 @@ func TestLLMInvocationsHandler_Scope(t *testing.T) {
 
 	want := llminvocation.ListFilter{TaskID: taskID, ConversationID: conversationID, Limit: defaultInvocationPageSize}
 	for _, path := range []string{
-		"/api/llm/invocations/search",
-		"/api/llm/invocations/search/stat",
-		"/api/llm/invocations/search/facets",
+		"/api/llm/invocations",
+		"/api/llm/invocations/stat",
+		"/api/llm/invocations/facets",
 	} {
 		code, _ := doJSON(t, "GET", srv.URL+path+"?task="+taskID+"&conversation="+conversationID, nil)
 		if code != 200 {
@@ -182,10 +182,33 @@ func TestLLMInvocationsHandler_Scope(t *testing.T) {
 	}
 
 	for _, param := range []string{"task", "conversation"} {
-		resp := doReq(t, "GET", srv.URL+"/api/llm/invocations/search?"+param+"=not-a-uuid", "")
+		resp := doReq(t, "GET", srv.URL+"/api/llm/invocations?"+param+"=not-a-uuid", "")
 		_ = resp.Body.Close()
 		if resp.StatusCode != 400 {
 			t.Errorf("%s 不是合法的 ID 应 400，得 %d", param, resp.StatusCode)
 		}
+	}
+}
+
+// 文本筛选参数叫 search，与其它列表接口（任务、发现、流量……）同名；列表、统计、分面都认。
+func TestLLMInvocationsHandler_TextFilter(t *testing.T) {
+	fake := &fakeInvocations{}
+	srv := newTestServer(t, Deps{Invocations: fake})
+	defer srv.Close()
+
+	code, _ := doJSON(t, "GET", srv.URL+"/api/llm/invocations?search=conv-1", nil)
+	if code != 200 {
+		t.Fatalf("状态码=%d，期望 200", code)
+	}
+	want := llminvocation.ListFilter{Search: "conv-1", Limit: defaultInvocationPageSize}
+	if fake.gotFilter != want {
+		t.Errorf("列表收到的筛选 = %+v，期望 %+v", fake.gotFilter, want)
+	}
+	code, _ = doJSON(t, "GET", srv.URL+"/api/llm/invocations/stat?search=conv-1", nil)
+	if code != 200 {
+		t.Fatalf("统计状态码=%d，期望 200", code)
+	}
+	if fake.gotAggF.Search != "conv-1" {
+		t.Errorf("统计收到的文本筛选 = %q，期望 conv-1", fake.gotAggF.Search)
 	}
 }

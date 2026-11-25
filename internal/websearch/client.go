@@ -124,7 +124,7 @@ func sameOrigin(a, b *url.URL) bool {
 // Search 发出一次查询，按接口给出的顺序至多返回 limit 条（limit <= 0 用 DefaultLimit，超过
 // MaxLimit 按 MaxLimit）；没有地址的结果与重复地址的结果去掉。
 //
-// 故障以 error 交回且不含接口地址——地址的参数里可能写着密钥，而这个错误会进模型日志、
+// 故障以 error 交回且不含接口地址——地址的参数里可能写着密钥，而这个错误会进模型调用、
 // 时间线与运行日志。ctx 结束时原样交回它的错误。
 func (c *Client) Search(ctx context.Context, query string, limit int) ([]Result, error) {
 	u, err := url.Parse(c.endpoint)

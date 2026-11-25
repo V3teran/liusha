@@ -41,7 +41,7 @@ interface ConversationDetailProps {
 // 对话只是通道：消息与时间线属于对话；状态、暂停、用量与控制都属于对话所属的任务，
 // 按任务 ID 取（纯聊天没有任务，不显示这些）。
 //
-// 去处（任务、发现、探索图、模型日志）都在对话列表行的「⋯」菜单里，顶栏不放。
+// 去处（任务、发现、探索图、模型调用）都在对话列表行的「⋯」菜单里，顶栏不放。
 export function ConversationDetail({ convId, source, onStarted, onRunningChanged, agents, onAgentsChange, leading }: ConversationDetailProps) {
   const store = useConversationStore()
   const [loading, setLoading] = useState(false)

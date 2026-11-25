@@ -116,11 +116,11 @@ const lengthCol = columnHelper.accessor('resp_len', {
   ),
 })
 
-// 列宽为设计像素宽度（经 columnPixelWidths 渲染，窄容器锁像素、宽容器按权重拉伸）——对齐 llmAuditColumns 模式，
+// 列宽为设计像素宽度（经 columnPixelWidths 渲染，窄容器锁像素、宽容器按权重拉伸）——对齐 modelCallColumns 模式，
 // 列头/骨架/数据行不再各自维护一份 grid 字符串。
 //
 // showHost：仅当列表出现多个 host 时才显示 host 列（单 host 时每行重复同值是噪声，
-// 与 LlmAuditPage 的 showProvider 同理）；host 排在 URL 前，符合「主机→URL」阅读顺序。
+// 与 ModelCallsPage 的 showProvider 同理）；host 排在 URL 前，符合「主机→URL」阅读顺序。
 export function buildTrafficColumns(showHost: boolean) {
   return showHost
     ? [seqCol, timeCol, methodCol, statusCol, hostCol, urlCol, contentTypeCol, lengthCol]

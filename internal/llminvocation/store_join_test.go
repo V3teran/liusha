@@ -156,7 +156,7 @@ func TestConversationScopedInvocation(t *testing.T) {
 	}
 }
 
-// 范围筛选（从任务、对话跳到模型日志时只看它名下的调用）：
+// 范围筛选（从任务、对话跳到模型调用时只看它名下的调用）：
 //   - 任务：智能体运行里属于它的调用，与任务用量合计同一口径——对话里直接发起的调用不算；
 //   - 对话：这个对话里的全部调用——对话里直接发起的，和它的任务的智能体运行产生的。
 //
@@ -245,7 +245,7 @@ func TestListAll_ScopeFilters(t *testing.T) {
 		})
 	}
 
-	// 任务用量合计（GET /tasks/:id/usage）走同一个任务范围：与模型日志按任务筛出的条数一致
+	// 任务用量合计（GET /tasks/:id/usage）走同一个任务范围：与模型调用按任务筛出的条数一致
 	agg, err := invStore.AggregateAll(ctx, ListFilter{TaskID: tk.ID})
 	if err != nil || agg.Calls != 2 {
 		t.Errorf("任务用量合计应为 2 次调用，得 %d（%v）", agg.Calls, err)

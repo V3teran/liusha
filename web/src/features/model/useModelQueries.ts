@@ -3,12 +3,12 @@ import {
   listProviders,
   saveProvider,
   deleteProvider,
-  getRouting,
+  listRoutes,
   saveRoleRoute,
   deleteRoleRoute,
   getRetrievalModel,
   saveRetrievalModel,
-  clearRetrievalModel,
+  clearRetrievalKey,
   diagnoseRetrievalModel,
 } from '@/api/models'
 import { listAgents, patchAgent } from '@/api/config'
@@ -46,7 +46,7 @@ export function useSaveRetrievalModel() {
 export function useClearRetrievalModel() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: () => clearRetrievalModel(),
+    mutationFn: () => clearRetrievalKey(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['models'] })
       void qc.invalidateQueries({ queryKey: ['corpus', 'status'] })
@@ -73,7 +73,7 @@ export function useProviders() {
 export function useRouting() {
   return useQuery({
     queryKey: modelKeys.routing,
-    queryFn: getRouting,
+    queryFn: listRoutes,
   })
 }
 

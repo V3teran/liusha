@@ -44,11 +44,11 @@ type Deps struct {
 	Workspaces WorkspaceFileAPI
 	// WorkspaceLabels 给工作区批次 / 任务目录取显示名（nil = 目录按 ID 显示）。
 	WorkspaceLabels WorkspaceLabelsAPI
-	// Invocations 为 nil 时 /llm/invocations/:eid 路由不注册。
+	// Invocations 为 nil 时 /llm/invocations 系列路由不注册。
 	// 由 api 组件注入 *llminvocation.Store（自动满足 InvocationsAPI 窄接口）。
 	Invocations InvocationsAPI
 	// 会话式平台（任一为 nil 时对应路由不注册）：
-	//   Chat          POST /chat 发起会话扫描（api 组件注入 *dispatch.Service）
+	//   Chat          POST /conversations 发起会话（api 组件注入 *dispatch.Service）
 	//   Conversations GET /conversations[/:id/messages]（*conversation.Store 满足）
 	//   EventStream   GET /conversations/:id/stream SSE（api 组件注入 redis 适配器）
 	Chat          ChatAPI
@@ -185,7 +185,7 @@ func NewServer(d Deps) http.Handler {
 		start := time.Now()
 		c.Next()
 		// 降为 debug 的两类高频请求：前端静态资源（每次打开页面几十个）；日志查看
-		// 端点被服务器日志页自身 3s 增量轮询，info 级会在服务器日志页里自我回灌成噪音墙。
+		// 端点被「服务器」页自身 3s 增量轮询，info 级会在「服务器」页里自我回灌成噪音墙。
 		// 默认视图不出现，排查时仍可按级别开启。
 		ev := accessLog.Info()
 		if !isAPIPath(c.Request.URL.Path) || strings.HasPrefix(c.Request.URL.Path, "/api/logs") {
@@ -202,7 +202,7 @@ func NewServer(d Deps) http.Handler {
 			Msg("request")
 	})
 
-	// panic 恢复：gin 默认 Recovery 写 stderr——文件日志（服务器日志页数据源）看不到
+	// panic 恢复：gin 默认 Recovery 写 stderr——文件日志（「服务器」页数据源）看不到
 	// 崩溃现场。这里结构化记录 panic 值与调用栈后回 500。
 	r.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
 		apiLog.Error().

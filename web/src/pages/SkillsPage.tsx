@@ -28,7 +28,7 @@ import { LoadingState } from '@/components/ui/LoadingState'
 import { toast } from '@/components/ui/toast'
 import { confirmAction, confirmDiscard } from '@/components/ui/confirm'
 
-// 技能页（/config/skills）。内置技能的出厂内容随版本更新（没改过的自动跟随新版）：可修改名称、描述、正文、启用，
+// 技能页（/skills）。内置技能的出厂内容随版本更新（没改过的自动跟随新版）：可修改名称、描述、正文、启用，
 // 可对比出厂与恢复默认，可删除（升级不再补回，可在「已删除的内置」里恢复）；自建技能可增删改。同标识时
 // 自建技能优先（内置版本被遮蔽）。
 

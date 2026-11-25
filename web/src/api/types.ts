@@ -35,7 +35,7 @@ export interface TimelineEventMeta {
   severity: string // finding：分级（critical/high/medium/low/info——info 档为非漏洞信息成果）
   host: string // finding：目标主机
   target: string // finding：目标定位（URL/路径等）
-  text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述；原文在 模型日志页按调用可查）
+  text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述；原文在 模型调用页按调用可查）
   thinking: string // 模型扩展思考终稿（metadata.thinking，折叠区展示）
   agent_name: string // 产出该事件的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
   round_id?: string // reasoning/tool_call/tool_result：所属的轮（一次 agent 运行）的标识，同一轮的终稿与工具事件相同；标识上线之前的事件没有
@@ -345,7 +345,7 @@ export interface RoleRouteConfig {
   updated_at?: string
 }
 
-// RoutingResponse 是 GET /models/routing 的信封：能力档→provider 路由表。
+// RoutingResponse 是 GET /models/routes 的信封：能力档→provider 路由表。
 export interface RoutingResponse {
   routes: RoleRouteConfig[]
 }
@@ -527,9 +527,9 @@ export interface FindingListResponse {
 }
 
 /* ============================================================
-   模型日志（全局搜索 GET /llm/invocations/search + 统计 +stat + 详情 detail/:id）
+   模型调用记录（列表 GET /llm/invocations + 统计 stat + 分面 facets + 单条 :id）
    列表/详情接口分离：列表不带 messages/result（大字段，未用不传），
-   详情走 GET /llm/invocations/detail/:id 按需拉。
+   详情走 GET /llm/invocations/:id 按需拉。
    筛选（q/role/model/仅错误/时间范围）由服务端做，统计与列表吃同一套参数。
    ============================================================ */
 // LLMInvocationSummary 是列表行——不含 messages/result。
@@ -564,7 +564,7 @@ export interface LLMInvocationsResponse {
   size: number
   items: LLMInvocationSummary[]
 }
-// LLMInvocationSearchStat 是 GET /llm/invocations/search/stat 的全局筛选合计
+// LLMInvocationSearchStat 是 GET /llm/invocations/stat 的当前筛选合计
 // （整个筛选结果集，与翻页无关）——审计页统计 chip 数据源。
 export interface LLMInvocationSearchStat {
   calls: number

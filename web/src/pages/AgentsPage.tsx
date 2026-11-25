@@ -32,7 +32,7 @@ import { toggleAll, toggleChecked } from '@/lib/override'
 import { toast } from '@/components/ui/toast'
 import { confirmAction, confirmDiscard } from '@/components/ui/confirm'
 
-// 智能体页（/config/agents）：四个固定角色。出厂配置随程序发布，这里编辑的是用户自定义：
+// 智能体页（/agents）：四个固定角色。出厂配置随程序发布，这里编辑的是用户自定义：
 // 章程、调度摘要、迭代上限、档位与三份白名单。保存只提交改动的字段；与出厂相同的值不算
 // 自定义；每个已自定义字段可对比出厂、单独恢复默认。输出契约随程序固定，只读展示。
 export function AgentsPage() {

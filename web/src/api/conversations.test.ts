@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   listConversations,
   listMessages,
-  startChat,
+  startConversation,
   followUp,
   deleteConversation,
   renameConversation,
@@ -94,18 +94,18 @@ describe('会话域 API', () => {
       expect(mockFetch).toHaveBeenCalledWith('/api/conversations/c1/messages?after_seq=100')
     })
 
-    it('startChat 发送 POST 并返回 conversation_id', async () => {
+    it('startConversation 发送 POST 并返回 conversation_id', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({ conversation_id: 'conv-123', task_id: 't-456' }),
       })
       ;(globalThis as any).fetch = mockFetch
 
-      const result = await startChat('scan target')
+      const result = await startConversation('scan target')
 
       expect(result.conversation_id).toBe('conv-123')
       expect(result.task_id).toBe('t-456')
-      expect(mockFetch).toHaveBeenCalledWith('/api/chat', {
+      expect(mockFetch).toHaveBeenCalledWith('/api/conversations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ brief: 'scan target' }),

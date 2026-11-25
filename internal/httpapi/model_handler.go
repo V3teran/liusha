@@ -1,4 +1,4 @@
-// Package httpapi: 模型配置 CRUD handler（前端「模型配置」页，/models 系列）。
+// Package httpapi: 模型配置 CRUD handler（前端「模型」页，/models 系列）。
 //
 // 两资源：llm_provider（provider 注册表）/ llm_role_route（档位 → provider 路由）。写路径一律
 // 走 llmstore（落 DB + redis 广播失效），各进程的 llm.Router 下次 For(complexity) 即读到最新
@@ -239,8 +239,9 @@ func keyLast4(plaintext string) string {
 
 // ── role route（档位 → provider）──────────────────────────────────────
 
-// listRoutingHandler 处理 GET /models/routing：返回全部路由行，前端「能力路由」全景。
-func listRoutingHandler(api ModelAPI) gin.HandlerFunc {
+// listRoutesHandler 处理 GET /models/routes：返回全部路由行，前端「能力路由」全景。
+// 每一行按角色经 PUT / DELETE /models/routes/:role 读写，列表与单行是同一个资源。
+func listRoutesHandler(api ModelAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		routes, err := api.ListRoleRoutes(c.Request.Context())
 		if err != nil {

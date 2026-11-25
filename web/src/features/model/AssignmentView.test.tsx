@@ -3,13 +3,13 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AssignmentView } from './AssignmentView'
-import { listProviders, getRouting, saveRoleRoute, deleteRoleRoute } from '@/api/models'
+import { listProviders, listRoutes, saveRoleRoute, deleteRoleRoute } from '@/api/models'
 import { listAgents, patchAgent } from '@/api/config'
 import type { ProviderConfig, RoutingResponse, AgentListItem } from '@/api/types'
 
 vi.mock('@/api/models', () => ({
   listProviders: vi.fn(),
-  getRouting: vi.fn(),
+  listRoutes: vi.fn(),
   saveRoleRoute: vi.fn(),
   deleteRoleRoute: vi.fn(),
 }))
@@ -20,7 +20,7 @@ vi.mock('@/api/config', () => ({
 }))
 
 const mListProv = listProviders as unknown as ReturnType<typeof vi.fn>
-const mGetRouting = getRouting as unknown as ReturnType<typeof vi.fn>
+const mListRoutes = listRoutes as unknown as ReturnType<typeof vi.fn>
 const mSaveRole = saveRoleRoute as unknown as ReturnType<typeof vi.fn>
 const mDeleteRole = deleteRoleRoute as unknown as ReturnType<typeof vi.fn>
 const mListAgents = listAgents as unknown as ReturnType<typeof vi.fn>
@@ -86,7 +86,7 @@ function renderView() {
 describe('AssignmentView', () => {
   beforeEach(() => {
     mListProv.mockReset()
-    mGetRouting.mockReset()
+    mListRoutes.mockReset()
     mSaveRole.mockReset()
     mDeleteRole.mockReset()
     mListAgents.mockReset()
@@ -96,7 +96,7 @@ describe('AssignmentView', () => {
   })
 
   it('挂载并行加载 provider + 路由 + 智能体，单卡渲染三档', async () => {
-    mGetRouting.mockResolvedValue(routing())
+    mListRoutes.mockResolvedValue(routing())
     renderView()
     // 三档中文标签都出现。
     expect(await screen.findByText('深度推理')).toBeTruthy()
@@ -107,7 +107,7 @@ describe('AssignmentView', () => {
   })
 
   it('归属胶囊表达档位归属：planner 在 complex 档实心禁用，medium 档为可点幽灵胶囊', async () => {
-    mGetRouting.mockResolvedValue(routing())
+    mListRoutes.mockResolvedValue(routing())
     renderView()
     // 等数据渲染出 agent 胶囊（退出加载态），再做行作用域断言。
     await screen.findAllByRole('button', { name: 'planner' })
@@ -123,7 +123,7 @@ describe('AssignmentView', () => {
   })
 
   it('点未归属胶囊把智能体移入目标档，调 patchAgent(code, { complexity })', async () => {
-    mGetRouting.mockResolvedValue(routing())
+    mListRoutes.mockResolvedValue(routing())
     mSaveTier.mockResolvedValue({ agent: agent('h-executor', 'executor', 'simple') })
     renderView()
     // executor 原在 medium，点 simple 行的幽灵胶囊 → 移入 simple。
@@ -139,7 +139,7 @@ describe('AssignmentView', () => {
 
   it('移档失败乐观回滚并在页面内回显原因（无 window.alert）', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
-    mGetRouting.mockResolvedValue(routing())
+    mListRoutes.mockResolvedValue(routing())
     mSaveTier.mockRejectedValue(new Error('移档炸了'))
     renderView()
     await screen.findByRole('button', { name: 'executor', pressed: true }) // 等数据渲染（medium 实心）
@@ -156,14 +156,14 @@ describe('AssignmentView', () => {
   })
 
   it('已指派档的 select 反映当前 provider', async () => {
-    mGetRouting.mockResolvedValue(routing())
+    mListRoutes.mockResolvedValue(routing())
     renderView()
     const sel = (await screen.findByLabelText('标准推理 绑定 provider')) as HTMLSelectElement
     expect(sel.value).toBe('deepseek')
   })
 
   it('改选 provider 调 saveRoleRoute(group, providerCode)', async () => {
-    mGetRouting.mockResolvedValue(routing())
+    mListRoutes.mockResolvedValue(routing())
     mSaveRole.mockResolvedValue({ role: 'complex', provider_code: 'qwen' })
     renderView()
     const sel = await screen.findByLabelText('深度推理 绑定 provider')
@@ -172,7 +172,7 @@ describe('AssignmentView', () => {
   })
 
   it('能力档选空 → 删除路由（由相邻档承接）', async () => {
-    mGetRouting.mockResolvedValue(routing())
+    mListRoutes.mockResolvedValue(routing())
     mDeleteRole.mockResolvedValue(undefined)
     renderView()
     const sel = await screen.findByLabelText('深度推理 绑定 provider')
@@ -181,28 +181,28 @@ describe('AssignmentView', () => {
   })
 
   it('指派指向缺失 provider时告警「provider 缺失」', async () => {
-    mGetRouting.mockResolvedValue(routing({ routes: [{ role: 'complex', provider_code: 'ghost' }] }))
+    mListRoutes.mockResolvedValue(routing({ routes: [{ role: 'complex', provider_code: 'ghost' }] }))
     renderView()
     expect(await screen.findByText('provider 缺失')).toBeTruthy()
   })
 
   it('指派指向停用 provider时告警「provider 停用」', async () => {
     mListProv.mockResolvedValue([prov('deepseek', false)])
-    mGetRouting.mockResolvedValue(routing())
+    mListRoutes.mockResolvedValue(routing())
     renderView()
     expect(await screen.findByText('provider 停用')).toBeTruthy()
   })
 
   it('指派 provider 密钥未就绪时告警「密钥未就绪」', async () => {
     mListProv.mockResolvedValue([{ ...prov('deepseek'), key_present: false }])
-    mGetRouting.mockResolvedValue(routing())
+    mListRoutes.mockResolvedValue(routing())
     renderView()
     expect(await screen.findByText('密钥未就绪')).toBeTruthy()
   })
 
   it('档内有智能体而 provider 未声明工具调用时告警；档内无智能体不告警', async () => {
     mListProv.mockResolvedValue([{ ...prov('deepseek'), supports_tools: false }])
-    mGetRouting.mockResolvedValue(
+    mListRoutes.mockResolvedValue(
       routing({
         routes: [
           { role: 'medium', provider_code: 'deepseek' }, // executor 在此档
@@ -218,7 +218,7 @@ describe('AssignmentView', () => {
 
   it('保存失败乐观回滚并页面内回显原因（无 window.alert）', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {})
-    mGetRouting.mockResolvedValue(routing())
+    mListRoutes.mockResolvedValue(routing())
     mSaveRole.mockRejectedValue(new Error('provider_code 不存在，请先创建对应 provider'))
     renderView()
     const sel = await screen.findByLabelText('标准推理 绑定 provider')
@@ -230,14 +230,14 @@ describe('AssignmentView', () => {
   })
 
   it('DB 里的自定义档也列出（不丢数据）', async () => {
-    mGetRouting.mockResolvedValue(routing({ routes: [{ role: 'my-custom-group', provider_code: 'deepseek' }] }))
+    mListRoutes.mockResolvedValue(routing({ routes: [{ role: 'my-custom-group', provider_code: 'deepseek' }] }))
     renderView()
     // 自定义档 label 回退为原样 group，故 label span 与 code 同字面 → 两处命中。
     expect((await screen.findAllByText('my-custom-group')).length).toBeGreaterThan(0)
   })
 
   it('加载失败显示错误', async () => {
-    mGetRouting.mockRejectedValue(new Error('boom'))
+    mListRoutes.mockRejectedValue(new Error('boom'))
     renderView()
     expect(await screen.findByText(/boom/)).toBeTruthy()
   })

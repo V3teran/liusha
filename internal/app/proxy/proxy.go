@@ -1,7 +1,7 @@
 // Package proxy 是 proxy 组件：内嵌 MITM 代理 + 过滤链 + Redis Stream 生产者。
 //
 // 只生产流量快照（XADD 到 Stream），不做存储：落库、按主机攒批建代理捕获任务、入队都在
-// runner 的 ingestor。过滤规则的生效值 = 部署默认叠加前端「系统配置」的自定义，改后经
+// runner 的 ingestor。过滤规则的生效值 = 部署默认叠加前端「系统」的自定义，改后经
 // 多级缓存的失效广播热换过滤链，因此本组件也连 PostgreSQL 并订阅失效总线。
 //
 // 单个公开监听：listen_addr → sanitizer（URI 修补）→ 回环上系统分配的端口 → proxify。
@@ -80,7 +80,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 		return fmt.Errorf("构造 MITM 代理: %w", err)
 	}
 
-	// 热换过滤链：proxy_filter 组失效（前端改「系统配置」后广播）→ 重读生效值、重建链原子换入。
+	// 热换过滤链：proxy_filter 组失效（前端改「系统」后广播）→ 重读生效值、重建链原子换入。
 	// 重读失败只告警、保留旧链。
 	cache.OnInvalidate(func(_ context.Context, keys []string) {
 		if !slices.Contains(keys, settingstore.KeyProxyFilter) {

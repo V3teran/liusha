@@ -20,7 +20,7 @@ declare module '@tanstack/react-table' {
   interface ColumnMeta<TData extends RowData, TValue extends RowData> {
     /** 该列对齐方向：数值列 right（表头与值同靠右），缺省 left。表头渲染器据此与单元格同侧。 */
     align?: 'left' | 'right'
-    /** 悬停表头时的解释文案（llm-audit 响应耗时/摘要列使用）。 */
+    /** 悬停表头时的解释文案（model-calls 响应耗时/摘要列使用）。 */
     headerTitle?: string
   }
 }

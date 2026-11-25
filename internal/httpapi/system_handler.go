@@ -1,4 +1,4 @@
-// Package httpapi: 系统设置 handler（前端「系统配置」页）。
+// Package httpapi: 系统设置 handler（前端「系统」页）。
 //
 // 三组设置（compaction 会话压缩 / runtime 工具运行时 / proxy_filter 代理流量过滤），
 // 路由段即分组取值。生效值 = 出厂默认（代码 + config.yaml 部署值）叠加用户自定义；

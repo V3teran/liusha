@@ -27,7 +27,7 @@ const enc = encodeURIComponent
 
 // ── 智能体 ──────────────────────────────────────────────────────────
 
-/** 拉全部智能体（不分页；模型配置页「能力路由」消费）。 */
+/** 拉全部智能体（不分页；「模型」页「能力路由」消费）。 */
 export async function listAgents(): Promise<AgentListItem[]> {
   return (await get<{ agents: AgentListItem[] }>('/agents')).agents
 }
@@ -36,10 +36,10 @@ export async function listAgents(): Promise<AgentListItem[]> {
 export async function listAgentsPaged(
   page: number,
   size: number,
-  q = '',
+  search = '',
 ): Promise<{ agents: AgentListItem[]; total: number }> {
   const params = new URLSearchParams({ page: String(page), size: String(size) })
-  if (q) params.set('q', q)
+  if (search) params.set('search', search)
   return get<{ agents: AgentListItem[]; total: number }>(`/agents?${params}`)
 }
 
@@ -88,10 +88,10 @@ export async function listSkillCandidates(): Promise<SkillListItem[]> {
 export async function listSkillsPaged(
   page: number,
   size: number,
-  q = '',
+  search = '',
 ): Promise<{ skills: SkillListItem[]; total: number }> {
   const params = new URLSearchParams({ page: String(page), size: String(size) })
-  if (q) params.set('q', q)
+  if (search) params.set('search', search)
   return get<{ skills: SkillListItem[]; total: number }>(`/skills?${params}`)
 }
 
@@ -158,10 +158,10 @@ export async function listScenarios(): Promise<ScenarioListItem[]> {
 export async function listScenariosPaged(
   page: number,
   size: number,
-  q = '',
+  search = '',
 ): Promise<{ scenarios: ScenarioListItem[]; total: number }> {
   const params = new URLSearchParams({ page: String(page), size: String(size) })
-  if (q) params.set('q', q)
+  if (search) params.set('search', search)
   return get<{ scenarios: ScenarioListItem[]; total: number }>(`/scenarios?${params}`)
 }
 
@@ -222,10 +222,10 @@ export async function assignSkill(code: string, agentCode: string, involved: boo
 
 // ── 工具目录（只读）────────────────────────────────────────────────────
 
-// listTools 的查询参数：kind 过滤、q 关键词、分页（page/size 缺省 = 全量不分页）。
+// listTools 的查询参数：kind 过滤、search 关键词、分页（page/size 缺省 = 全量不分页）。
 export interface ToolQuery {
   kind?: ToolKind
-  q?: string
+  search?: string
   page?: number // 1-based；缺省 = 全量（智能体多选器候选用全量）
   size?: number
 }
@@ -238,7 +238,7 @@ export interface ToolQuery {
 export async function listTools(query: ToolQuery = {}): Promise<ToolListResponse> {
   const qs = new URLSearchParams()
   if (query.kind) qs.set('kind', query.kind)
-  if (query.q) qs.set('q', query.q)
+  if (query.search) qs.set('search', query.search)
   if (query.page) qs.set('page', String(query.page))
   if (query.size) qs.set('size', String(query.size))
   const suffix = qs.toString() ? `?${qs}` : ''

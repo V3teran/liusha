@@ -15,7 +15,7 @@ export const toolKeys = {
 export function useToolList(kind: ToolKind | '', q: string) {
   return useQuery({
     queryKey: toolKeys.list(kind, q),
-    queryFn: () => listTools({ kind: kind || undefined, q: q || undefined }),
+    queryFn: () => listTools({ kind: kind || undefined, search: q || undefined }),
     placeholderData: keepPreviousData,
   })
 }
