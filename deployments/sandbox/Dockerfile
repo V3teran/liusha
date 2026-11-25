@@ -147,7 +147,7 @@ RUN if [ -n "$(getcap /usr/lib/nmap/nmap 2>/dev/null)" ]; then setcap -r /usr/li
  && nmap --version >/dev/null
 
 # ncat（端口连通 / banner / 回连监听）与 xxd（十六进制 dump）是 agent 高频本能会写的基础
-# 命令：run_command 放行任意 sh 命令，未装时只会 command not found，agent 要多耗几轮迭代换
+# 命令：command_run 放行任意 sh 命令，未装时只会 command not found，agent 要多耗几轮迭代换
 # 姿势绕过。构建期实跑一次：包名或打包变化导致回归时当场拦下。
 RUN printf 'A' | xxd | grep -q '41 ' \
  && ncat --version 2>&1 | grep -qi ncat

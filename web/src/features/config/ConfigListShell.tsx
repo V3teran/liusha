@@ -23,6 +23,10 @@ export interface ServerPaging {
 export interface SearchBox {
   value: string
   onChange: (v: string) => void
+  /** 回车：有未生效的词立即生效（见 SearchInput 的 onSubmit） */
+  onSubmit?: () => void
+  /** 按当前的词重取最新数据（见 SearchInput 的 onRefresh） */
+  onRefresh?: () => void
   placeholder?: string
 }
 
@@ -97,6 +101,8 @@ export function ConfigListShell({
             className="w-64"
             value={search.value}
             onChange={search.onChange}
+            onSubmit={search.onSubmit}
+            onRefresh={search.onRefresh}
             placeholder={search.placeholder ?? '搜索'}
           />
         )}

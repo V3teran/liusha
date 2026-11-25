@@ -57,7 +57,7 @@ func TestAllow_WildcardMixed(t *testing.T) {
 	}
 }
 
-// nil 名单 = 默认拒绝（与 function_tools / cli_tools 同一判定 registry.Allows）。
+// nil 名单 = 默认拒绝（与 function_tools / cli_tools 同一判定 allowlist.Allows）。
 func TestAllow_NilDenies(t *testing.T) {
 	v := Allow(NewStoreReader(testSource()), nil)
 	got, err := v.Metas(t.Context())

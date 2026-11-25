@@ -7,7 +7,7 @@ import (
 	"github.com/V3teran/liusha/internal/explorationgraph"
 )
 
-// seenSurface 记下一轮评估最近一次经 get_global_state 看到的图面。决策要基于本轮亲见的
+// seenSurface 记下一轮评估最近一次经 task_survey 看到的图面。决策要基于本轮亲见的
 // 态势：没看过就不能发决策；重规划请求带上这份图面，规划者处理时据它判断请求是否已过时。
 type seenSurface struct {
 	mu      sync.Mutex

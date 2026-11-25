@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/conversation"
+	"github.com/V3teran/liusha/internal/reasoning"
 	"github.com/V3teran/liusha/internal/registry"
 )
 
@@ -52,15 +53,18 @@ func (e *toolTimelineEvents) interceptor(conversationID string) registry.Interce
 		agent := AgentFromContext(ctx)
 		// call_id 贯穿本次调用的两个事件：并发执行同名工具时（多 action 并行）
 		// result 完成序与 call 发起序可能交错，仅凭 (agent, tool) 的 FIFO 配对
-		// 会把 A 的结果配到 B 的卡上。事件内联身份后消费端按 ID 精确配对。
+		// 会把 result 配到 A 的卡上。事件内联身份后消费端按 ID 精确配对。
 		callID := uuid.NewString()
-		e.emit(ctx, conversationID, map[string]any{
+		// round_id 把事件归到 agent 的当前一轮（与那一轮的终稿同一个标识）：同一 agent
+		// 并行多轮时，时间线只凭先后顺序分不清事件属于哪一轮。
+		roundID := reasoning.RoundID(ctx)
+		e.emit(ctx, conversationID, withRoundID(map[string]any{
 			"kind":       "tool_call",
 			"call_id":    callID,
 			"agent_name": agent,
 			"tool_name":  t.Name(),
 			"args":       truncateEventRunes(string(args)),
-		})
+		}, roundID))
 
 		start := time.Now()
 		res, err := next(ctx, t, args)
@@ -71,7 +75,7 @@ func (e *toolTimelineEvents) interceptor(conversationID string) registry.Interce
 		} else if err != nil {
 			errMsg = err.Error()
 		}
-		e.emit(ctx, conversationID, map[string]any{
+		e.emit(ctx, conversationID, withRoundID(map[string]any{
 			"kind":        "tool_result",
 			"call_id":     callID,
 			"agent_name":  agent,
@@ -79,9 +83,18 @@ func (e *toolTimelineEvents) interceptor(conversationID string) registry.Interce
 			"result":      truncateEventRunes(res.Output),
 			"duration_ms": time.Since(start).Milliseconds(),
 			"err":         truncateEventRunes(errMsg),
-		})
+		}, roundID))
 		return res, err
 	}
+}
+
+// withRoundID 在 roundID 非空时写进事件：不在任何一轮里的调用（没有 BeginRound 的
+// 调用方）不写这个键——时间线上它按 agent 与先后顺序归组。
+func withRoundID(event map[string]any, roundID string) map[string]any {
+	if roundID != "" {
+		event["round_id"] = roundID
+	}
+	return event
 }
 
 // emit 落一条 agent 过程事件并广播 SSE（best-effort：失败仅告警，工具执行本体

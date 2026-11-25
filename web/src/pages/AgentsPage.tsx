@@ -199,7 +199,7 @@ export function AgentsPage() {
         empty={rows.length === 0}
         noun="智能体"
         emptyHint="智能体随程序内置，列表为空说明服务异常，请查看 api 日志。"
-        search={{ value: list.query, onChange: list.setQuery, placeholder: '搜索名称 / 标识 / 描述' }}
+        search={{ value: list.query, onChange: list.setQuery, onSubmit: list.search, onRefresh: list.refresh, placeholder: '搜索名称 / 标识 / 描述' }}
         server={{
           page: list.page,
           totalPages: list.totalPages,

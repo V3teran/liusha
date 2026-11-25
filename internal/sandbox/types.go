@@ -29,7 +29,7 @@ type ExecRequest struct {
 
 // ExecResult 是 POST /exec 的响应体。
 //
-// stdout/stderr 完整返回不截尾——截尾在 run_command 工具层做（LLM 上下文管理贴近调用方）。
+// stdout/stderr 完整返回不截尾——截尾在 command_run 工具层做（LLM 上下文管理贴近调用方）。
 type ExecResult struct {
 	ExitCode int          `json:"exit_code"`
 	Stdout   string       `json:"stdout"`
@@ -50,7 +50,7 @@ type Attachment struct {
 type Inventory struct {
 	// Tools 是工具清单中每个 CLI 工具是否已安装（在沙盒的 PATH 中可执行）。
 	Tools map[string]bool `json:"tools"`
-	// Browser 是浏览器能力（drive_browser 依赖）。
+	// Browser 是浏览器能力（browser_drive 依赖）。
 	Browser BrowserStatus `json:"browser"`
 }
 

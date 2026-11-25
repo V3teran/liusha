@@ -12,7 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// ─── drive_browser ─────────────────────────────────────────────────────────────
+// ─── browser_drive ─────────────────────────────────────────────────────────────
 
 // driveBrowserSchema 与沙箱内 browser-use CLI 的原子子命令一一对应（open/state/click/...）。
 // 驱动方式：open 打开页面 → state 取带元素编号的 DOM → click/input 按编号操作 → state 复查。
@@ -84,7 +84,7 @@ func shellJoin(parts ...string) string {
 	return strings.Join(quoted, " ")
 }
 
-// browserCmdArgs 是 drive_browser 的参数（字段与沙盒浏览器服务的子命令约定对应）。
+// browserCmdArgs 是 browser_drive 的参数（字段与沙盒浏览器服务的子命令约定对应）。
 type browserCmdArgs struct {
 	Action    string `json:"action"`
 	URL       string `json:"url"`
@@ -108,7 +108,7 @@ func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (r
 	// 1. 解析并验证参数
 	var a browserCmdArgs
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: "drive_browser: 解析参数失败: " + err.Error()}, nil
+		return registry.ToolResult{Error: "browser_drive: 解析参数失败: " + err.Error()}, nil
 	}
 	if errMsg := validateBrowserArgs(&a); errMsg != nil {
 		return registry.ToolResult{Error: *errMsg}, nil
@@ -123,7 +123,7 @@ func (t *driveBrowserTool) Execute(ctx context.Context, args json.RawMessage) (r
 	// 3. 执行浏览器命令
 	res, err := t.executeBrowserCommand(ctx, command, a.TimeoutSeconds)
 	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("drive_browser: 沙箱执行失败: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("browser_drive: 沙箱执行失败: %v", err)}, nil
 	}
 
 	// 4. 尝试修复退化的浏览器 daemon
@@ -147,7 +147,7 @@ func (a *browserCmdArgs) buildArgParts() (string, string) {
 	switch a.Action {
 	case "open":
 		if a.URL == "" {
-			return "", "drive_browser: open 需要 url"
+			return "", "browser_drive: open 需要 url"
 		}
 		return shellJoin(a.URL), ""
 	case "state", "back", "screenshot":
@@ -159,21 +159,21 @@ func (a *browserCmdArgs) buildArgParts() (string, string) {
 		case a.Index != nil:
 			return shellJoin(strconv.Itoa(*a.Index)), ""
 		default:
-			return "", "drive_browser: click 需要 index（或 x+y 坐标）"
+			return "", "browser_drive: click 需要 index（或 x+y 坐标）"
 		}
 	case "input", "select":
 		if a.Index == nil || a.Text == "" {
-			return "", "drive_browser: " + a.Action + " 需要 index 和 text"
+			return "", "browser_drive: " + a.Action + " 需要 index 和 text"
 		}
 		return shellJoin(strconv.Itoa(*a.Index), a.Text), ""
 	case "type":
 		if a.Text == "" {
-			return "", "drive_browser: type 需要 text"
+			return "", "browser_drive: type 需要 text"
 		}
 		return shellJoin(a.Text), ""
 	case "hover", "dblclick", "rightclick":
 		if a.Index == nil {
-			return "", "drive_browser: " + a.Action + " 需要 index"
+			return "", "browser_drive: " + a.Action + " 需要 index"
 		}
 		return shellJoin(strconv.Itoa(*a.Index)), ""
 	case "scroll":
@@ -184,12 +184,12 @@ func (a *browserCmdArgs) buildArgParts() (string, string) {
 		return shellJoin(dir, itoa(a.Amount)), ""
 	case "keys":
 		if a.Keys == "" {
-			return "", "drive_browser: keys 需要 keys（如 Enter）"
+			return "", "browser_drive: keys 需要 keys（如 Enter）"
 		}
 		return shellJoin(a.Keys), ""
 	case "wait":
 		if a.Text == "" {
-			return "", "drive_browser: wait 需要 text（selector 或 text 条件值）"
+			return "", "browser_drive: wait 需要 text（selector 或 text 条件值）"
 		}
 		by := a.By
 		if by == "" {
@@ -202,7 +202,7 @@ func (a *browserCmdArgs) buildArgParts() (string, string) {
 		return shellJoin(by, a.Text, "--timeout-ms", strconv.Itoa(tm)), ""
 	case "eval":
 		if a.JS == "" {
-			return "", "drive_browser: eval 需要 js 表达式"
+			return "", "browser_drive: eval 需要 js 表达式"
 		}
 		return shellJoin(a.JS), ""
 	case "get":
@@ -212,7 +212,7 @@ func (a *browserCmdArgs) buildArgParts() (string, string) {
 		}
 		return shellJoin(g), ""
 	default:
-		return "", "drive_browser: 未知 action " + a.Action
+		return "", "browser_drive: 未知 action " + a.Action
 	}
 	return "", ""
 }
@@ -226,7 +226,7 @@ func orDash(s string) string {
 
 // browserIdentity 把 agent 给的身份清洗为身份名（缺省 default）：非 [a-zA-Z0-9_-] 的字符换成
 // -。身份名是沙盒里浏览器服务的端点文件名，且原样进 shell 命令。任务隔离由沙盒按命令所属任务
-// 完成（同名身份在不同任务里是不同的浏览器），这里不拼任务前缀——agent 在 run_command 里手写
+// 完成（同名身份在不同任务里是不同的浏览器），这里不拼任务前缀——agent 在 command_run 里手写
 // IDENTITY=<身份名> 时与本工具指向同一个浏览器。
 func browserIdentity(identity string) string {
 	if identity == "" {

@@ -39,7 +39,7 @@ function tool(name: string, kind: ToolKind, category: string, categoryName = cat
   return { name, kind, category, category_name: categoryName, description: `${name} 描述`, sort_order: 0, installed: true }
 }
 
-const FUNCTION_TOOLS = [tool('read_credentials', 'function', 'credentials'), tool('write_credential', 'function', 'credentials')]
+const FUNCTION_TOOLS = [tool('credential_read', 'function', 'credentials'), tool('credential_write', 'function', 'credentials')]
 const CLI_TOOLS = [tool('nmap', 'cli', 'recon'), tool('nuclei', 'cli', 'vulnscan')]
 
 function agent(o: Partial<Agent> = {}): Agent {
@@ -48,7 +48,7 @@ function agent(o: Partial<Agent> = {}): Agent {
     name: '侦察智能体',
     charter: '出厂章程',
     description: '侦察排头兵',
-    function_tools: ['read_credentials'],
+    function_tools: ['credential_read'],
     cli_tools: [],
     skills: [],
     max_iterations: 20,
@@ -130,12 +130,12 @@ describe('AgentsPage', () => {
     setup(detail())
     await openEditor()
     await userEvent.click(screen.getByRole('tab', { name: '内部工具' }))
-    const selected = (await screen.findByText('read_credentials')).closest('button') as HTMLButtonElement
+    const selected = (await screen.findByText('credential_read')).closest('button') as HTMLButtonElement
     expect(selected.getAttribute('aria-pressed')).toBe('true')
-    await userEvent.click(screen.getByText('write_credential'))
+    await userEvent.click(screen.getByText('credential_write'))
     await userEvent.click(saveBtn())
     await waitFor(() => expect(mPatch).toHaveBeenCalled())
-    expect(mPatch.mock.calls[0][1]).toEqual({ function_tools: { on: ['write_credential'], off: [] } })
+    expect(mPatch.mock.calls[0][1]).toEqual({ function_tools: { on: ['credential_write'], off: [] } })
   })
 
   it('出厂为「全部」：全部勾选且开关打开、无改动', async () => {

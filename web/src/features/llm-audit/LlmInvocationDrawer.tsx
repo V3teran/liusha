@@ -1,6 +1,6 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { JumpLinks } from '@/features/relations/TaskJumpLinks'
-import { conversationJump, taskJumps } from '@/features/relations/taskJumps'
+import { conversationJumps, taskJumps } from '@/features/relations/taskJumps'
 import type { LLMInvocationDetail } from '@/api/types'
 import { CopyButton } from '@/components/CopyButton'
 import { CopySection } from '@/components/CopySection'
@@ -41,7 +41,7 @@ export function LlmInvocationDrawer({ open, detail, loading, error, onRetry, llm
           ['task', 'conversation', 'exploration'],
         )
       : detail.conversation_id
-        ? [conversationJump(detail.source ?? '', detail.conversation_id)]
+        ? conversationJumps(detail.source ?? '', detail.conversation_id, ['conversation'])
         : []
 
   // messages 是「每轮完整重发的对话历史快照」——第 N 次调用的 messages 几乎完整包含第 N-1 次的。

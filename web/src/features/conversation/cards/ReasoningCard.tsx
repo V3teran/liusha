@@ -3,21 +3,73 @@ import { agentProfile } from '@/lib/agentColor'
 import { CardHeader } from './CardHeader'
 import { Markdown } from './Markdown'
 
-interface ReasoningCardProps {
-  text: string
-  thinking?: string | unknown  // 类型守卫：应对后端类型异常
+const chipClass = 'rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text-secondary'
+
+/**
+ * 一轮的身份行：谁、在第几步、这一轮用了多少。它是卡的骨架里最先读到的部分——先知道这是谁的卡，
+ * 再看它做了什么（工具调用）、想了什么（内部思考）、得出什么（结论），那三样由时间线排在它之后。
+ */
+export function RoundHeader({
+  agentName,
+  step,
+  inTokens,
+  outTokens,
+  latencyMs,
+  streaming,
+}: {
   agentName?: string
   step?: number
   inTokens?: number
   outTokens?: number
   latencyMs?: number
   streaming?: boolean
+}) {
+  const profile = agentProfile(agentName)
+  return (
+    <CardHeader
+      agent={profile.label || undefined}
+      agentColor={profile.accent}
+      action={streaming ? '推理中' : '推理'}
+      extras={
+        <>
+          {!!step && (
+            <span
+              className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-xs font-semibold text-text-secondary"
+              title="本次指令的第几步推理"
+            >
+              第 {step} 步
+            </span>
+          )}
+          {(inTokens || 0) > 0 && (
+            <span className={chipClass} title="输入 token">
+              ↑ {fmtTok(inTokens)}
+            </span>
+          )}
+          {(outTokens || 0) > 0 && (
+            <span className={chipClass} title="输出 token">
+              ↓ {fmtTok(outTokens)}
+            </span>
+          )}
+          {(latencyMs || 0) > 0 && (
+            <span className={chipClass} title="耗时">
+              ⏱ {fmtMs(latencyMs)}
+            </span>
+          )}
+        </>
+      }
+    />
+  )
+}
+
+interface ReasoningCardProps {
+  text: string
+  thinking?: string | unknown // 类型守卫：应对后端类型异常
+  agentName?: string
+  streaming?: boolean
 }
 
 const fmtTok = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n)) : '')
 const fmtMs = (n?: number) => (n && n > 0 ? (n >= 1000 ? (n / 1000).toFixed(1) + 's' : n + 'ms') : '')
-
-const chipClass = 'rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-text-secondary'
 
 function looksLikeJson(text: string): boolean {
   const t = text.trim()
@@ -47,7 +99,8 @@ function Fold({ icon: Icon, label, text }: { icon: typeof Brain; label: string; 
   )
 }
 
-export function ReasoningCard({ text, thinking, agentName, step, inTokens, outTokens, latencyMs, streaming }: ReasoningCardProps) {
+// 一轮的结论：内部思考（折叠）与正文。身份行（RoundHeader）由时间线排在它前面——工具调用之后。
+export function ReasoningCard({ text, thinking, agentName, streaming }: ReasoningCardProps) {
   const profile = agentProfile(agentName)
   const jsonBody = !streaming && looksLikeJson(text)
 
@@ -57,38 +110,6 @@ export function ReasoningCard({ text, thinking, agentName, step, inTokens, outTo
   return (
     <div data-card="reasoning">
       {!!validThinking && !streaming && <Fold icon={Brain} label="内部思考" text={validThinking} />}
-      <CardHeader
-        agent={profile.label || undefined}
-        agentColor={profile.accent}
-        action={streaming ? '推理中' : '推理'}
-        extras={
-          <>
-            {!!step && (
-              <span
-                className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-xs font-semibold text-text-secondary"
-                title="本次指令的第几步推理"
-              >
-                第 {step} 步
-              </span>
-            )}
-            {(inTokens || 0) > 0 && (
-              <span className={chipClass} title="输入 token">
-                ↑ {fmtTok(inTokens)}
-              </span>
-            )}
-            {(outTokens || 0) > 0 && (
-              <span className={chipClass} title="输出 token">
-                ↓ {fmtTok(outTokens)}
-              </span>
-            )}
-            {(latencyMs || 0) > 0 && (
-              <span className={chipClass} title="耗时">
-                ⏱ {fmtMs(latencyMs)}
-              </span>
-            )}
-          </>
-        }
-      />
       {jsonBody ? (
         <Fold icon={Braces} label="结构化输出" text={prettyJson(text)} />
       ) : !text.trim() && !streaming ? (

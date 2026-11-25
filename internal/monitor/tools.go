@@ -42,7 +42,7 @@ func NewGetGlobalStateTool(graph *explorationgraph.Store, taskID string, metrics
 
 // Name 实现工具接口。
 func (t *GetGlobalStateTool) Name() string {
-	return "get_global_state"
+	return "task_survey"
 }
 
 // ShortDesc 实现工具接口。
@@ -239,7 +239,7 @@ func NewPublishDecisionTool(graph *explorationgraph.Store, replanner Replanner, 
 
 // Name 实现工具接口。
 func (t *PublishDecisionTool) Name() string {
-	return "publish_decision"
+	return "decision_publish"
 }
 
 // ShortDesc 实现工具接口。
@@ -270,7 +270,7 @@ func (t *PublishDecisionTool) Schema() json.RawMessage {
 			"evidence_ids": {
 				"type": "array",
 				"items": {"type": "string"},
-				"description": "支撑判断的节点 ID（动作、假设、结果），至少一个，取自本轮 get_global_state 的态势"
+				"description": "支撑判断的节点 ID（动作、假设、结果），至少一个，取自本轮 task_survey 的态势"
 			},
 			"action_id": {
 				"type": "string",
@@ -348,7 +348,7 @@ func (t *PublishDecisionTool) validate(ctx context.Context, d Decision, seen *ex
 		return "action_id is required for reject_action"
 	}
 	if seen == nil {
-		return "发布决策前先调用 get_global_state 查看本轮态势：决策要基于亲见的状态"
+		return "发布决策前先调用 task_survey 查看本轮态势：决策要基于亲见的状态"
 	}
 	if !slices.Contains(problems, d.Problem) {
 		return fmt.Sprintf("problem 必须是 %s 可针对的功能障碍之一：%s；没有功能障碍时不发决策", d.Type, strings.Join(problems, " / "))

@@ -49,9 +49,6 @@ func (k Kind) String() string {
 	return "replace"
 }
 
-// Wildcard 是集合字段的通配元素：「全部，含以后新增」。
-const Wildcard = "*"
-
 var wildcardJSON = json.RawMessage(`"*"`)
 
 // Field 描述一个可自定义字段。

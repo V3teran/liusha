@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { listAgentsPaged, listScenariosPaged, listSkillsPaged } from '@/api/config'
 import type { AgentListItem, ScenarioListItem, SkillListItem } from '@/api/types'
 import { DEFAULT_PAGE_SIZE } from '@/lib/pageSize'
-import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+import { useDebouncedSearchState } from '@/hooks/useDebouncedSearch'
 
 
 // usePagedQueryState 是分页列表的页码/条数/搜索词状态机（Agent/Skill 两页共用）：
@@ -14,18 +14,19 @@ function usePagedQueryState() {
   const [page, setPageRaw] = useState(1)
   const [size, setSizeRaw] = useState(DEFAULT_PAGE_SIZE)
   const [query, setQuery] = useState('')
-  const debouncedQuery = useDebouncedSearch(query)
+  const search = useDebouncedSearchState(query)
 
+  // 换了生效的词回到第 1 页（防逐键请求）
   useEffect(() => {
     setPageRaw(1)
-  }, [debouncedQuery])
+  }, [search.debounced])
 
   const setSize = (next: number) => {
     setSizeRaw(next)
     setPageRaw(1)
   }
 
-  return { page, setPageRaw, size, setSize, query, setQuery, debouncedQuery }
+  return { page, setPageRaw, size, setSize, query, setQuery, search }
 }
 
 export interface PagedListHandle<T> {
@@ -38,6 +39,10 @@ export interface PagedListHandle<T> {
   setSize: (size: number) => void
   query: string
   setQuery: (q: string) => void
+  /** 回车：输入框里有还没生效的词（防抖没到）就让它现在生效 */
+  search: () => void
+  /** 按生效的词重取当前这一页 */
+  refresh: () => void
   loading: boolean
   error: string
   reload: () => void // 保存/删除后重取当前页（失效广播，命中缓存的页立即回填）
@@ -51,13 +56,17 @@ function useResourcePagedList<T>(
   fetchPage: (page: number, size: number, q: string) => Promise<{ items: T[]; total: number }>,
 ): PagedListHandle<T> {
   const qc = useQueryClient()
-  const { page, setPageRaw, size, setSize, query, setQuery, debouncedQuery } = usePagedQueryState()
+  const { page, setPageRaw, size, setSize, query, setQuery, search } = usePagedQueryState()
 
   const q = useQuery({
-    queryKey: [resource, 'list', page, size, debouncedQuery],
-    queryFn: () => fetchPage(page, size, debouncedQuery),
+    queryKey: [resource, 'list', page, size, search.debounced],
+    queryFn: () => fetchPage(page, size, search.debounced),
     placeholderData: keepPreviousData,
   })
+  // 回车：有还没生效的词就不等防抖、现在生效
+  const searchNow = () => {
+    if (search.pending) search.flush()
+  }
 
   const total = q.data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / size))
@@ -77,6 +86,10 @@ function useResourcePagedList<T>(
     setSize,
     query,
     setQuery,
+    search: searchNow,
+    refresh: () => {
+      void q.refetch()
+    },
     loading: q.isFetching,
     error: q.error ? q.error.message : '',
     reload: () => {

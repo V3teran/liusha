@@ -183,7 +183,7 @@ func TestGoalAlignmentMiddleware_Drift(t *testing.T) {
 			Iteration: i,
 			Thought:   "查看系统日志文件的权限配置",
 			ToolCalls: []*Action{
-				{ToolCall: llm.ToolCall{Name: "run_command"}},
+				{ToolCall: llm.ToolCall{Name: "command_run"}},
 			},
 		}
 

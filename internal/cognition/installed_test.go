@@ -21,7 +21,7 @@ func TestRestrictToInstalled(t *testing.T) {
 		Installed: sandbox.Inventory{Tools: map[string]bool{"nmap": true, "sqlmap": false, "ffuf": true}},
 	}
 
-	// 「全部」展开为工具全集再剔除未安装；浏览器不可用时 drive_browser 出局，其余函数工具保留。
+	// 「全部」展开为工具全集再剔除未安装；浏览器不可用时 browser_drive 出局，其余函数工具保留。
 	got := d.restrictToInstalled(agent.Agent{Config: agent.Config{FunctionTools: []string{"*"}, CliTools: []string{"*"}}})
 	if slices.Contains(got.FunctionTools, tools.DriveBrowser) || !slices.Contains(got.FunctionTools, "http_request") {
 		t.Fatalf("函数工具 = %v", got.FunctionTools)
@@ -40,7 +40,7 @@ func TestRestrictToInstalled(t *testing.T) {
 		t.Fatalf("空集应保持空集: fn=%v cli=%v", got.FunctionTools, got.CliTools)
 	}
 
-	// 浏览器可用时 drive_browser 回到名单。
+	// 浏览器可用时 browser_drive 回到名单。
 	d.Installed.Browser.Installed = true
 	got = d.restrictToInstalled(agent.Agent{Config: agent.Config{FunctionTools: []string{tools.DriveBrowser}}})
 	if !slices.Equal(got.FunctionTools, []string{tools.DriveBrowser}) {

@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// ─── read_credentials ────────────────────────────────────────────────────────
+// ─── credential_read ────────────────────────────────────────────────────────
 
 var readCredentialsSchema = json.RawMessage(`{
   "type": "object",
@@ -30,7 +30,7 @@ func newReadCredentialsTool(deps Deps, timeout time.Duration) *readCredentialsTo
 	return t
 }
 
-func (t *readCredentialsTool) Name() string      { return "read_credentials" }
+func (t *readCredentialsTool) Name() string      { return "credential_read" }
 func (t *readCredentialsTool) ShortDesc() string { return "读取本 host 预录入真实身份" }
 func (t *readCredentialsTool) Desc() string {
 	return "读取本 host 预录入的真实身份（cookie/token/body 字段），可直接拼请求做重放/越权测试。"
@@ -42,7 +42,7 @@ func (t *readCredentialsTool) Execute(ctx context.Context, args json.RawMessage)
 		Host string `json:"host"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("read_credentials: invalid args: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("credential_read: invalid args: %v", err)}, nil
 	}
 	host := a.Host
 	if host == "" {
@@ -51,7 +51,7 @@ func (t *readCredentialsTool) Execute(ctx context.Context, args json.RawMessage)
 
 	identities, err := t.deps.Creds.GetIdentitiesByHost(ctx, host)
 	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("read_credentials: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("credential_read: %v", err)}, nil
 	}
 	// task 域过滤：本 task 的自动会话身份 + host 级共享身份（无 task: 前缀）。
 	// 其他 task 的会话身份不回显——共享凭证库下的跨任务隔离（读取通道）。
@@ -69,19 +69,19 @@ func (t *readCredentialsTool) Execute(ctx context.Context, args json.RawMessage)
 	}
 	b, err := json.MarshalIndent(identities, "", "  ")
 	if err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("read_credentials: marshal failed: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("credential_read: marshal failed: %v", err)}, nil
 	}
 	return registry.ToolResult{
 		Output: string(b),
 		Signal: &registry.Signal{
 			Kind:     registry.SignalCredentialDump,
-			ToolName: "read_credentials",
+			ToolName: "credential_read",
 			Content:  fmt.Sprintf("返回 %d 条身份", len(identities)),
 		},
 	}, nil
 }
 
-// ─── write_credential ────────────────────────────────────────────────────────
+// ─── credential_write ────────────────────────────────────────────────────────
 
 var writeCredentialSchema = json.RawMessage(`{
   "type": "object",
@@ -117,12 +117,12 @@ func newWriteCredentialTool(deps Deps, timeout time.Duration) *writeCredentialTo
 	return t
 }
 
-func (t *writeCredentialTool) Name() string      { return "write_credential" }
+func (t *writeCredentialTool) Name() string      { return "credential_write" }
 func (t *writeCredentialTool) ShortDesc() string { return "录入活凭证" }
 func (t *writeCredentialTool) Desc() string {
 	return "把刚拿到的活凭证录入本 host 凭证池，供同 task 下其他执行者共享复用。" +
 		"username 必须是该账号真实登录用户名（如 admin），禁止自造代号" +
-		"（admin-low、xxx_r2 这类后缀是噪声）；同一账号先 read_credentials 查既有用户名并原样复用。"
+		"（admin-low、xxx_r2 这类后缀是噪声）；同一账号先 credential_read 查既有用户名并原样复用。"
 }
 func (t *writeCredentialTool) Schema() json.RawMessage { return writeCredentialSchema }
 
@@ -138,7 +138,7 @@ func (t *writeCredentialTool) Execute(ctx context.Context, args json.RawMessage)
 		} `json:"credentials"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: "write_credential: 解析参数失败: " + err.Error()}, nil
+		return registry.ToolResult{Error: "credential_write: 解析参数失败: " + err.Error()}, nil
 	}
 	if a.Host == "" {
 		a.Host = t.deps.Host
@@ -155,7 +155,7 @@ func (t *writeCredentialTool) Execute(ctx context.Context, args json.RawMessage)
 	identity := credential.Identity{Username: a.Username, Role: a.Role, Credentials: creds}
 
 	if err := t.deps.Creds.SaveIdentities(ctx, a.Host, []credential.Identity{identity}); err != nil {
-		return registry.ToolResult{Error: fmt.Sprintf("write_credential: %v", err)}, nil
+		return registry.ToolResult{Error: fmt.Sprintf("credential_write: %v", err)}, nil
 	}
 	return registry.ToolResult{Output: fmt.Sprintf("凭证已写入: host=%s username=%s", a.Host, a.Username)}, nil
 }

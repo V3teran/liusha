@@ -1,5 +1,6 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode } from 'react'
 import type { HistoryOptions } from '@/hooks/useSelectedParam'
+import { useSearchDraft } from '@/hooks/useDebouncedSearch'
 import type { TrafficFilters } from '@/api/types'
 import { FilterBar } from '@/components/FilterBar'
 import { SearchInput } from '@/components/SearchInput'
@@ -12,6 +13,8 @@ interface TrafficFilterBarProps {
   contentTypes: string[]
   onChange: (next: TrafficFilters, opts?: HistoryOptions) => void
   onReset: () => void
+  /** 按当前的筛选重取一遍列表（搜索框上的「刷新」） */
+  onRefresh: () => void
   trailing?: ReactNode
 }
 
@@ -27,21 +30,9 @@ const STATUS_CLASSES: Array<{ value: string; label: string }> = [
 /**
  * TrafficFilterBar - 流量筛选栏：类型/方法/状态下拉 → 搜索（300ms 防抖）→ 时间范围 → 清空 →（右）分页。
  */
-export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, trailing }: TrafficFilterBarProps) {
-  // 搜索框本地态 + 300ms 防抖：search 每键击直写 URL 会连环发请求（流量表是全系统增长最快的表），
-  // 对齐 LlmAuditSearchBar 的防抖口径。外部变化（清空筛选/回退）即时回填本地态。
-  const [localSearch, setLocalSearch] = useState(filters.search)
-  useEffect(() => {
-    setLocalSearch(filters.search)
-  }, [filters.search])
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localSearch !== filters.search) {
-        onChange({ ...filters, search: localSearch }, { replace: true })
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [localSearch, filters, onChange])
+export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, onRefresh, trailing }: TrafficFilterBarProps) {
+  // 搜索词进 URL：输入停顿后才写，不逐键发请求（流量表是全系统增长最快的表）
+  const search = useSearchDraft(filters.search, (next) => onChange({ ...filters, search: next }, { replace: true }), )
 
   const hasFilter = !!(
     filters.method ||
@@ -98,8 +89,10 @@ export function TrafficFilterBar({ filters, contentTypes, onChange, onReset, tra
 
       <SearchInput
         className="w-56"
-        value={localSearch}
-        onChange={setLocalSearch}
+        value={search.draft}
+        onChange={search.setDraft}
+        onSubmit={search.submit}
+        onRefresh={onRefresh}
         placeholder="搜索主机、URL（* 通配）"
         ariaLabel="搜索主机或 URL（支持 * 通配）"
       />

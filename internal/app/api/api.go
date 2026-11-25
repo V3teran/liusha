@@ -132,7 +132,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 	// runtime.step_llm_timeout_seconds）+ llm_invocation 审计。这些调用没有外层重认领循环，
 	// 额度窗口内、名额排满时都不在调用内等待：立即交还，用户当场看到原因，而不是等到连接超时。
 	stepLLMTimeout := time.Duration(cfg.Runtime.StepLLMTimeoutSeconds) * time.Second
-	llmRouter := fwllm.NewRouterWithOpts(llmStore.AsRouterStore(llmKeyCipher), cfg.LLM.Retry.Options(), cfg.LLM.AccountConcurrency)
+	llmRouter := fwllm.NewRouterWithOpts(llmStore.AsRouterStore(llmKeyCipher), llmstore.RetryOptions(cfg.LLM.Retry), cfg.LLM.AccountConcurrency)
 	llmRouter.FailFast()
 	llmRouter.SetProviderWrapper(func(p fwllm.Provider) fwllm.Provider {
 		return fwllm.InstrumentProvider(fwllm.WithDynamicCallTimeout(p,

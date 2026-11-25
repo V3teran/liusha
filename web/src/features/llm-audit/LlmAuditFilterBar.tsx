@@ -3,7 +3,11 @@ import type { LLMInvocationFilters } from '@/api/types'
 import { FilterBar } from '@/components/FilterBar'
 import { Select } from '@/components/ui/Select'
 import { DateTimeRange } from '@/components/ui/DateTimeRange'
-import { LlmAuditSearchBar } from './LlmAuditSearchBar'
+import { ScopeChip } from '@/features/relations/ScopeChip'
+import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
+import { SearchInput } from '@/components/SearchInput'
+import { agentLabel } from '@/lib/agentColor'
+import { useSearchDraft } from '@/hooks/useDebouncedSearch'
 
 interface LlmAuditFilterBarProps {
   filters: LLMInvocationFilters
@@ -13,6 +17,8 @@ interface LlmAuditFilterBarProps {
   onSearchChange: (value: string) => void
   onChange: (next: LLMInvocationFilters) => void
   onReset: () => void
+  /** 按当前的筛选重取一遍列表（搜索框上的「刷新」） */
+  onRefresh: () => void
   trailing?: ReactNode
 }
 
@@ -20,15 +26,27 @@ interface LlmAuditFilterBarProps {
  * LlmAuditFilterBar - 模型日志筛选栏
  *
  * 全站统一筛选顺序（对齐 TrafficFilterBar/TaskFilterBar/发现页）：
- * 枚举下拉（粗→细：角色→模型）→ 关键词搜索 → 时间范围 → 布尔开关 → 清空 →（最右）分页。
- * 搜索框自带 300ms 防抖（LlmAuditSearchBar 内置）。时间范围在 URL 中保存
- * datetime-local 原值，由 API 层（api/llmaudit.ts）发送前换算为 ISO。
+ * 范围（从其它页面跳来时）→ 枚举下拉（粗→细：角色→模型）→ 关键词搜索 → 时间范围 → 布尔开关
+ * → 清空 →（最右）分页。
+ * 时间范围在 URL 中保存 datetime-local 原值，由 API 层（api/llmaudit.ts）发送前换算为 ISO。
  */
-export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChange, onChange, onReset, trailing }: LlmAuditFilterBarProps) {
-  const hasFilter = !!(filters.role || filters.model || filters.onlyErr || filters.start || filters.end || search)
+export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChange, onChange, onReset, onRefresh, trailing }: LlmAuditFilterBarProps) {
+  const query = useSearchDraft(search, onSearchChange)
+  const hasFilter = !!(
+    filters.task ||
+    filters.conversation ||
+    filters.role ||
+    filters.model ||
+    filters.onlyErr ||
+    filters.start ||
+    filters.end ||
+    search
+  )
+  const scope = scopeOf({ task: filters.task, conversation: filters.conversation })
 
   return (
-    <FilterBar label="LLM 调用筛选" canReset={hasFilter} onReset={onReset} trailing={trailing}>
+    <FilterBar label="模型日志筛选" canReset={hasFilter} onReset={onReset} trailing={trailing}>
+      {scope && <ScopeChip scope={scope} onClear={() => onChange({ ...filters, ...NO_SCOPE })} />}
       <Select
         value={filters.role}
         onChange={(e) => onChange({ ...filters, role: e.target.value })}
@@ -36,9 +54,10 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
         aria-label="按角色筛选"
       >
         <option value="">全部角色</option>
+        {/* 选项显示中文名（与表格里的徽章同一份身份登记）；没登记过的角色名原样显示 */}
         {roles.map((r) => (
           <option key={r} value={r}>
-            {r}
+            {agentLabel(r)}
           </option>
         ))}
       </Select>
@@ -57,7 +76,14 @@ export function LlmAuditFilterBar({ filters, roles, models, search, onSearchChan
         ))}
       </Select>
 
-      <LlmAuditSearchBar value={search} onChange={onSearchChange} />
+      <SearchInput
+        className="w-64"
+        value={query.draft}
+        onChange={query.setDraft}
+        onSubmit={query.submit}
+        onRefresh={onRefresh}
+        placeholder="搜索任务、对话、批次 ID"
+      />
 
       <DateTimeRange
         start={filters.start}

@@ -1,6 +1,4 @@
-import { useState } from 'react'
 import { ChevronRight, Loader2, CheckCircle2, XCircle, MinusCircle } from 'lucide-react'
-import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { cn } from '@/lib/utils'
 
 /** 配对的执行结果（一动作一卡：调用与观测同一张卡呈现）。 */
@@ -13,10 +11,14 @@ export interface ToolResultInfo {
 interface ToolCallCardProps {
   tool: string
   args: string
-  agentName?: string
+  /** 左侧色条的颜色：取所属智能体的身份色。它所在的卡已经表明是谁调的，卡内不再重复身份标签 */
+  accent?: string
   running?: boolean // 执行中：已发 tool_call 未见配对 tool_result（任务活跃时）
   ended?: boolean // 任务已终态：无结果的悬挂 call 是被中断，不是执行中
   result?: ToolResultInfo // 已配对的结果；与 running 互斥
+  /** 展开状态由时间线持有：这一轮从在途变成已出终稿时卡片会换位置重挂，本地状态会丢 */
+  open: boolean
+  onToggle: () => void
 }
 
 function prettyArgs(args: string): string {
@@ -36,11 +38,9 @@ function resultPreview(r: ToolResultInfo): string {
 /**
  * ToolCallCard - 工具调用卡片
  */
-export function ToolCallCard({ tool, args, agentName, running, ended, result }: ToolCallCardProps) {
-  const [open, setOpen] = useState(false)
+export function ToolCallCard({ tool, args, accent, running, ended, result, open, onToggle }: ToolCallCardProps) {
   const pretty = prettyArgs(args)
   const hasArgs = !!pretty && pretty !== '{}'
-  const accent = agentAccent(agentName)
   const failed = !!result?.err
   const success = result && !failed
   const interrupted = !running && !result && !!ended
@@ -50,21 +50,22 @@ export function ToolCallCard({ tool, args, agentName, running, ended, result }: 
       data-card="tool-call"
       data-running={!!running}
       data-error={failed}
-      className="self-start max-w-[90%] animate-slide-up"
+      className="self-start max-w-[90%]"
     >
       {/* 卡片头部：可点击展开/折叠 */}
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
-        style={agentName ? { borderLeftColor: accent.accent } : undefined}
+        onClick={onToggle}
+        aria-expanded={open}
+        style={accent ? { borderLeftColor: accent } : undefined}
         className={cn(
           'group/tool inline-flex w-full items-center gap-2.5 rounded-lg border-l-2 border-r border-y',
-          'bg-surface px-4 py-2.5 text-sm text-text',
+          'bg-surface px-3 py-2 text-sm text-text',
           'transition-colors duration-200',
           failed
             ? 'border-r-status-error border-y-status-error bg-status-error/5 hover:bg-status-error/10'
             : 'border-r-border border-y-border hover:border-r-accent/40 hover:border-y-accent/40 hover:bg-surface-2',
-          !agentName && 'border-l-accent/30',
+          !accent && 'border-l-accent/30',
         )}
       >
         {/* 展开指示器 */}
@@ -104,15 +105,6 @@ export function ToolCallCard({ tool, args, agentName, running, ended, result }: 
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1">
           <span className="flex-shrink-0 text-xs text-text-secondary">调用</span>
           <code className="font-mono text-sm font-semibold text-accent">{tool}</code>
-
-          {agentName && (
-            <span
-              className="flex-shrink-0 rounded-md px-2 py-0.5 font-mono text-xs font-medium"
-              style={{ color: accent.accent, background: accent.soft }}
-            >
-              {agentLabel(agentName)}
-            </span>
-          )}
 
           {/* 耗时 */}
           {!running && result && (

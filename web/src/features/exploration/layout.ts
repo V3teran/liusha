@@ -7,15 +7,17 @@
  * 卡片尺寸固定（与 ExplorationNodeCard 严格一致），dagre 估算即精确，
  * 连线不会错位。
  *
- * 边的三种关系：
- *  - generates  推导：中性实线（颜色留给节点，避免满屏彩虹）
- *  - triggers   滋生：琥珀虚线，发现坐实后派生新目标/动作的回边一眼可辨
- *  - supersedes 吸收：紫色长虚线，新派生目标接管旧目标的范围
+ * 图上有三种关系，画成四种线：
+ *  - 归属：目标 → 它名下的动作（generates）。动作都挂在根目标下，这条边每个动作都有，
+ *    大图上是从根目标铺开的一片扇形——画成细点线，不压过携带信息的边
+ *  - 推导：动作 → 观测 → 结果（generates），中性实线（颜色留给节点，避免满屏彩虹）
+ *  - 滋生：结果 → 目标 / 动作（triggers），琥珀虚线——坐实的结果催生了新方向或新动作
+ *  - 吸收：新派生目标 → 被它接管的旧目标（supersedes），紫色长虚线
  */
 
 import dagre from '@dagrejs/dagre'
 import { MarkerType, type BuiltInEdge, type Edge, type Node } from '@xyflow/react'
-import type { ExplorationGraph, GraphNode, Verification } from '@/api/explorationgraph'
+import type { ExplorationGraph, GraphEdge, GraphNode, Verification } from '@/api/explorationgraph'
 
 export const NODE_WIDTH = 264
 export const NODE_HEIGHT = 104 // h-26
@@ -31,39 +33,93 @@ export interface GraphStats {
   total: number
   edgeCount: number
   byKind: Record<string, number>
+  /** 滋生与吸收两种边的条数（全量）：没有就不给「只看方向关系」的入口 */
+  directionEdgeCount: number
+}
+
+/** 图上的三种关系（库里的 rel）。 */
+export type Relation = 'generates' | 'triggers' | 'supersedes'
+
+/** 边的画法：归属是 generates 里目标指向动作的那一种。 */
+export type EdgeLook = Relation | 'ownership'
+
+export interface EdgeLookStyle {
+  color: string
+  width: number
+  /** 虚线节奏；不写即实线 */
+  dash?: string
+  /** 箭头大小（与线宽相称） */
+  marker: number
 }
 
 // 边色是亮暗双主题通用的固定中间调（节点/连线墨水的既定用色口径），
 // 取值以「两主题背景上均 ≥3:1 图形对比度」为硬约束：
-//  - 推导/依赖共用 slate-500：slate-400 在浅色主题仅 2.4:1 会没入背景，
-//    且让次要的依赖边反而比主干推导边更显眼（层级倒置）；
-//    两者靠线型（实线/点线）区分，色相保持克制
-//  - 滋生用 amber-600：它是全图唯一的彩色关系边，amber-500 浅色下仅 2:1
+//  - 归属与推导共用 slate-500：slate-400 在浅色主题仅 2.4:1 会没入背景；两者靠线型
+//    （细点线 / 实线）分主次，色相保持克制
+//  - 滋生用 amber-600：它是全图里少见的彩色关系边，amber-500 浅色下仅 2:1
 //  - 吸收回目标家族色（violet-500，与目标节点的 accent 同谱）：只出现在
 //    目标 ↔ 目标之间，长虚线与滋生的短虚线区分
-export const EDGE_COLORS = {
-  generates: '#64748b',
-  triggers: '#d97706',
-  supersedes: '#8b5cf6',
-} as const
+export const EDGE_LOOKS: Record<EdgeLook, EdgeLookStyle> = {
+  generates: { color: '#64748b', width: 1.6, marker: 14 },
+  triggers: { color: '#d97706', width: 1.6, dash: '6 4', marker: 14 },
+  supersedes: { color: '#8b5cf6', width: 1.4, dash: '10 6', marker: 14 },
+  ownership: { color: '#64748b', width: 1.1, dash: '2 5', marker: 11 },
+}
 
+/** 图例的顺序：先三种携带信息的关系，归属（每个动作都有）在最后。 */
+export const EDGE_LOOK_ORDER: readonly EdgeLook[] = ['generates', 'triggers', 'supersedes', 'ownership']
+
+export const EDGE_LOOK_LABELS: Record<EdgeLook, string> = {
+  generates: '推导',
+  triggers: '滋生',
+  supersedes: '吸收',
+  ownership: '归属',
+}
+
+/** 滋生与吸收：结果催生方向、方向之间吸收——同是结果分析在图上留下的关系。 */
+function isDirectionEdge(e: GraphEdge): boolean {
+  return e.rel === 'triggers' || e.rel === 'supersedes'
+}
+
+/** 一条边该用哪种画法：目标指向动作的 generates 是归属，其余按关系；不认识的关系按推导画（照常显示）。 */
+export function edgeLook(e: GraphEdge, kindById: Map<string, string>): EdgeLook {
+  if (e.rel === 'generates' && kindById.get(e.src_id) === 'objective') return 'ownership'
+  if (e.rel === 'triggers' || e.rel === 'supersedes') return e.rel
+  return 'generates'
+}
+
+/**
+ * 把任务的探索图变成画布上的节点与边。
+ *
+ * directionOnly（只看方向关系）把图收缩到滋生与吸收两种边及它们两端的节点：这两种边一次
+ * 结果分析才添几条，在整图里淹没在推导链与归属的扇形里；收缩后重排布局，一张图看得全。
+ */
 export function buildFlowGraph(
   graph: ExplorationGraph,
   filterKind: string,
   filterState: string,
   verificationsByNode: Map<string, Verification>,
+  directionOnly = false,
 ): { nodes: ExplorationFlowNode[]; edges: Edge[]; stats: GraphStats } {
   // 统计始终基于全量数据（筛选只影响画布可见性）
   const byKind: Record<string, number> = {}
   for (const n of graph.nodes) byKind[n.kind] = (byKind[n.kind] ?? 0) + 1
-  const stats: GraphStats = { total: graph.nodes.length, edgeCount: graph.edges.length, byKind }
+  const stats: GraphStats = {
+    total: graph.nodes.length,
+    edgeCount: graph.edges.length,
+    byKind,
+    directionEdgeCount: graph.edges.filter(isDirectionEdge).length,
+  }
 
+  const shownEdges = directionOnly ? graph.edges.filter(isDirectionEdge) : graph.edges
+  const onShownEdge = new Set(shownEdges.flatMap((e) => [e.src_id, e.dst_id]))
   const visible = new Set(
     graph.nodes
       .filter(
         (n) =>
           (filterKind === 'all' || n.kind === filterKind) &&
-          (filterState === 'all' || n.state === filterState),
+          (filterState === 'all' || n.state === filterState) &&
+          (!directionOnly || onShownEdge.has(n.id)),
       )
       .map((n) => n.id),
   )
@@ -82,29 +138,25 @@ export function buildFlowGraph(
     }))
 
   const stateById = new Map(graph.nodes.map((n) => [n.id, n.state ?? '']))
-
-  const styled = (color: string, strokeWidth: number, dasharray?: string) => ({
-    style: { stroke: color, strokeWidth, ...(dasharray ? { strokeDasharray: dasharray } : {}) },
-    markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color },
-  })
+  const kindById = new Map(graph.nodes.map((n) => [n.id, n.kind]))
 
   // BuiltInEdge：smoothstep 的 pathOptions 只在联合类型的对应分支上（基础 Edge 无此字段）
-  const edges: BuiltInEdge[] = graph.edges
+  const edges: BuiltInEdge[] = shownEdges
     .filter((e) => visible.has(e.src_id) && visible.has(e.dst_id))
-    .map((e, idx) => ({
-      id: `${e.src_id}-${e.dst_id}-${e.rel}-${idx}`,
-      source: e.src_id,
-      target: e.dst_id,
-      type: 'smoothstep',
-      pathOptions: { borderRadius: 14 },
-      // 执行中动作的出边流动：图是运行时探索图，活跃工作可感知
-      animated: stateById.get(e.src_id) === 'running',
-      ...(e.rel === 'triggers'
-        ? styled(EDGE_COLORS.triggers, 1.6, '6 4')
-        : e.rel === 'supersedes'
-          ? styled(EDGE_COLORS.supersedes, 1.4, '10 6')
-          : styled(EDGE_COLORS.generates, 1.6)),
-    }))
+    .map((e, idx) => {
+      const look = EDGE_LOOKS[edgeLook(e, kindById)]
+      return {
+        id: `${e.src_id}-${e.dst_id}-${e.rel}-${idx}`,
+        source: e.src_id,
+        target: e.dst_id,
+        type: 'smoothstep',
+        pathOptions: { borderRadius: 14 },
+        // 执行中动作的出边流动：图是运行时探索图，活跃工作可感知
+        animated: stateById.get(e.src_id) === 'running',
+        style: { stroke: look.color, strokeWidth: look.width, ...(look.dash ? { strokeDasharray: look.dash } : {}) },
+        markerEnd: { type: MarkerType.ArrowClosed, width: look.marker, height: look.marker, color: look.color },
+      }
+    })
 
   return { nodes: layoutLR(nodes, edges), edges, stats }
 }
@@ -155,10 +207,10 @@ export function applyFocus(
       const dim = (c: string) => c + '22'
       return {
         ...e,
-        style: { ...base, stroke: dim(typeof base.stroke === 'string' ? base.stroke : EDGE_COLORS.generates) },
+        style: { ...base, stroke: dim(typeof base.stroke === 'string' ? base.stroke : EDGE_LOOKS.generates.color) },
         markerEnd:
           e.markerEnd && typeof e.markerEnd === 'object'
-            ? { ...e.markerEnd, color: dim(typeof e.markerEnd.color === 'string' ? e.markerEnd.color : EDGE_COLORS.generates) }
+            ? { ...e.markerEnd, color: dim(typeof e.markerEnd.color === 'string' ? e.markerEnd.color : EDGE_LOOKS.generates.color) }
             : e.markerEnd,
       }
     }),

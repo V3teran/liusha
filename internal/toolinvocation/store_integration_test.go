@@ -37,7 +37,7 @@ func TestDeleteOlderThanPostgres(t *testing.T) {
 	base := time.Now().Add(-24 * time.Hour).Truncate(time.Second)
 	appendAt := func(at time.Time) {
 		id, err := store.Append(ctx, Invocation{AgentRunID: runID,
-			TaskID: taskID, ToolName: "run_command", DurationMs: 10})
+			TaskID: taskID, ToolName: "command_run", DurationMs: 10})
 		if err != nil {
 			t.Fatalf("写入: %v", err)
 		}
@@ -100,9 +100,9 @@ func TestAppendSurvivesEndedContextPostgres(t *testing.T) {
 
 	ended, cancel := context.WithTimeout(ctx, -time.Second)
 	defer cancel()
-	const timeoutMsg = "工具 run_command 执行超时（30s）"
+	const timeoutMsg = "工具 command_run 执行超时（30s）"
 	id, err := store.Append(ended, Invocation{AgentRunID: runID, TaskID: taskID,
-		ToolName: "run_command", DurationMs: 30000, ErrorMessage: timeoutMsg})
+		ToolName: "command_run", DurationMs: 30000, ErrorMessage: timeoutMsg})
 	if err != nil {
 		t.Fatalf("ctx 已结束时记录仍应写下: %v", err)
 	}

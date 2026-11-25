@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode } from 'react'
 import type { TaskFilters } from '@/api/types'
 import { FilterBar } from '@/components/FilterBar'
 import { SearchInput } from '@/components/SearchInput'
@@ -10,11 +10,14 @@ import { ScopeChip } from '@/features/relations/ScopeChip'
 import { NO_SCOPE, scopeOf } from '@/features/relations/scope'
 import { hasTaskFilter } from './useTaskFilters'
 import type { HistoryOptions } from '@/hooks/useSelectedParam'
+import { useSearchDraft } from '@/hooks/useDebouncedSearch'
 
 interface TaskFilterBarProps {
   filters: TaskFilters
   onChange: (next: TaskFilters, opts?: HistoryOptions) => void
   onReset: () => void
+  /** 按当前的筛选重取一遍列表（搜索框上的「刷新」） */
+  onRefresh: () => void
   trailing?: ReactNode
 }
 
@@ -28,19 +31,9 @@ const STATUSES: Array<{ value: string; label: string }> = [
  * 任务筛选栏（全站统一顺序）：范围（从其它页面跳来时）→ 来源/状态下拉 → 搜索（300ms 防抖）→
  * 创建时间范围 → 清空 →（右）分页。
  */
-export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilterBarProps) {
-  const [localSearch, setLocalSearch] = useState(filters.search)
-  useEffect(() => {
-    setLocalSearch(filters.search)
-  }, [filters.search])
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localSearch !== filters.search) {
-        onChange({ ...filters, search: localSearch }, { replace: true })
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [localSearch, filters, onChange])
+export function TaskFilterBar({ filters, onChange, onReset, onRefresh, trailing }: TaskFilterBarProps) {
+  // 搜索词进 URL（打字不是导航，改写当前历史）；输入停顿后才写，不逐字发请求
+  const search = useSearchDraft(filters.search, (next) => onChange({ ...filters, search: next }, { replace: true }), )
 
   const scope = scopeOf(filters)
   return (
@@ -76,8 +69,10 @@ export function TaskFilterBar({ filters, onChange, onReset, trailing }: TaskFilt
 
       <SearchInput
         className="w-64"
-        value={localSearch}
-        onChange={setLocalSearch}
+        value={search.draft}
+        onChange={search.setDraft}
+        onSubmit={search.submit}
+        onRefresh={onRefresh}
         placeholder="搜索目标、批次名"
         ariaLabel="搜索目标或批次名"
       />

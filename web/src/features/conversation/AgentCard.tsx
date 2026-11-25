@@ -12,6 +12,11 @@ interface AgentCardProps {
   copyText?: string
   children: ReactNode
   className?: string
+  /**
+   * 卡内没有写明是谁时置位：头像带可读的名字，读屏与色弱的用户才认得出这张卡属于哪个智能体。
+   * 缺省不带——结论卡的内容里已有「执行 推理」这样的文字身份，头像再念一遍是重复播报。
+   */
+  nameAvatar?: boolean
 }
 
 /**
@@ -25,6 +30,7 @@ export function AgentCard({
   copyText,
   children,
   className,
+  nameAvatar = false,
 }: AgentCardProps) {
   const profile = agentProfile(agentName)
   const Icon = profile.icon
@@ -40,6 +46,8 @@ export function AgentCard({
               （会话列表操作钮、配置页身份 chip），对话流是高密度时间线，
               头像要能认人但不与正文争宽度。 */}
           <div
+            role={nameAvatar ? 'img' : undefined}
+            aria-label={nameAvatar && profile.label ? `${profile.label}（${agentName}）` : undefined}
             className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full ring-1 ring-inset transition-shadow group-hover:ring-2"
             style={{
               color: profile.accent,

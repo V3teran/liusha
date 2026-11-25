@@ -21,7 +21,7 @@ import { LoadingState } from '@/components/ui/LoadingState'
 //   1. complexity → provider：行内 select 直选 provider（useSaveRoleRoute，空值=删路由）。
 //   2. agent → 档：每档一排归属 chip，点未归属 chip 即把智能体归入本档
 //      （useSaveAgentComplexity 移档，与「智能体」页复杂度下拉读写同一份数据）。
-// inspector/compactor 等内建路由键不在 agent 表、无法改档，仅在所属档只读展示。
+// inspector 等内建路由键不在 agent 表、无法改档，仅在所属档只读展示。
 // 排版：与「对话模型」分区同构——同一分区头解剖 + 同宽单卡表格行（三档），
 // 文档流排布随页面滚动。乐观更新在 useModelQueries 的 mutation 层（onMutate 写缓存 /
 // onError 回滚 / onSettled 失效），组件只消费 query data 派生视图。

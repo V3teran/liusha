@@ -7,10 +7,7 @@ package registry
 import (
 	"context"
 	"encoding/json"
-	"slices"
 	"time"
-
-	"github.com/V3teran/liusha/internal/override"
 )
 
 // ─────────────────────────────────────────────
@@ -99,16 +96,4 @@ func (b *BaseTool) WithTimeout(d time.Duration) *BaseTool {
 // SetTimeout 设置超时时间（setter 方法）。
 func (b *BaseTool) SetTimeout(d time.Duration) {
 	b.timeout = d
-}
-
-// Allows 报告 name 是否在白名单内——function_tools、cli_tools、skills 三类 agent 名单的唯一判定：
-//   - nil = 默认拒绝；
-//   - 空切片 = 空集（明确不装配任何项）；
-//   - 含通配 "*" = 全部（含以后新增）；
-//   - 其余 = 严格白名单。
-func Allows(allowlist []string, name string) bool {
-	if slices.Contains(allowlist, override.Wildcard) {
-		return true
-	}
-	return slices.Contains(allowlist, name)
 }

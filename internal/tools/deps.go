@@ -1,8 +1,8 @@
-// Package tools 提供跨角色共享的 function calling 域工具（共 11 个），每个工具实现
-// registry.Tool 接口；角色专属工具（planner 的 observe_state、monitor 的
-// publish_decision、evaluator 的 replay_for_verification 等）在各角色包内自建。
+// Package tools 提供跨角色共享的 function calling 域工具，每个工具实现 registry.Tool 接口；
+// 角色专属工具（planner 的 graph_read、monitor 的 decision_publish、evaluator 的
+// repro_replay 等）在各角色包内自建。
 //
-// 工具按功能域分文件：credentials / corpus / traffic / sandbox / skill / explore。
+// 工具按功能域分文件：credentials / corpus / websearch / traffic / sandbox / skill。
 // register.go 提供 RegisterAll 一次性注入所有工具到 registry.ToolRegistry。
 package tools
 
@@ -32,26 +32,28 @@ type Deps struct {
 
 	Tasks       *task.Store
 	Corpus      *corpus.Service
-	CorpusScope corpus.Scope // search_corpus 的可见范围
-	ProxyStore  *traffic.ProxyStore
-	AgentStore  *traffic.AgentStore
-	Creds       credential.Provider
-	Sandbox     CommandRunner // 沙盒命令执行（run_command / drive_browser）；nil 时这两个工具不注册
-	Skills      skill.Reader  // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 read_skill）
+	CorpusScope corpus.Scope // corpus_search 的可见范围
+	// WebSearch 是公开网页的检索后端（部署方接入的搜索接口）；nil 时 web_search 不注册。
+	WebSearch  WebSearcher
+	ProxyStore *traffic.ProxyStore
+	AgentStore *traffic.AgentStore
+	Creds      credential.Provider
+	Sandbox    CommandRunner // 沙盒命令执行（command_run / browser_drive）；nil 时这两个工具不注册
+	Skills     skill.Reader  // skill 渐进式加载（按 agent.skills 建的白名单视图；nil 不注册 skill_read）
 
-	// StepToolTimeoutSeconds 是 run_command 的超时钳制上限秒（runtime.step_tool_timeout_seconds：
+	// StepToolTimeoutSeconds 是 command_run 的超时钳制上限秒（runtime.step_tool_timeout_seconds：
 	// 配置里的出厂值或页面上的热改值，任务开始时快照）。注册表级超时与 LLM 自传 timeout_seconds
-	// 的钳制上界同源，杜绝「配置 1800 实际 120」的三重失效。构造 run_command 时要求为正——
+	// 的钳制上界同源，杜绝「配置 1800 实际 120」的三重失效。构造 command_run 时要求为正——
 	// 工具不内置出厂值的第二份。
 	StepToolTimeoutSeconds int
-	// 沙盒对外可达性契约（cognition 装配层注入）：run_command 工具描述据此
+	// 沙盒对外可达性契约（cognition 装配层注入）：command_run 工具描述据此
 	// 告知 LLM 可绑的对外监听端口段与 payload 回连地址。
 	ListenerPortStart int
 	ListenerPortCount int
 	CallbackHost      string
 
-	// RunTailBytes 是 run_command 输出保留尾部的字节数（runtime.run_tail_bytes：配置里的出厂值
-	// 或页面上的热改值）。构造 run_command 时要求为正。
+	// RunTailBytes 是 command_run 输出保留尾部的字节数（runtime.run_tail_bytes：配置里的出厂值
+	// 或页面上的热改值）。构造 command_run 时要求为正。
 	RunTailBytes int
 }
 

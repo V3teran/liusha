@@ -65,24 +65,24 @@ describe('config API 客户端', () => {
   })
 
   it('listToolCandidates 仅按 kind 过滤、拆出 tools 数组', async () => {
-    const fn = mockFetch(200, { tools: [{ name: 'read_credentials', kind: 'function', category: 'credentials', description: 'd', sort_order: 0 }], total: 1 })
+    const fn = mockFetch(200, { tools: [{ name: 'credential_read', kind: 'function', category: 'credentials', description: 'd', sort_order: 0 }], total: 1 })
     const tools = await listToolCandidates('function')
     expect(new URLSearchParams((fn.mock.calls[0][0] as string).split('?')[1]).get('kind')).toBe('function')
     expect(tools).toHaveLength(1)
-    expect(tools[0].name).toBe('read_credentials')
+    expect(tools[0].name).toBe('credential_read')
   })
 
   it('getTool 打 /tools/:name 并对名字做 URL 编码', async () => {
-    const fn = mockFetch(200, { tool: { name: 'run_command' }, agents: [] })
-    await getTool('run_command')
-    expect(fn.mock.calls[0][0]).toBe('/api/tools/run_command')
+    const fn = mockFetch(200, { tool: { name: 'command_run' }, agents: [] })
+    await getTool('command_run')
+    expect(fn.mock.calls[0][0]).toBe('/api/tools/command_run')
   })
 
   it('assignTool 打 PUT /tools/:name/agents/:code 带 involved', async () => {
     const fn = mockFetch(200, { code: 'recon', involved: true })
-    await assignTool('write_credential', 'recon', true)
+    await assignTool('credential_write', 'recon', true)
     const [url, init] = fn.mock.calls[0]
-    expect(url).toBe('/api/tools/write_credential/agents/recon')
+    expect(url).toBe('/api/tools/credential_write/agents/recon')
     expect(init.method).toBe('PUT')
     expect(JSON.parse(init.body).involved).toBe(true)
   })

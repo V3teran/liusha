@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// AgentStore 封装 agent_traffic 表——agent 自产流量，按 task 归属，是 replay/list/view_traffic 弹药。
+// AgentStore 封装 agent_traffic 表——agent 自产流量，按 task 归属，是 replay/list/traffic_view 弹药。
 type AgentStore struct {
 	pool        *pgxpool.Pool
 	maxReqBody  int
@@ -68,7 +68,7 @@ func (s *AgentStore) GetByID(ctx context.Context, id int64) (AgentTraffic, error
 	return f, nil
 }
 
-// ListByTaskFiltered 在 task 范围内按多维过滤查 agent_traffic 摘要（list_traffic 工具用）。
+// ListByTaskFiltered 在 task 范围内按多维过滤查 agent_traffic 摘要（traffic_list 工具用）。
 // 按 created_at DESC 排（最新优先）。
 func (s *AgentStore) ListByTaskFiltered(ctx context.Context, taskID string, f AgentListFilter) ([]AgentSummary, error) {
 	if f.Limit <= 0 {

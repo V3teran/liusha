@@ -12,7 +12,7 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// ─── search_corpus ───────────────────────────────────────────────────────────
+// ─── corpus_search ───────────────────────────────────────────────────────────
 
 var searchCorpusSchema = json.RawMessage(fmt.Sprintf(`{
   "type": "object",
@@ -34,7 +34,7 @@ func newSearchCorpusTool(deps Deps, timeout time.Duration) *searchCorpusTool {
 	return t
 }
 
-func (t *searchCorpusTool) Name() string      { return "search_corpus" }
+func (t *searchCorpusTool) Name() string      { return "corpus_search" }
 func (t *searchCorpusTool) ShortDesc() string { return "检索跨任务长期知识库" }
 func (t *searchCorpusTool) Desc() string {
 	return "检索跨任务长期知识库：以往任务沉淀与人工编写的方法、经验与教训，范围是本任务场景下的知识与通用知识。" +
@@ -49,18 +49,18 @@ func (t *searchCorpusTool) Execute(ctx context.Context, args json.RawMessage) (r
 		TopK  int    `json:"top_k"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: "search_corpus: 解析参数失败: " + err.Error()}, nil
+		return registry.ToolResult{Error: "corpus_search: 解析参数失败: " + err.Error()}, nil
 	}
 	if strings.TrimSpace(a.Query) == "" {
-		return registry.ToolResult{Error: "search_corpus: query 必填"}, nil
+		return registry.ToolResult{Error: "corpus_search: query 必填"}, nil
 	}
 	res, err := t.deps.Corpus.Search(ctx, corpus.Query{Text: a.Query, Scope: t.deps.CorpusScope, Limit: a.TopK})
 	if err != nil {
 		if errors.Is(err, corpus.ErrInvalid) {
-			return registry.ToolResult{Error: "search_corpus: " + err.Error()}, nil
+			return registry.ToolResult{Error: "corpus_search: " + err.Error()}, nil
 		}
 		t.deps.Logger.Warn().Err(err).Msg("知识库检索失败")
-		return registry.ToolResult{Error: "search_corpus: 知识库检索失败"}, nil
+		return registry.ToolResult{Error: "corpus_search: 知识库检索失败"}, nil
 	}
 	return registry.ToolResult{Output: renderSearchResult(res)}, nil
 }

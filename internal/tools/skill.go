@@ -11,7 +11,7 @@ import (
 	"github.com/V3teran/liusha/internal/skill"
 )
 
-// read_skill 是 skill 渐进式加载的 Tier 2 通道：LLM 先在 system prompt 的
+// skill_read 是 skill 渐进式加载的 Tier 2 通道：LLM 先在 system prompt 的
 // skill 索引（Tier 1，仅 name+description）里按需选题，再经本工具拉完整正文。
 // Reader 由装配层按 agent.skills 声明建白名单视图（View）——未声明的 skill
 // 既不进 Tier 1 索引，也无法经本工具读取。
@@ -35,7 +35,7 @@ func newReadSkillTool(skills skill.Reader, timeout time.Duration) *readSkillTool
 	return t
 }
 
-func (t *readSkillTool) Name() string { return "read_skill" }
+func (t *readSkillTool) Name() string { return "skill_read" }
 func (t *readSkillTool) ShortDesc() string {
 	return "拉取技能手册全文（领域指南/工具手册）"
 }
@@ -49,17 +49,17 @@ func (t *readSkillTool) Execute(ctx context.Context, args json.RawMessage) (regi
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
-		return registry.ToolResult{Error: "read_skill: 解析参数失败: " + err.Error()}, nil
+		return registry.ToolResult{Error: "skill_read: 解析参数失败: " + err.Error()}, nil
 	}
 	if a.Name == "" {
-		return registry.ToolResult{Error: "read_skill: name 必填"}, nil
+		return registry.ToolResult{Error: "skill_read: name 必填"}, nil
 	}
 
 	card, err := t.skills.Load(ctx, a.Name)
 	if err != nil {
 		// 附上本视图可见的候选名，帮 LLM 一次纠偏（白名单外的名字在这里被拦下）。
 		var sb strings.Builder
-		fmt.Fprintf(&sb, "read_skill: %v", err)
+		fmt.Fprintf(&sb, "skill_read: %v", err)
 		if candidates := visibleSkillNames(ctx, t.skills); candidates != "" {
 			sb.WriteString("；可用: ")
 			sb.WriteString(candidates)

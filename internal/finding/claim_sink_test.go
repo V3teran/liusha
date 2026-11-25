@@ -106,7 +106,7 @@ func TestClaimSink_TaskHostFallbackErrorKeepsHostEmpty(t *testing.T) {
 // deriveTarget 对 steps 配方（recipe.steps 自由文本）也要抽出 method/path——
 // 台账的定位列（方法、路径）不该因配方形状不同而缺失。
 func TestDeriveTarget_StepsRecipe(t *testing.T) {
-	steps := json.RawMessage(`{"kind":"steps","recipe":{"steps":"发送 GET /search?q=%3Cimg%3E\n用 view_traffic 抓取响应确认标记\n浏览器访问同一 URL"}}`)
+	steps := json.RawMessage(`{"kind":"steps","recipe":{"steps":"发送 GET /search?q=%3Cimg%3E\n用 traffic_view 抓取响应确认标记\n浏览器访问同一 URL"}}`)
 	out := deriveTarget(steps)
 	if out == nil {
 		t.Fatal("steps 配方应抽出 target")

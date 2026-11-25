@@ -608,7 +608,7 @@ func TestAgent_VerifyObservationDeduplicatesSameRecipe(t *testing.T) {
 	}
 }
 
-// replayJudge 判定前自主复放 N 次（模拟 RouterJudge 的 replay_for_verification 调用）。
+// replayJudge 判定前自主复放 N 次（模拟 RouterJudge 的 repro_replay 调用）。
 type replayJudge struct {
 	verdict string
 	replay  ReplayFunc

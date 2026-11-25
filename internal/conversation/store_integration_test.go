@@ -46,7 +46,7 @@ func TestConversationStore_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppendMessage 1: %v", err)
 	}
-	meta := json.RawMessage(`{"tool":"run_command","tag":"sqlmap"}`)
+	meta := json.RawMessage(`{"tool":"command_run","tag":"sqlmap"}`)
 	m2, err := store.AppendMessage(ctx, c.ID, conversation.RoleAssistant, conversation.KindEvent, "sqlmap 注入确认", meta)
 	if err != nil {
 		t.Fatalf("AppendMessage 2: %v", err)

@@ -1,7 +1,7 @@
 // Package httpapi: 知识库 handler（前端「知识库」页）。
 //
 // 知识库是跨任务的长期知识：任务收尾沉淀与人工编写。页面提供浏览、检索测试（与 agent 的
-// search_corpus 同一检索）、录入、Markdown 导入、修改与删除。每条知识归属一个场景或通用；
+// corpus_search 同一检索）、录入、Markdown 导入、修改与删除。每条知识归属一个场景或通用；
 // 改了标题或正文的条目成为人工内容，此后任务收尾整合只能印证、不再改写它。
 package httpapi
 
@@ -343,7 +343,7 @@ func (h corpusHandlers) delete(c *gin.Context) {
 }
 
 // search 处理 POST /corpus/search {query, scenario, limit}：以 scenario 场景下的任务视角（空串 =
-// 无场景的任务）执行与 search_corpus 相同的检索 → {mode, fallback, hits:[{entry, score}]}。
+// 无场景的任务）执行与 corpus_search 相同的检索 → {mode, fallback, hits:[{entry, score}]}。
 func (h corpusHandlers) search(c *gin.Context) {
 	var req struct {
 		Query    string `json:"query"`

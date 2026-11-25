@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/V3teran/liusha/internal/agent"
+	"github.com/V3teran/liusha/internal/allowlist"
 	"github.com/V3teran/liusha/internal/bus"
 	configstore "github.com/V3teran/liusha/internal/configstore"
 	"github.com/V3teran/liusha/internal/constants"
@@ -81,8 +82,10 @@ type Deps struct {
 	Corpus   *corpus.Service
 	// CorpusScope 是本任务检索知识库的可见范围（任务场景的知识与通用知识）。
 	CorpusScope corpus.Scope
-	ProxyStore  *traffic.ProxyStore
-	AgentStore  *traffic.AgentStore
+	// WebSearch 是公开网页的检索后端（部署方接入了搜索接口才有）；nil 时 web_search 不注册。
+	WebSearch  tools.WebSearcher
+	ProxyStore *traffic.ProxyStore
+	AgentStore *traffic.AgentStore
 
 	MaxActionsPerTask int // 动作预算：一个任务最多执行多少个动作（0 = 不限）
 
@@ -113,7 +116,7 @@ type Deps struct {
 	ToolLimits ToolLimits
 
 	// SandboxListener 是沙盒对外可达性契约（config 启动期快照）：监听段 + 回连
-	// 地址，注入 run_command 工具描述（详见类型注释）。
+	// 地址，注入 command_run 工具描述（详见类型注释）。
 	SandboxListener SandboxListener
 
 	// 会话思考流（四 agent 推理实时进时间线）：两者齐备且 conversationID 非空才启用。
@@ -131,15 +134,15 @@ type ContextRatios struct {
 
 // ToolLimits 是工具运行时限制（系统配置 runtime 组快照）。
 type ToolLimits struct {
-	StepToolTimeoutSeconds int // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界）
-	RunTailBytes           int // run_command stdout/stderr 保留尾部字节数
+	StepToolTimeoutSeconds int // command_run 超时钳制上限秒（LLM 自传 timeout_seconds 的上界）
+	RunTailBytes           int // command_run stdout/stderr 保留尾部字节数
 	// ToolOutputTailBytes 是任意工具输出进 LLM 上下文前的全局尾部保留字节
 	// （ReAct 运行时统一收口，个别工具自身的裁剪先行）。
 	ToolOutputTailBytes int
 }
 
 // SandboxListener 是沙盒对外可达性契约（config sandbox 组启动期快照）：监听段
-// 与回连地址。注入 run_command 工具描述——LLM 必须知道「绑哪个端口段、payload
+// 与回连地址。注入 command_run 工具描述——LLM 必须知道「绑哪个端口段、payload
 // 里回连地址写什么」，反弹 shell / 代理 / payload 托管才可达。PortCount 0 = 未发布。
 type SandboxListener struct {
 	PortStart    int
@@ -157,7 +160,7 @@ type Report struct {
 
 // Run 驱动一次任务的认知循环：四个平级 Agent（planner/executor/evaluator/monitor）
 // 经 bus 广播协作，探索图为共享状态面，CompletionDetector 判定收敛后返回报告。
-// sb 是沙盒命令执行入口；nil 表示无沙盒（run_command/drive_browser 不注册）。
+// sb 是沙盒命令执行入口；nil 表示无沙盒（command_run/browser_drive 不注册）。
 //
 // 任务要做什么在探索图上（根目标，随任务创建、经 task.Store 改写），run 不另带目标。
 func Run(ctx context.Context, d *Deps, taskID, host, conversationID string, sb tools.CommandRunner) (Report, error) {
@@ -312,7 +315,7 @@ func (d *Deps) assembleStack(
 		Msg("Executor Agent 配置已加载")
 
 	// skill 渐进式加载视图：按各 agent 的 skills 声明从 DB 全集切白名单——
-	// Tier 1（frontmatter 索引进 system prompt）与 Tier 2（read_skill 正文）
+	// Tier 1（frontmatter 索引进 system prompt）与 Tier 2（skill_read 正文）
 	// 共用同一视图，声明什么暴露什么（nil=未装配，DB 声明为空同样不装配）。
 	executorSkillView := skillView(d.Skills, cfgs.executor.Skills)
 	evaluatorSkillView := skillView(d.Skills, cfgs.evaluator.Skills)
@@ -336,17 +339,18 @@ func (d *Deps) assembleStack(
 			Tasks:        d.Tasks,
 			Corpus:       d.Corpus,
 			CorpusScope:  d.CorpusScope,
+			WebSearch:    d.WebSearch, // web_search 依赖；未接入时不注册
 			ProxyStore:   d.ProxyStore,
 			AgentStore:   d.AgentStore,
 			Creds:        d.Creds,
-			Sandbox:      sb,         // run_command/drive_browser 依赖；nil 时这两个工具不注册
-			Skills:       skillsView, // read_skill 依赖；声明为空时不注册
+			Sandbox:      sb,         // command_run/browser_drive 依赖；nil 时这两个工具不注册
+			Skills:       skillsView, // skill_read 依赖；声明为空时不注册
 
-			// run_command 超时钳制与输出尾部保留（系统配置 runtime 组快照）
+			// command_run 超时钳制与输出尾部保留（系统配置 runtime 组快照）
 			StepToolTimeoutSeconds: d.ToolLimits.StepToolTimeoutSeconds,
 			RunTailBytes:           d.ToolLimits.RunTailBytes,
 
-			// 沙盒对外可达性契约（config 启动期快照）：run_command 描述注入
+			// 沙盒对外可达性契约（config 启动期快照）：command_run 描述注入
 			ListenerPortStart: d.SandboxListener.PortStart,
 			ListenerPortCount: d.SandboxListener.PortCount,
 			CallbackHost:      d.SandboxListener.CallbackHost,
@@ -367,10 +371,10 @@ func (d *Deps) assembleStack(
 
 	// planner。执行经验经 gatherContext 注入：gatherContext 拉全图观察
 	// （含事实类），规划者对执行产物的消费在图上闭环，无需第二套摘要管道。
-	// 跨任务知识库只经白名单 function 工具（search_corpus）按需检索，
+	// 跨任务知识库只经白名单 function 工具（corpus_search）按需检索，
 	// 不在规划输入里预先注入——战略层与执行层同等接通长期记忆。
-	// 白名单先与规划安全工具集求交：规划者不做执行面动作（run_command/
-	// drive_browser/http_request 是 executor/evaluator 的职责），白名单误配
+	// 白名单先与规划安全工具集求交：规划者不做执行面动作（command_run/
+	// browser_drive/http_request 是 executor/evaluator 的职责），白名单误配
 	// "*" 不得把执行工具武装给规划者——角色边界由代码守护而非运维自觉。
 	plannerTools := tools.BuildTools(toolDeps(executorSkillView), intersectPlannerSafeTools(cfgs.planner.FunctionTools))
 	for i := range plannerTools {
@@ -451,15 +455,15 @@ func (d *Deps) assembleStack(
 
 // plannerSafeTools 是规划者可持有的 function 工具上界（只读/检索面）。
 // 新增规划安全工具必须在此显式登记——这是角色边界的代码化。
-var plannerSafeTools = []string{"evaluate_progress", "observe_state", "search_corpus"}
+var plannerSafeTools = []string{"progress_evaluate", "graph_read", "corpus_search"}
 
-// intersectPlannerSafeTools 把声明白名单约束到规划安全工具集内（求交，判定同 registry.Allows）：
-// 「全部」= 安全集全部，执行面工具无论怎么配都进不来。图读工具（observe_state /
-// evaluate_progress）不走 BuildTools、由 planner.Plan 按原白名单自注册，不在求交影响面内。
+// intersectPlannerSafeTools 把声明白名单约束到规划安全工具集内（求交，判定同 allowlist.Allows）：
+// 「全部」= 安全集全部，执行面工具无论怎么配都进不来。图读工具（graph_read /
+// progress_evaluate）不走 BuildTools、由 planner.Plan 按原白名单自注册，不在求交影响面内。
 func intersectPlannerSafeTools(whitelist []string) []string {
 	out := make([]string, 0, len(plannerSafeTools))
 	for _, n := range plannerSafeTools {
-		if registry.Allows(whitelist, n) {
+		if allowlist.Allows(whitelist, n) {
 			out = append(out, n)
 		}
 	}
@@ -500,7 +504,7 @@ func (d *Deps) buildExecutorAgent(
 		Registry:            execRegistry,
 		FunctionTools:       cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
 		ToolsManifest:       filteredManifest,                                  // CLI 工具清单（白名单过滤后）
-		Skills:              skillCards(ctx, skillsView, d.Logger, "executor"), // Tier 1 skill 索引（正文按需 read_skill）
+		Skills:              skillCards(ctx, skillsView, d.Logger, "executor"), // Tier 1 skill 索引（正文按需 skill_read）
 		Charter:             cfg.Charter,                                       // 角色章程（生效值）
 		Scenario:            d.Scenario,                                        // 任务场景块（拼在系统提示词末尾）
 		Complexity:          cfg.Complexity,                                    // LLM 档位（agent 生效配置）
@@ -565,7 +569,7 @@ func (d *Deps) buildEvaluatorAgent(
 		WithCompactionTimeouts(d.compactionTimeouts()).
 		WithToolOutputTailBytes(d.ToolLimits.ToolOutputTailBytes).
 		WithThoughts(thoughts).
-		WithToolWrapper(reg.WrapTool). // judge 自有的 replay_for_verification 同入审计链
+		WithToolWrapper(reg.WrapTool). // judge 自有的 repro_replay 同入审计链
 		WithExtraTools(extraTools)
 
 	// 复现晋升门：交付管道（finding.ClaimSink，本部署把坐实的主张落进漏洞台账）在此装配，
@@ -594,7 +598,7 @@ func (d *Deps) buildEvaluatorAgent(
 	}
 	promoter := evaluator.New(d.Graph, claimSink).
 		WithReplayer(httprepro.Name, httprepro.NewReplayer().WithCredentials(d.Creds, host)).
-		WithJudge(judge). // ReAct 评估者：replay_for_verification + CLI 复核工具
+		WithJudge(judge). // ReAct 评估者：repro_replay + CLI 复核工具
 		WithLogger(d.Logger)
 
 	return evaluator.NewAgent(evaluator.AgentConfig{
@@ -611,7 +615,7 @@ func (d *Deps) buildEvaluatorAgent(
 }
 
 // skillView 按 agent.skills 声明从 DB 全集建白名单视图（渐进式加载两层共用）。
-// 后端未装配或声明为空 → 返回 nil 接口（read_skill 不注册、Tier 1 不渲染）——
+// 后端未装配或声明为空 → 返回 nil 接口（skill_read 不注册、Tier 1 不渲染）——
 // 语义与 function_tools/cli_tools 白名单一致：声明什么装配什么。
 func skillView(src skill.Reader, declared []string) skill.Reader {
 	if src == nil || len(declared) == 0 {
@@ -630,7 +634,7 @@ func skillCards(ctx context.Context, r skill.Reader, logger zerolog.Logger, agen
 	cards, err := r.Metas(ctx)
 	if err != nil {
 		logger.Warn().Err(err).Str("agent", agentCode).
-			Msg("skill 索引读取失败，本任务技能目录为空（read_skill 单条读可能仍可用）")
+			Msg("skill 索引读取失败，本任务技能目录为空（skill_read 单条读可能仍可用）")
 		return nil
 	}
 	return cards

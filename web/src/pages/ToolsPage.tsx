@@ -9,7 +9,7 @@ import { SearchInput } from '@/components/SearchInput'
 import { ChevronLeft } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
-import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+import { useDebouncedSearchState } from '@/hooks/useDebouncedSearch'
 import { toast } from '@/components/ui/toast'
 
 
@@ -19,9 +19,9 @@ import { toast } from '@/components/ui/toast'
 export function ToolsPage() {
   const [kind, setKind] = useState<KindFilter>('')
   const [query, setQuery] = useState('')
-  const debouncedQuery = useDebouncedSearch(query)
+  const search = useDebouncedSearchState(query)
 
-  const list = useToolList(kind, debouncedQuery)
+  const list = useToolList(kind, search.debounced)
   const tools = useMemo(() => list.data?.tools ?? [], [list.data])
 
   const [selected, setSelected] = useState<string | null>(null)
@@ -67,7 +67,15 @@ export function ToolsPage() {
 
       {/* 搜索移出标题行，与左栏种类 tab 同一视觉层级——筛选控件挨着数据，不占标题行。 */}
       <FilterBar label="工具筛选" canReset={query !== ''} onReset={() => setQuery('')}>
-        <SearchInput className="w-64" value={query} onChange={setQuery} placeholder="搜索工具名 / 描述" ariaLabel="搜索工具" />
+        <SearchInput
+          className="w-64"
+          value={query}
+          onChange={setQuery}
+          onSubmit={() => search.pending && search.flush()}
+          onRefresh={() => void list.refetch()}
+          placeholder="搜索工具名 / 描述"
+          ariaLabel="搜索工具"
+        />
       </FilterBar>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden px-6 py-4 md:grid-cols-[minmax(240px,320px)_1fr]">

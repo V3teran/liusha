@@ -19,8 +19,8 @@ type fakeLLMUsage struct {
 
 func (f *fakeLLMUsage) Flush(context.Context) error { f.flushed = true; return nil }
 
-func (f *fakeLLMUsage) AggregateByTask(_ context.Context, taskID string, _ llminvocation.ListFilter) (llminvocation.Aggregate, error) {
-	f.gotTask = taskID
+func (f *fakeLLMUsage) AggregateAll(_ context.Context, filter llminvocation.ListFilter) (llminvocation.Aggregate, error) {
+	f.gotTask = filter.TaskID
 	return f.agg, nil
 }
 

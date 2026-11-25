@@ -38,14 +38,19 @@ liusha 是多 agent 协作、基于 LLM 的自动化渗透测试平台（仅限�
 
 ## 仓库地图
 
-- `cmd/liusha`：唯一程序入口（子命令分发、`-env-file` / `-config`；配置文件不指定时取 `LIUSHA_CONFIG`，再取程序所在目录的 `config.yaml`）；`internal/app/<组件>` 是各组件的装配（`Run(ctx, cfg)`），`internal/app.Serve` 按层编排同进程运行。`cmd/e2e` 是开发用的端到端剧本触发器。
+- `cmd/liusha`：唯一程序入口（子命令分发、`-env-file` / `-config`；配置文件不指定时取 `LIUSHA_CONFIG`，再取程序所在目录的 `config.yaml`）；子命令可声明自己读配置的范围（`command.view`，目前只有沙盒，见「沙盒镜像」）；`internal/app/<组件>` 是各组件的装配（`Run(ctx, cfg)`），`internal/app.Serve` 按层编排同进程运行。`cmd/e2e` 是开发用的端到端剧本触发器。
 - `internal/<领域>`：按领域分包（`assignment`、`task`、`agentrun`、`cronschedule`、`dispatch`、`explorationgraph`、`finding`、`credential`、`llmconfig`……）。agent 核心在 `planner` / `executor` / `evaluator` / `monitor` / `cognition`，框架层在 `framework`；runner 的任务收尾、恢复监控在 `internal/runner`。
 - `db/migrations`：迁移 SQL，经 `migrations.FS` 编进程序，由 `internal/db.Migrator`（golang-migrate 库，`schema_migrations` 表）执行；`0196_baseline` 是压缩后的基线。
 - `internal/builtin`：出厂内容，编译进程序——`agents/<code>.md`（四个 agent 的出厂配置 + 章程）、`skills/<分类>/<code>/SKILL.md`（内置技能）、`scenarios/<code>.md`（内置场景）。各 agent 的输出契约在 `internal/{planner,executor,evaluator}/contract`。
 - `internal/override`：「出厂默认 + 用户自定义」的字段级引擎（agent、系统设置）；`internal/overridestore` 是自定义表的读写协议。`internal/builtinsync`：技能与场景的出厂种子同步（「没改过的跟随新版」判定与执行）。
-- `internal/config/config.yaml`：交给部署方的配置文件模板，列出全部键。程序不内置配置、不为缺键补值：读不到文件、缺键、有未知键都拒绝启动（`internal/config` 按结构体推导键表）；新增配置键时同步改它，`internal/config` 的测试直接加载这份。文件只写字面值（不支持 `${VAR}`），`LIUSHA_<键>` 环境变量覆盖文件中的值；密钥一律走环境变量。列出全部可调的值，出厂值只在这一处：只放部署方要决定的事（拓扑、容量、可调策略、密钥），可热改的旋钮（`runtime`、`compaction` 两段与 `proxy` 段里的过滤规则）也在这里给出出厂值；组件之间的内部约定（Stream 名、消费组、键前缀、队列）是代码常量；键名以单位结尾（`_seconds` / `_ms` / `_bytes` / `_days`）。持久数据都在 `data_dir` 下（`workspace/`、`logs/`、`certs/`）。二进制部署放在程序旁边（发布压缩包自带），容器部署由宿主 `~/data/liusha/config.yaml` 挂成 `/data/config.yaml`（镜像设 `LIUSHA_CONFIG`）。
+- `internal/config/config.yaml`：交给部署方的配置文件模板，列出全部键。程序不内置配置、不为缺键补值：读不到文件、缺键、有未知键都拒绝启动（`internal/config` 按结构体推导键表；与配置文件可能不同版本的进程按视角加载，见「沙盒镜像」）；新增配置键时同步改它，`internal/config` 的测试直接加载这份。文件只写字面值（不支持 `${VAR}`），`LIUSHA_<键>` 环境变量覆盖文件中的值；密钥一律走环境变量。列出全部可调的值，出厂值只在这一处：只放部署方要决定的事（拓扑、容量、可调策略、密钥），可热改的旋钮（`runtime`、`compaction` 两段与 `proxy` 段里的过滤规则）也在这里给出出厂值；组件之间的内部约定（Stream 名、消费组、键前缀、队列）是代码常量；键名以单位结尾（`_seconds` / `_ms` / `_bytes` / `_days`）。持久数据都在 `data_dir` 下（`workspace/`、`logs/`、`certs/`）。二进制部署放在程序旁边（发布压缩包自带），容器部署由宿主 `~/data/liusha/config.yaml` 挂成 `/data/config.yaml`（镜像设 `LIUSHA_CONFIG`）。
 - `internal/tools/manifest/tools.yaml`：沙盒 CLI 工具清单（编进程序）；沙盒镜像按它安装，沙盒按它探测已安装工具。
 - `internal/sandbox`：沙盒协议与客户端；`server` 是沙盒服务端，`browser` 是编进程序的浏览器服务脚本。
+- 沙盒镜像里的程序可能与主程序不同版本：镜像 21 GB、由部署方本地构建、不发布，多镜像部署与开发栈升级主程序后它常常还是旧的，而挂进容器的那份 `config.yaml` 随主程序更新（二进制与单镜像里沙盒与主程序是同一个程序，没有这个问题）。所以沙盒服务端只依赖自己的东西，`internal/app/sandbox` 与 `cmd/liusha` 的测试守住这几件事：
+  - 代码依赖面是清单里的 8 个本仓包（`internal/app/sandbox/deps_test.go`）。清单之外的包变更不要求重建沙盒镜像——`internal/config` 与 `internal/tools/manifest` 因此不引用模型框架、工具注册表与出厂自定义引擎（名单判定在零依赖的 `internal/allowlist`，重试参数的换算在 `llmstore.RetryOptions`）。要给沙盒的依赖链添包，先确认它属于沙盒再登记。
+  - `liusha sandbox` 按视角加载配置（`config.View` / `LoadView`；沙盒的范围声明在 `sandbox.ConfigView`，经 `config.ProcessView` 构造）：只要求这些键齐全、取值有效，其余段不读不查。配置文件别的段加键、删键、改值都不要求重建沙盒镜像。
+  - 沙盒入口新读的配置项要登记进 `ConfigView`：漏了不报错，按视角加载出来是零值。测试按源码核对入口读的字段与 `ConfigView` 互相覆盖。
+  - 其余子命令与 `serve` 仍整份加载：配置文件与程序不一致时立刻发现，这条不变。
 - `web`：Go 包 `web` 在带 `webdist` 构建标签时嵌入 `web/dist`（不带时嵌入占位页，`go build` / `go test` 不依赖前端构建）。`web/src`：`pages/*Page.tsx` 页面编排，`features/<领域>/` 领域实现，`components/` 公共组件（`ui/` 为基础控件），`api/` 后端客户端，`lib/` 跨领域工具，`styles/design-tokens.css` 设计 Token，`index.css` 全局层（弹层层级、动效）。
 - 部署：二进制、单镜像、多镜像三种方式。仓库根 `Dockerfile` 构建 `liusha` 镜像；`compose.yaml`（多镜像）；`deployments/sandbox`（沙盒镜像）、`deployments/single`（单镜像）、`deployments/nginx`（多镜像用的反向代理配置）。说明见 `deployments/README.md`。`scripts/release` 是发布打包与第三方声明生成。
 - `vendor/`：Go 依赖入库，镜像以 `-mod=vendor` 构建。改依赖必须用 `make tidy`（tidy 后同步 vendor）。
@@ -133,6 +138,12 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 - LLM 调用与工具调用的记录是失败现场的第一证据，写入不依赖被审计调用的 ctx：调用超时或被取消时它的 ctx 已经结束，写入若随之作废，丢掉的偏偏是失败现场。LLM 调用记录经 channel 入队（入队不看 ctx，缓冲满丢行并告警）；工具调用记录同步写库，用去掉取消的 ctx，另设时间上限。
 - 失败类别取记录携带的分类（`llm.UsageRecord.ErrClass`，框架层 `Classify` 对真实错误的结论），落库一方不拿错误文本重判：哨兵错误只存在于错误链上，文本重判会把本地的在途名额节流判成「其它错误」。
 
+### 会话时间线（`internal/reasoning`、`cognition/timeline.go`）
+
+- 一个 agent 的一轮是一次 ReAct 运行。轮开始时调用方 `reasoning.BeginRound(ctx)`，本轮的工具过程事件（`tool_call` / `tool_result` 的 `round_id`）与终稿（`reasoning` 的 `round_id`）带同一个标识——输出流按 agent 分道，而同一 agent 会并行跑多轮（执行者的几个动作、评估者的几条验证），没有标识就分不清一条事件属于哪一轮。新增会发起一轮 ReAct 的调用方：先 `BeginRound`，再把同一个 ctx 交给 `Tap.Done`。缺了标识不报错，只是这一轮的工具事件被归到同一 agent 的下一条终稿名下（标识上线之前落库的事件就是这样归组的）。
+- 终稿在一轮结束时才落库，工具事件在轮次中途落库：存储顺序是「工具 → 终稿」。前端把一轮的工具事件归进它的终稿卡（一张卡里先工具后结论），在途的轮与同一 agent 的流式道合成一张卡排在最后。流式增量不落库、按 agent 合道：同一 agent 并行多轮的增量在同一条道上。
+- 对话页的执行轨迹可按智能体筛选（`?agent=`）：骨架行（人的指令、任务状态、运行中引导的回执、坐实的发现）留着做上下文。
+
 ### 恢复、停机与清扫
 
 - 动作的执行生命周期（`explorationgraph/action_lifecycle.go`）：认领记下 run 归属（`claimed_by`），结束与交还都以「仍由本 run 认领」为前置——新旧 run 重叠时旧 run 迟到的结果落空。中断不是失败：run 被暂停、停机或超时打断时，在途动作交还 open 由下一个 run 重做；新 run 开始时回收本任务仍 running 的动作。动作之间没有执行依赖，先后由增量规划表达。
@@ -168,8 +179,8 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 | 层 | 范围 | 领域属性 |
 |---|---|---|
-| 核心层 | 四个 agent（`planner` / `executor` / `evaluator` / `monitor`）、探索图（`explorationgraph`）、agent 框架（`framework`、`cognition`、`reasoning`）、知识链路（`distill`、`skill`、`corpus`、中立工具 `run_command` / `read_skill` / `search_corpus`）、复现信封（`repro`） | 中立 |
-| 注入点 | 场景（按任务选择、整份拼在各 agent 系统提示词末尾的情境说明，见「场景」）；在 `cognition` 装配处注册的扩展——复现形状（`repro.Kind` 的实现，如 `httprepro`）、领域专用工具（`http_request`、`drive_browser`、凭证、流量）、交付管道（`finding.ClaimSink`） | 承载领域 |
+| 核心层 | 四个 agent（`planner` / `executor` / `evaluator` / `monitor`）、探索图（`explorationgraph`）、agent 框架（`framework`、`cognition`、`reasoning`）、知识链路（`distill`、`skill`、`corpus`、中立工具 `command_run` / `skill_read` / `corpus_search` / `web_search`）、复现信封（`repro`） | 中立 |
+| 注入点 | 场景（按任务选择、整份拼在各 agent 系统提示词末尾的情境说明，见「场景」）；在 `cognition` 装配处注册的扩展——复现形状（`repro.Kind` 的实现，如 `httprepro`）、领域专用工具（`http_request`、`browser_drive`、凭证、流量）、交付管道（`finding.ClaimSink`） | 承载领域 |
 | 产品表层 | 闲聊、问答、意图分类、标题生成、漏洞台账、前端文案、工具清单 | 渗透测试定位；不中立化，也不为「将来换领域」做成可配置 |
 
 - **判据**：一段进入 LLM 的文本、一个概念或一个枚举能否放进核心层，看它在另一个领域（代码审计、故障排查、资料调研……）的部署里是否依然成立。成立才进核心层，否则放进场景或扩展。核心层只用探索图的词汇表达：目标、动作、观察（假设）、结果、主张、配方、证据。
@@ -197,7 +208,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 任务名下的数据一律按 `task_id` 取（`/tasks/:id/exploration/*`、`/tasks/:id/usage`、`/tasks/:id/run`），不经对话换出任务再查；对话只承载消息与时间线，它显示的状态、用量、控制都取自任务。列表要带出对话 ID 时联表一次取出，不逐行反查。
 - 对话里直接发起的 LLM 调用（问答、意图分类、标题生成）没有任务，记 `llm_invocation.conversation_id`；智能体运行的调用记任务、经任务找对话。
 - 不保留没有写入方的关联列：界面会据此提供实际查不到的关系（如曾有的漏洞来源流量列）。
-- 跨页跳转只看被点击元素对应的内容（规则只在 `web/src/features/relations/taskJumps.ts` 定义）：任务和对话是同一件工作的两个入口，从对话出发落点按对话限定（`?conversation=`，显示「对话：标题」），从任务及漏洞、流量、LLM 调用、探索图出发按任务限定（`?task=`，显示「任务：目标」）。任务页、漏洞页、探索图页都接受这对参数且服务端直接按它过滤；漏洞跳探索图时再带 `?selected=` 打开坐实它的结果节点（`finding.result_node_id`）；对话页以 `?conversation=` 打开对话。没有对话不放「对话」，没有漏洞不放「漏洞」；按钮放在它真实所属的位置——漏洞属于任务，LLM 调用详情不放「漏洞」，流量详情的「漏洞」放在消费任务名下。
+- 跨页跳转只看被点击元素对应的内容（规则只在 `web/src/features/relations/taskJumps.ts` 定义）：任务和对话是同一件工作的两个入口，从对话出发落点按对话限定（`?conversation=`，显示「对话：标题」），从任务及漏洞、流量、LLM 调用、探索图出发按任务限定（`?task=`，显示「任务：目标」）。任务页、漏洞页、探索图页、模型日志页都接受这对参数且服务端直接按它过滤；漏洞跳探索图时再带 `?selected=` 打开坐实它的结果节点（`finding.result_node_id`）；对话页以 `?conversation=` 打开对话。没有对话不放「对话」，没有漏洞不放「漏洞」；按钮放在它真实所属的位置——漏洞属于任务，LLM 调用详情不放「漏洞」，流量详情的「漏洞」放在消费任务名下。
 
 ### 下发来源
 
@@ -219,7 +230,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 | planner | 建 action；停止探索时收回自己排出、还没做完的动作（`StopExploration`：open / running → aborted，以规划依据为前置，用户指派的不动）；结果分析的结论一律经 `RevisePlan` 落图——提出新派生目标、宣告达成（`completed`）、新目标吸收旧目标（`supersedes` 边 + 旧目标 `superseded`），并在被分析的 result 上记分析水位（`analyzed`）；结果分析不排动作 |
 | executor | 建 observation；CAS 认领 / 终结 action；写 action 的阻塞原因 |
 | evaluator | 只经 `PromotionGate` 建 result；回写假设（observation）的验证状态 |
-| monitor | 否决 action（`RejectAction`，否决方 monitor；用户指派的动作不可否决）；重规划请求经 `planner.Agent.RequestReplan` 直达规划者，不写图。决策须基于本轮经 `get_global_state` 亲见的态势，指明针对的功能障碍类别并引用本任务的证据节点；重规划请求带上监察者所见的图面（`explorationgraph.Surface`），规划者处理时若目标已改写、出现新的派生目标或新结果即作废（新增动作不算——原地打转时动作照样增长） |
+| monitor | 否决 action（`RejectAction`，否决方 monitor；用户指派的动作不可否决）；重规划请求经 `planner.Agent.RequestReplan` 直达规划者，不写图。决策须基于本轮经 `task_survey` 亲见的态势，指明针对的功能障碍类别并引用本任务的证据节点；重规划请求带上监察者所见的图面（`explorationgraph.Surface`），规划者处理时若目标已改写、出现新的派生目标或新结果即作废（新增动作不算——原地打转时动作照样增长） |
 | 认知循环（cognition） | 新 run 开始时回收本任务上一 run 留下的在途动作（交还 open） |
 | 任务目标（`task.Store`） | 建根 objective（随任务创建，`Create` 同事务，每任务一个，唯一索引兜底）、改写目标（`SetGoal`：任务行与根目标描述同事务） |
 | 运行中引导（`dispatch` 的 `AdjustGoal` / `AssignAction` / `RejectAction`） | 调整目标时撤回规划者排好、尚未开始的动作（→ aborted）；指派 action（来源 user，挂根目标）；否决 action（否决方 user）。与任务行锁、时间线回执同事务 |
@@ -261,7 +272,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 ### 知识库（`internal/corpus`、`internal/distill`）
 
-- 跨任务的长期知识，两个写入方：任务自然收敛后的经验沉淀（`distill`），人工在前端「知识库」页录入或导入 Markdown。没有命令行导入；读取方只有规划者的 `search_corpus` 与页面的「检索测试」，两者走同一个 `corpus.Service.Search`；收尾整合找近似条目走不设门槛的 `Neighbors`（给读者要精确，找重复要召回）。
+- 跨任务的长期知识，两个写入方：任务自然收敛后的经验沉淀（`distill`），人工在前端「知识库」页录入或导入 Markdown。没有命令行导入；读取方只有规划者的 `corpus_search` 与页面的「检索测试」，两者走同一个 `corpus.Service.Search`；收尾整合找近似条目走不设门槛的 `Neighbors`（给读者要精确，找重复要召回）。
 - 检索方式由检索模型配置决定（前端「模型配置」页「检索模型」分区，单行表 `retrieval_model`：服务地址、向量与重排模型名、一把密钥；与 provider 密钥同一套加密；事实源 `internal/llmconfig/retrieval.go`）：配了密钥是语义检索（向量近邻与词元两路召回 → 重排 → 相关度门槛），否则是字面检索（词元召回 → IDF 加权覆盖率门槛）。两种都宁可返回空，不拿不相关的条目凑数；门槛用库内条目与出厂模型标定，依据写在 `search.go`。配置字段空 = 出厂默认（Jina）；向量维度绑 `vector(1024)` 列——保存不拦，实测与运行期校验并给出明确报错；**更换向量模型即作废全部旧向量并按新模型重嵌**（不同模型的向量不可混在一个空间），换门槛需复核召回质量。密钥与配置热改即时生效：corpus.Service 的模型来源每次操作现取（`llmstore.RetrievalModels`，缓存写后广播失效），保存后 api 立即收口（必要时作废向量、写锁内补齐），runner 每 10 分钟的巡检兜底。语义检索运行期出故障退回字面检索，并在结果里注明（`Result.Fallback`），不悄悄换口径；未配置与不可用都不阻塞对话与任务。语义调用失败还会上报降级记录（`retrievalstatus`，Redis 键带 TTL，api 与 runner 谁失败谁写、跨进程可见）：知识库页的检索方式标识显示「语义检索已降级」并带原因与时间；恢复后第一次成功调用清除记录，无人调用时记录到时淡出。清除密钥只清密钥，保留地址与模型名。
 - 词元只有一处实现：数据库函数 `corpus_terms`（英文按词、中文按相邻两字），写入时生成 `terms` 生成列，查询用同一个函数切分查询文本。不要在 Go 里另写一份分词。
 - 每条知识归属一个场景，空 = 通用：任务只看得到本场景与通用的知识，无场景的任务只看得到通用知识。沉淀时由蒸馏判定每条经验是否依赖场景的规定（交付标准、类别词表等），依赖的归本场景。
@@ -271,6 +282,13 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 「印证」是任务与知识的关系（`corpus_confirmation`）：沉淀出它或整合时判定一致的任务，同一任务重复收敛只计一次。不统计「被检索到几次」——检索次数会让常被检索的条目自我强化。
 - 改了文本的条目清掉旧向量（旧文本的向量对新文本是错的），连同写入时向量化失败的条目，由 runner 周期补齐（`StartCorpusIndexLoop`，启动一次 + 每 10 分钟）。
 - 经验沉淀是持久化的队列任务（`corpus.distill`，独立的 `distill` 队列，权重低于 agent run，按任务幂等）：任务自然收敛后投递，由 runner 消费；它要调用两次 LLM、耗时分钟级，停机中断或调用失败都留在队列里重试（至多 3 次）。不要改回进程内协程——停机宽限期远短于一次沉淀，进程内的沉淀遇重启即丢。
+
+### 网页检索（`internal/websearch`）
+
+- `web_search` 经部署方接入的搜索接口取回网页结果。程序只认约定、不认服务，代码里没有一份搜索服务的名单（名单会过时，也把选择权从部署方手里拿走——与 LLM 接入同一个原则）。接入要定的三样都是部署配置（`web_search` 段）：接口地址（程序在它后面追加查询词 `q` 发 GET，接口自带的固定参数写进地址里）、鉴权头名（空 = `Authorization`，值写成 `Bearer <密钥>`；填别的头名时头里放裸密钥）、密钥。
+- 响应不必适配：结果平铺在 `results` 里（摘要 `content`）或嵌在 `web.results` 里（摘要 `description`），两种事实上的惯例都认。新增一种惯例时改 `websearch.parse`，不要为某一家服务加分支。
+- 密钥不随重定向带离原主机。标准库只会摘掉 `Authorization`，配了别的头名时缺省会跟着重定向把密钥带去别的主机——所以客户端自己判定（协议、主机、端口任一不同即中止）。交给模型与写进日志的错误里不带接口地址：地址的参数里可能写着密钥。
+- 不进出厂名单：是否启用由部署方在智能体页按 agent 装配（本仓已有的机制，不另设开关）。地址为空时工具不注册，装配了它的智能体只是调不到。查询词原样发给接口，是否把任务里的信息交给它由部署方决定。结果是未经核实的外部网页摘要：工具描述如实说明它的来历，执行者与评估者的章程写明它不是指令。
 
 ### LLM 密钥
 
@@ -304,7 +322,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - 领域内容在提示词里只有一处：任务的场景；章程、契约与核心代码组装的文本保持中立（见「核心层领域中立」）。
 - 删除技能（内置与自建）同时清理各 agent 对它的引用（名单成员，去掉一项是范围明确的收窄）；场景是定时模板的唯一情境，被引用时拒绝删除（409），不级联。
 - 新增可自定义字段：agent 在 `agent.Config` 加 json 字段；系统设置在 `config` 对应段的结构体加字段（带 mapstructure 与 json 两种标签）并在 `config.yaml` 列出该键——缺键即拒绝启动。字段表由结构体推导（切片为名单、其余为整值）；删除字段后残留的自定义自动失效，不需要迁移。
-- agent 名单（`function_tools` / `cli_tools` / `skills`）的成员判定只经 `registry.Allows`：nil = 拒绝，空 = 空集，含 `*` = 全部（含以后新增）。运行时装配与页面上的「已装配」状态同用这一个判定，不要另写——技能索引与 CLI 工具目录都曾因各写一份漏掉 `*` 而恒为空。
+- agent 名单（`function_tools` / `cli_tools` / `skills`）的成员判定只经 `allowlist.Allows`：nil = 拒绝，空 = 空集，含 `*` = 全部（含以后新增）。运行时装配与页面上的「已装配」状态同用这一个判定，不要另写——技能索引与 CLI 工具目录都曾因各写一份漏掉 `*` 而恒为空。`allowlist` 不引用任何业务包：名单的使用方不必为此引用工具注册表。
 
 ### 事件总线（`internal/bus`）
 
@@ -316,6 +334,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 ### 通用
 
 - 不留兼容别名和旧命名：概念改名就全层替换（DB、API、代码、前端、文案、提示词），并把旧词加入 `scripts/lint-terminology.sh` 的 `FORBIDDEN` 数组防回流。枚举取值与路由段同名，取业界惯用、无歧义的词，同组取值构成对称的轴（如 `direct` / `proxy`）。
+- 内置工具名统一「对象_动词」（`web_search` / `corpus_search` / `traffic_list` / `command_run`……）：对象是操作落在什么东西上，取该概念的正式英文名（与包名一致：`credential`、`traffic`、`repro`）；动词取一个含义唯一的词，同一个动词在全站只表示一种动作（`search` 检索列表、`list` 列摘要、`view` 看单条、`read` 读内容、`survey` 纵览全貌……）。对象相同的工具共用同一个对象词，读名字就知道它们是一组。工具名是存量数据里的字符串（工具调用记录、时间线事件）与 LLM 看到的标识，改名要同时改出厂章程、契约、技能与场景里对它的引用；`http_request` 是「对 HTTP 发请求」，本就合此语序。
 - 注释、日志与面向用户的消息用中文，标识符用英文。注释写「为什么」和边界语义，不复述代码。
 - 不要相信注释，改代码前先读实现；发现注释与代码不符，一并修正。
 - 错误不得静默吞掉：解析失败等可降级的情况要记日志再降级。
@@ -329,6 +348,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 ### 前端
 
 - 颜色、间距、圆角取 `styles/design-tokens.css` 的 Token，不写裸色值；字号只用其中定义的阶梯（`text-2xs` / `xs` / `sm` / `base` / `lg` / `2xl`），不写 `text-[Npx]`。领域枚举的展示文案与颜色只在一处定义（如来源在 `lib/source.ts`、任务状态在 `lib/taskStatus.ts`）。
+- 表面分三层，各司其职，不因为「看着不一样」而拉平：`background` 是画布（页面底、探索图画布），`surface` 是抬起来的框体（侧栏、页头、卡片、抽屉），`surface-2` / `surface-3` 是框体内的再分层（悬停、选中）。侧栏与页头比内容区亮/暗一档是有意的——它标出「框」与「画布」的边界；两者之间、侧栏品牌行与导航之间都不再画分隔线，靠底色分开。浅色主题下 `background` 与 `surface` 只差一档明度，拉平后悬停态会看不见、导航的选中态也失去依托。
 - 避免不必要的辅助标签与说明文字，让布局本身发挥解释作用——结构、分组与留白先行，补充文案是最后手段；只约束可见文案，可访问性要求不放松（纯图标按钮照常带 `aria-label`）。页头只有标题（`PageHeader` 不接受副标题）：页面用途靠结构与控件说明，概念说明放在用到它的字段或空态里。
 - 每个筛选栏都要能一键清空（`FilterBar` 的 `canReset` / `onReset` 必填，含搜索词）；栏内的搜索框不再自带清空钮，独立使用的 `SearchInput` 有内容时自带——同一处只有一种清空方式。
 - 页面文件命名为 `*Page.tsx`，只做编排；实现放进 `features/<领域>/`，后端调用放 `api/`，错误文案经 `errorText` 取后端中文原因。

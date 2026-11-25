@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useUrlPageState } from '@/hooks/useUrlPageState'
 import type { AuditFilters } from '@/api/audit'
@@ -69,19 +69,4 @@ export function useAuditFilters(): AuditUrlState {
     })
 
   return { query, filters, page, size, setQuery, setFilters, setPage, setSize, resetFilters }
-}
-
-/** 防抖搜索输入的本地草稿（300ms，对齐模型日志页同款）。 */
-export function useDebouncedQuery(value: string, onChange: (v: string) => void) {
-  const [local, setLocal] = useState(value)
-  useEffect(() => {
-    setLocal(value)
-  }, [value])
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (local !== value) onChange(local)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [local, value, onChange])
-  return [local, setLocal] as const
 }

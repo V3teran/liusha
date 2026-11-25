@@ -531,8 +531,8 @@ const proxyTaskGoalMaxList = 20
 // 设计要点：
 //   - 首行必须含 scheme://host 形式的目标 URL——目标主机（task.target_host）由它派生；
 //     scheme 取领到的第一条流量的 URL，没有则按 http；
-//   - 每条流量带 view_traffic 可直接寻址的自描述 id（proxy:<id>）——agent 无需先
-//     list_traffic 就能按 id 拉取任意一条的完整报文；
+//   - 每条流量带 traffic_view 可直接寻址的自描述 id（proxy:<id>）——agent 无需先
+//     traffic_list 就能按 id 拉取任意一条的完整报文；
 //   - 同 host 同 path 的重复请求在目录里无法互辨，id 是唯一可靠的对应键。
 func ProxyTaskGoal(host string, trafficList []traffic.ProxyTraffic) string {
 	scheme := "http"
@@ -542,7 +542,7 @@ func ProxyTaskGoal(host string, trafficList []traffic.ProxyTraffic) string {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "代理流量分析：代理已捕获 %s://%s 的 %d 条 HTTP 流量并已认领至本任务，发起分析——从请求/响应线索反推可控点，追查漏洞。\n\n每条流量按「id method path → status」列出，用 view_traffic（id=…）可拉取完整请求与响应原文，也可用 list_traffic（source=proxy）过滤浏览。\n\n捕获请求：", scheme, host, len(trafficList))
+	fmt.Fprintf(&b, "代理流量分析：代理已捕获 %s://%s 的 %d 条 HTTP 流量并已认领至本任务，发起分析——从请求/响应线索反推可控点，追查漏洞。\n\n每条流量按「id method path → status」列出，用 traffic_view（id=…）可拉取完整请求与响应原文，也可用 traffic_list（source=proxy）过滤浏览。\n\n捕获请求：", scheme, host, len(trafficList))
 	for i, f := range trafficList {
 		if i >= proxyTaskGoalMaxList {
 			fmt.Fprintf(&b, "\n… 等共 %d 条", len(trafficList))

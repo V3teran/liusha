@@ -10,6 +10,7 @@ import { listLogProcesses } from '@/api/logs'
 import { cn } from '@/lib/utils'
 import { useLogFilters } from '@/features/logs/useLogFilters'
 import { useLogStream } from '@/features/logs/useLogStream'
+import { useSearchDraft } from '@/hooks/useDebouncedSearch'
 import { LogRow, shortInstance } from '@/features/logs/LogRow'
 
 // 日志页：各进程日志的统一视图（logs/{process}.log 尾读；进程名即 liusha 子命令名）。
@@ -79,16 +80,8 @@ export function LogsPage() {
   }
 
   // ── 筛选交互 ───────────────────────────────────────────────────────────
-  const [localSearch, setLocalSearch] = useState(filters.search)
-  useEffect(() => {
-    setLocalSearch(filters.search)
-  }, [filters.search])
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localSearch !== filters.search) setFilters({ ...filters, search: localSearch }, { replace: true })
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [localSearch, filters, setFilters])
+  // 搜索词进 URL：输入停顿后才写，筛选一变流即冷读重放，不逐字触发
+  const search = useSearchDraft(filters.search, (next) => setFilters({ ...filters, search: next }, { replace: true }))
 
   const instanceOptions = useMemo(() => {
     const out: Array<{ value: string; label: string }> = []
@@ -202,8 +195,10 @@ export function LogsPage() {
 
         <SearchInput
           className="w-64"
-          value={localSearch}
-          onChange={setLocalSearch}
+          value={search.draft}
+          onChange={search.setDraft}
+          onSubmit={search.submit}
+          onRefresh={stream.refresh}
           placeholder="搜索消息、error、业务字段…"
           ariaLabel="搜索日志"
         />

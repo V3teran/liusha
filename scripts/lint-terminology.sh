@@ -75,6 +75,9 @@ EXCLUDES=(
 # LLM 配置：模型接入页统一称「模型配置」——向量与重排模型不是 LLM，页面承载全部模型接入
 #   （对话模型、能力路由、检索模型），以「模型」统称。
 # LLM 审计：LLM 调用记录页统一称「模型日志」，与「服务器日志」「审计日志」同列观测组。
+# registry.Allows / override.Wildcard：名单判定下沉为独立的 allowlist 包。名单的使用方（技能
+#   视图、工具清单、HTTP 接口……）不再为此引用工具注册表，再由它带上模型框架与出厂自定义
+#   引擎——沙盒服务端的依赖面曾因此背上这两样。
 FORBIDDEN=(
   'LLM 配置'
   'LLM 审计'
@@ -172,17 +175,80 @@ FORBIDDEN=(
   'adjust_goal'
   'inject_action'
   '多镜像(部署)?（Docker Compose）'
+  'registry\.Allows'
+  'override\.Wildcard'
+  # 内置函数工具名统一成「对象_动词」（web_search / corpus_search / command_run ……）：旧名是
+  #   「动词_宾语」或别的语序。drive_browser 后面紧跟 .browser 的除外：那是沙盒里 browser-use
+  #   命令报错原文里的事件名（Event handler drive_browser.browser…），Go 代码靠匹配它识别浏览器
+  #   退化，恰好与旧工具名同形，不是本项目的概念。
+  'search_corpus'
+  'list_traffic'
+  'view_traffic'
+  'read_credentials'
+  'write_credential'
+  'read_skill'
+  'run_command'
+  'drive_browser'
+  'observe_state'
+  'evaluate_progress'
+  'get_global_state'
+  'publish_decision'
+  'replay_for_verification'
+)
+
+# 术语豁免：某条术语在含「豁免串」的行里不算残留。术语 → 豁免串（留空 = 不豁免任何行）。
+#   drive_browser：沙盒里 browser-use 命令的报错原文里有一个事件名 drive_browser.browser…
+#   （Event handler drive_browser.browser…），Go 代码靠匹配它识别浏览器退化。它与旧工具名
+#   恰好同形，不是本项目的概念。git grep -E 是 POSIX 正则，表达不了「后面不跟点」，所以在这里豁免。
+FORBIDDEN_EXEMPT=(
+  "drive_browser|Event handler drive_browser.browser"
+  # 升级文档的改名对照表（deployments/README.md）：旧名 → 新名各占一行，表里的这些行不算残留。
+  # 只豁免对照表的行本身；README 的其余部分照常扫，正文里用旧名仍然会被拦下。
+  'search_corpus|| `search_corpus` | `corpus_search` |'
+  'run_command|| `run_command` | `command_run` |'
+  'drive_browser|| `drive_browser` | `browser_drive` |'
+  'list_traffic|| `list_traffic` | `traffic_list` |'
+  'view_traffic|| `view_traffic` | `traffic_view` |'
+  'read_credentials|| `read_credentials` | `credential_read` |'
+  'write_credential|| `write_credential` | `credential_write` |'
+  'read_skill|| `read_skill` | `skill_read` |'
+  'observe_state|| `observe_state` | `graph_read` |'
+  'evaluate_progress|| `evaluate_progress` | `progress_evaluate` |'
+  'get_global_state|| `get_global_state` | `task_survey` |'
+  'publish_decision|| `publish_decision` | `decision_publish` |'
+  'replay_for_verification|| `replay_for_verification` | `repro_replay` |'
 )
 
 MODE="${1:-check}"
 
+# 某条术语的全部豁免串（-F 按字面、不当作正则），一条术语可以有多条。
+exempt_fragments() {
+  local term="$1" pair
+  for pair in "${FORBIDDEN_EXEMPT[@]}"; do
+    if [ "${pair%%|*}" = "$term" ]; then
+      printf '%s\n' "${pair#*|}"
+    fi
+  done
+}
+
+# 某条术语的残留行（已滤掉含任一豁免串的行）。
+residual_lines() {
+  local term="$1" frag lines
+  lines="$(git grep --untracked -i -n -E "$term" -- "${SCAN_ARGS[@]}" "${EXCLUDES[@]}" 2>/dev/null || true)"
+  while IFS= read -r frag; do
+    [ -n "$lines" ] && lines="$(printf '%s\n' "$lines" | grep -v -F -- "$frag" || true)"
+  done < <(exempt_fragments "$term")
+  printf '%s' "$lines"
+}
+
 total=0
 for term in "${FORBIDDEN[@]}"; do
-  hits=$(git grep --untracked -i -E "$term" -- "${SCAN_ARGS[@]}" "${EXCLUDES[@]}" 2>/dev/null | wc -l | tr -d ' ')
+  lines="$(residual_lines "$term")"
+  hits="$(printf '%s' "$lines" | grep -c . || true)"
   if [ "$hits" != "0" ]; then
     echo "残留 [$term]: $hits"
     if [ "$MODE" != "count" ]; then
-      git grep --untracked -i -n -E "$term" -- "${SCAN_ARGS[@]}" "${EXCLUDES[@]}" 2>/dev/null | head -10
+      printf '%s\n' "$lines" | head -10
     fi
     total=$((total + hits))
   fi

@@ -20,7 +20,14 @@ import (
 	"github.com/V3teran/liusha/internal/tools/manifest"
 )
 
-// Run 运行沙盒服务直到 ctx 取消。
+// ConfigView 是沙盒进程读到的配置：启动流程读的数据目录与日志，runner.url（浏览器流量回灌到
+// 哪里），以及沙盒段。liusha sandbox 子命令按它加载配置文件（见 config.View）——多镜像部署里
+// 沙盒镜像由部署方本地构建，升级主程序后常常还是旧的，而配置文件随主程序更新。
+//
+// Run 新读一个键时要加进来：按视角加载时视角之外的键不读，字段是零值。本包的测试守住这一点。
+var ConfigView = config.ProcessView("runner.url", "sandbox")
+
+// Run 运行沙盒服务直到 ctx 取消。cfg 须是整份加载的配置（serve），或按 ConfigView 加载的（子命令）。
 func Run(ctx context.Context, cfg config.AppConfig) error {
 	logger := logx.New("sandbox")
 	sc := cfg.Sandbox

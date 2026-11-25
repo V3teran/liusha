@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/V3teran/liusha/internal/allowlist"
 	executorcontract "github.com/V3teran/liusha/internal/executor/contract"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/runtime"
@@ -52,7 +53,7 @@ func actionObjective(action explorationgraph.Node, content *ActionContent, goal 
 func (e *Engine) prepareReActTools() []registry.Tool {
 	var tools []registry.Tool
 	for _, t := range e.registry.WrappedTools() {
-		if registry.Allows(e.functionTools, t.Name()) {
+		if allowlist.Allows(e.functionTools, t.Name()) {
 			tools = append(tools, t)
 		}
 	}
@@ -193,7 +194,7 @@ func (e *Engine) executeReActRuntime(
 		if output, perr := ParseOutput(result); perr == nil && terminalIsJSON(result.FinalAnswer) {
 			round.Summary = outputNarrative(output)
 		}
-		e.thoughts.Done(round)
+		e.thoughts.Done(ctx, round)
 	}
 
 	e.logger.Info().

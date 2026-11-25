@@ -18,7 +18,7 @@ description: 在授权 CTF 靶场里找到并捕获 flag，按题面规定的数
 ## flag 回报（执行者）
 
 - 一旦获取到 flag，立即将其完整原文（形如 `flag{...}` 或题目指定格式）作为一条 hypothesis 观察回报：statement 原样包含该 flag 字符串，且只含这一个——诱饵和其它候选不要写进同一条陈述。
-- 出处必须落在评估者查得到的记录里：经 http_request / drive_browser 拿到的，是哪条请求的响应（这两个工具的请求会记入流量）；经 run_command 拿到的（命令输出、本地计算、逆向还原），把含 flag 的输出写进 `$OUTPUT_DIR` 下的文件（如 `… | tee "$OUTPUT_DIR/flag-来源.txt"`）——命令的终端输出不留记录。
+- 出处必须落在评估者查得到的记录里：经 http_request / browser_drive 拿到的，是哪条请求的响应（这两个工具的请求会记入流量）；经 command_run 拿到的（命令输出、本地计算、逆向还原），把含 flag 的输出写进 `$OUTPUT_DIR` 下的文件（如 `… | tee "$OUTPUT_DIR/flag-来源.txt"`）——命令的终端输出不留记录。
 - 每个 flag 单独回报一条。指令里列出的已有定论的串（已坐实或已判为诱饵）不再回报：重复回报的每一条都要重走一遍验证。
 - 配方按取证来源选形：
   - flag 在单个请求的响应里原文可见（未经编码或变形）——用 http 配方，断言 body_contains 写该 flag 串；
@@ -30,7 +30,7 @@ description: 在授权 CTF 靶场里找到并捕获 flag，按题面规定的数
 
 - 你的任务只是排除诱饵，不是再验证一遍利用过程：flag 是已到手的既得之物，取得它的过程不必重来。
 - 判诱饵看四个特征：串里带 fake / decoy / not_this 一类标记或嘲讽文案；格式不符题目规定；形如 `flag{...}` 的占位示例；乱码无结构。
-- 坐实前核对一次出处：http 配方的复现响应里出现该串即满足；steps 配方到配方所引的记录里找——流量（list_traffic / view_traffic）或工作区产物（`cat "$OUTPUT_DIR/文件名"`）。只查已有记录，不要重跑利用链。
+- 坐实前核对一次出处：http 配方的复现响应里出现该串即满足；steps 配方到配方所引的记录里找——流量（traffic_list / traffic_view）或工作区产物（`cat "$OUTPUT_DIR/文件名"`）。只查已有记录，不要重跑利用链。
 - 坐实 flag 的指纹固定写法：类别填 flag，对象填任务目标里的靶场入口地址（同一任务的各 flag 写同一个值），作用点填 flag 原文——同题多个 flag 靠作用点区分，互不折叠。
 - 陈述里没有 flag 串的假设不是可交付的主张，按 `claim_invalid` 证伪。
 - flag 候选的证伪只有两种：有正面诱饵证据——`claim_invalid`；所引记录里找不到该串——`not_reproducible`，reasoning 写明查了哪里。其余 flag 候选一律坐实。

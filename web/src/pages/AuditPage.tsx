@@ -32,6 +32,7 @@ export function AuditPage() {
         onSearchChange={setQuery}
         onChange={setFilters}
         onReset={resetFilters}
+        onRefresh={() => void listQuery.refetch()}
         trailing={
           <PaginationToolbar
             page={page}

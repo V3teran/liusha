@@ -20,7 +20,7 @@ import '@xyflow/react/dist/style.css'
 import './exploration.css'
 import { ExplorationNodeCard } from './nodes/ExplorationNodeCard'
 import { kindProfile } from './kindTheme'
-import { EDGE_COLORS, NODE_HEIGHT, type ExplorationFlowNode } from './layout'
+import { EDGE_LOOKS, EDGE_LOOK_LABELS, EDGE_LOOK_ORDER, NODE_HEIGHT, type ExplorationFlowNode } from './layout'
 
 const nodeTypes = { exploration: ExplorationNodeCard }
 
@@ -152,40 +152,37 @@ function GraphCanvasInner({
         pannable
         zoomable
       />
-      {/* 图例放左上：Controls 默认在左下，避免遮挡。
-          四个样本统一为"线"：三种关系线型 + 执行中的流动动画态 */}
+      {/* 图例放左上：Controls 默认在左下，避免遮挡。样本取自画法本身（EDGE_LOOKS）；
+          关系线型（左）与活动状态（右）是两类语义，分组线隔开 */}
       <Panel position="top-left">
         <div className="flex items-center gap-3 rounded-lg border border-border bg-surface/90 px-3 py-1.5 text-2xs text-text-secondary backdrop-blur-sm">
-          <span className="flex items-center gap-1.5">
-            <svg width="18" height="4" aria-hidden>
-              <line x1="0" y1="2" x2="18" y2="2" stroke={EDGE_COLORS.generates} strokeWidth="2" />
-            </svg>
-            推导
-          </span>
-          <span className="flex items-center gap-1.5">
-            <svg width="18" height="4" aria-hidden>
-              <line x1="0" y1="2" x2="18" y2="2" stroke={EDGE_COLORS.triggers} strokeWidth="2" strokeDasharray="6 4" />
-            </svg>
-            滋生
-          </span>
-          <span className="flex items-center gap-1.5">
-            <svg width="18" height="4" aria-hidden>
-              <line x1="0" y1="2" x2="18" y2="2" stroke={EDGE_COLORS.supersedes} strokeWidth="2" strokeDasharray="10 6" />
-            </svg>
-            吸收
-          </span>
-          {/* 关系线型（左）与活动状态（右）是两类语义，分组线隔开 */}
+          {EDGE_LOOK_ORDER.map((look) => (
+            <span key={look} className="flex items-center gap-1.5">
+              <svg width="28" height="4" aria-hidden>
+                <line
+                  x1="0"
+                  y1="2"
+                  x2="28"
+                  y2="2"
+                  stroke={EDGE_LOOKS[look].color}
+                  strokeWidth={EDGE_LOOKS[look].width}
+                  strokeDasharray={EDGE_LOOKS[look].dash}
+                />
+              </svg>
+              {EDGE_LOOK_LABELS[look]}
+            </span>
+          ))}
           <span className="mx-0.5 h-3 w-px bg-border" aria-hidden />
           <span className="flex items-center gap-1.5">
-            <svg width="18" height="4" aria-hidden>
+            <svg width="28" height="4" aria-hidden>
               <line
                 className="exp-legend-flow"
                 x1="0"
                 y1="2"
-                x2="18"
+                x2="28"
                 y2="2"
-                stroke={EDGE_COLORS.generates}
-                strokeWidth="2"
+                stroke={EDGE_LOOKS.generates.color}
+                strokeWidth={EDGE_LOOKS.generates.width}
                 strokeDasharray="4 3"
               />
             </svg>

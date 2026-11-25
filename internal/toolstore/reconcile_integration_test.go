@@ -22,7 +22,7 @@ func TestReconcile_SyncsCategoryNames(t *testing.T) {
 	if _, _, err := Reconcile(ctx, s, m); err != nil {
 		t.Fatal(err)
 	}
-	cases := map[string]string{"interactsh-client": "带外回调检测", "read_credentials": "凭证共享"}
+	cases := map[string]string{"interactsh-client": "带外回调检测", "credential_read": "凭证共享"}
 	for name, want := range cases {
 		got, err := s.Get(ctx, name)
 		if err != nil {

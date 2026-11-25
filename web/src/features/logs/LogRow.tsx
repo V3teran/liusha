@@ -1,5 +1,6 @@
-import { memo } from 'react'
+import { memo, type ReactNode } from 'react'
 import type { LogEntry } from '@/api/types'
+import { fullTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 // ── 展示辅助 ─────────────────────────────────────────────────────────────
@@ -88,6 +89,34 @@ function entrySummary(e: LogEntry): string {
 
 // ── 单行日志 ─────────────────────────────────────────────────────────────
 
+/**
+ * 日志行里的一列：内容后面跟一个屏幕上看不见的空格。各列在视觉上靠间距分开、文字里没有空白，
+ * 没有它读屏会把相邻两列连着念（「info[runner」）。空格不占可见宽度，行高与布局不变。
+ *
+ * hiddenBelowSm：这一列本身在窄屏（< sm）下不显示。它后面的空格要跟着一起消失——可访问名是从
+ * 内容生成的，窄屏下名字里不能有屏幕上看不见的东西。
+ */
+function Cell({
+  children,
+  className,
+  title,
+  hiddenBelowSm = false,
+}: {
+  children: ReactNode
+  className?: string
+  title?: string
+  hiddenBelowSm?: boolean
+}) {
+  return (
+    <>
+      <span className={cn('shrink-0 text-text-tertiary', className)} title={title}>
+        {children}
+      </span>
+      <span className={hiddenBelowSm ? 'sr-only max-sm:hidden' : 'sr-only'}> </span>
+    </>
+  )
+}
+
 // memo：3s 增量轮询会新建 byService Map 触发整表 diff，行内容未变的行靠
 // 引用稳定（entry 对象只增不改 + 原始值 props）跳过重渲染。
 export const LogRow = memo(function LogRow({
@@ -107,7 +136,6 @@ export const LogRow = memo(function LogRow({
         role="button"
         tabIndex={0}
         aria-expanded={open}
-        aria-label={`日志：${summary}`}
         title="点击展开详情"
         onClick={() => onToggle(key)}
         onKeyDown={(ev) => {
@@ -122,18 +150,16 @@ export const LogRow = memo(function LogRow({
           e.level === 'error' ? 'bg-status-error/6 hover:bg-status-error/10' : 'hover:bg-surface-2',
         )}
       >
-        <span className="shrink-0 text-text-tertiary" title={e.time}>
-          {fmtTime(e.time)}
-        </span>
-        <span
-          className={cn(
-            'w-11 shrink-0 rounded px-0 text-center text-2xs font-bold leading-5',
-            badgeClass(e.level),
-          )}
-        >
+        {/* 不写 aria-label：可访问名从内容生成，永远是屏幕上的文字本身（WCAG 2.5.3「标签包含于
+            名称」——这条规则要求可见文字原样连续地出现在名字里，重新拼接、哪怕只是补空格都会
+            对不上）。各列在视觉上靠间距分开、文字里没有空白，所以每列后面跟一个屏幕上看不见的
+            空格（Cell），读屏才不会把「info[runner」连着念。完整的时间与实例只在悬停提示里、
+            窄屏上的主机名还是短的，作为看不见的补充接在最后。 */}
+        <Cell title={e.time}>{fmtTime(e.time)}</Cell>
+        <Cell className={cn('w-11 shrink-0 rounded px-0 text-center text-2xs font-bold leading-5', badgeClass(e.level))}>
           {e.level}
-        </span>
-        <span className="shrink-0 text-text-secondary" title={e.instance}>
+        </Cell>
+        <Cell title={e.instance}>
           [<span className="font-semibold text-accent">{e.service}</span>
           {/* 窄屏让位给消息摘要：实例与调用位置收进展开详情（详情始终含全量字段）。 */}
           <span className="hidden sm:inline">
@@ -141,11 +167,17 @@ export const LogRow = memo(function LogRow({
             <span className="text-text-tertiary">{shortInstance(e.instance)}</span>
           </span>
           ]
-        </span>
-        <span className="min-w-0 flex-1 basis-full truncate text-text sm:basis-auto" title={summary}>
+        </Cell>
+        <Cell className="min-w-0 flex-1 basis-full truncate text-text sm:basis-auto" title={summary}>
           {summary}
-        </span>
-        {e.caller && <span className="hidden shrink-0 text-2xs text-text-tertiary sm:inline">{e.caller}</span>}
+        </Cell>
+        {/* 调用位置只在宽屏显示；窄屏下它不在可见文字里，名字里也不该有（否则语音控制照着屏幕念不出来） */}
+        {e.caller && (
+          <Cell className="hidden shrink-0 text-2xs text-text-tertiary sm:inline" hiddenBelowSm>
+            {e.caller}
+          </Cell>
+        )}
+        <span className="sr-only">· {fullTime(e.time)} · {e.instance}</span>
       </div>
       {open && (
         <div

@@ -39,7 +39,7 @@ export function ScenariosPage() {
         empty={list.rows.length === 0}
         noun="场景"
         emptyHint="点击「新建」添加自定义场景。"
-        search={{ value: list.query, onChange: list.setQuery, placeholder: '搜索名称 / 标识 / 说明' }}
+        search={{ value: list.query, onChange: list.setQuery, onSubmit: list.search, onRefresh: list.refresh, placeholder: '搜索名称 / 标识 / 说明' }}
         server={{
           page: list.page,
           totalPages: list.totalPages,

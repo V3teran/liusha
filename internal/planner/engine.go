@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/V3teran/liusha/internal/allowlist"
 	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
 
 	"github.com/google/uuid"
@@ -50,7 +51,7 @@ type Engine struct {
 	budget      time.Duration
 	roster      []AgentBrief // 四 Agent 名册（name + 调度摘要；空=规划 prompt 不带该节）
 
-	// extraTools 是白名单 function 工具（search_corpus 等，装配层按 agent 白名单从共享
+	// extraTools 是白名单 function 工具（corpus_search 等，装配层按 agent 白名单从共享
 	// 工厂构建并已包装进共享拦截链），Plan 时按白名单注册进 ReAct，不再经 toolWrap。
 	extraTools []registry.Tool
 
@@ -133,7 +134,7 @@ func (e *Engine) WithToolOutputTailBytes(n int) *Engine {
 }
 
 // WithExtraTools 注入白名单 function 工具（装配层按 agent 白名单从共享工厂
-// 构建；Plan 时经 registry.Allows 复核后注册进 ReAct）。
+// 构建；Plan 时经 allowlist.Allows 复核后注册进 ReAct）。
 func (e *Engine) WithExtraTools(ts []registry.Tool) *Engine {
 	e.extraTools = ts
 	return e
@@ -248,7 +249,7 @@ type PlanOutcome struct {
 func (e *Engine) planTools(graph *explorationgraph.Store, functionTools []string) []registry.Tool {
 	var out []registry.Tool
 	for _, tool := range []registry.Tool{NewObserveStateTool(graph), NewEvaluateProgressTool(graph)} {
-		if !registry.Allows(functionTools, tool.Name()) {
+		if !allowlist.Allows(functionTools, tool.Name()) {
 			continue
 		}
 		if e.toolWrap != nil {
@@ -257,7 +258,7 @@ func (e *Engine) planTools(graph *explorationgraph.Store, functionTools []string
 		out = append(out, tool)
 	}
 	for _, tool := range e.extraTools {
-		if !registry.Allows(functionTools, tool.Name()) {
+		if !allowlist.Allows(functionTools, tool.Name()) {
 			continue
 		}
 		if tool.Name() == knowledgeSearchTool {
@@ -268,8 +269,8 @@ func (e *Engine) planTools(graph *explorationgraph.Store, functionTools []string
 	return out
 }
 
-// knowledgeSearchTool 是知识库检索工具的名字（tools 包的 search_corpus）。
-const knowledgeSearchTool = "search_corpus"
+// knowledgeSearchTool 是知识库检索工具的名字（tools 包的 corpus_search）。
+const knowledgeSearchTool = "corpus_search"
 
 func (e *Engine) recordKnowledgeQuery(q string) {
 	q = strings.TrimSpace(q)
@@ -302,7 +303,7 @@ type PlanRequest struct {
 }
 
 // Plan 基于当前探索图状态生成新的 Action——ReAct 形态：
-// LLM 经 observe_state/evaluate_progress 工具自主观察探索图，思考后输出规划 JSON。
+// LLM 经 graph_read/progress_evaluate 工具自主观察探索图，思考后输出规划 JSON。
 // 落图仍由 agent.go 单点执行（转换 + 依赖过滤 + 事件发布），ReAct 只负责决策。
 func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID string, req PlanRequest) (PlanOutcome, error) {
 	functionTools := req.FunctionTools
@@ -330,7 +331,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	planCtx.KnowledgeQueries = slices.Clone(e.knowledgeQueries)
 	prompt := e.buildPlanningPrompt(planCtx)
 
-	// 2. 组装 ReAct 规划器：observe_state / evaluate_progress 只读图工具
+	// 2. 组装 ReAct 规划器：graph_read / progress_evaluate 只读图工具
 	provider, err := e.router.For(ctx, e.complexity)
 	if err != nil {
 		return PlanOutcome{}, fmt.Errorf("获取 LLM provider 失败: %w", err)
@@ -361,6 +362,8 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		onThoughtDelta = e.thoughts.Delta
 		onThinkingDelta = e.thoughts.ThinkingDelta
 	}
+	// 本轮的工具过程事件与终稿带同一个轮次标识
+	ctx = reasoning.BeginRound(ctx)
 	result, err := react.Run(ctx, &runtime.ReActConfig{
 		Objective:                  prompt,
 		SystemPrompt:               e.buildPlannerSystemPrompt(),
@@ -391,7 +394,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		round.Summary = planningNarrative(*response)
 	}
 	if e.thoughts != nil {
-		e.thoughts.Done(round)
+		e.thoughts.Done(ctx, round)
 	}
 	if perr != nil {
 		return PlanOutcome{}, fmt.Errorf("解析规划输出失败: %w", perr)

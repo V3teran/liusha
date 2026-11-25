@@ -23,7 +23,7 @@ interface CorpusRetrievalProps {
 }
 
 /**
- * 检索测试：以某个场景下的任务视角，执行与智能体 search_corpus 相同的检索——一条查询实际会
+ * 检索测试：以某个场景下的任务视角，执行与智能体 corpus_search 相同的检索——一条查询实际会
  * 拿到哪些知识、各自的得分。查询与视角写在 URL（?q= & as=）。
  */
 export function CorpusRetrieval({ selectedId, onOpenEntry, onHits }: CorpusRetrievalProps) {

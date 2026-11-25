@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import * as Tabs from '@radix-ui/react-tabs'
 import { FileUp, Plus, X } from 'lucide-react'
@@ -17,7 +17,7 @@ import { CorpusImportDialog } from '@/features/corpus/CorpusImportDialog'
 import { CorpusRetrieval } from '@/features/corpus/CorpusRetrieval'
 import { useCorpusFacets, useCorpusFilters, useCorpusList, useCorpusStatus } from '@/features/corpus/useCorpusQueries'
 import { useScenarioOptions } from '@/features/scenarios/useScenarioQueries'
-import { useDebouncedSearch } from '@/hooks/useDebouncedSearch'
+import { useSearchDraft } from '@/hooks/useDebouncedSearch'
 import { useSelectedParam } from '@/hooks/useSelectedParam'
 import { CORPUS_SOURCE_OPTIONS, corpusScopeLabel } from '@/lib/corpus'
 import { cn } from '@/lib/utils'
@@ -109,15 +109,12 @@ export function CorpusPage() {
   } | null>(null)
 
   // 关键词在服务端检索，停顿后写入 URL（打字不是导航：改写当前历史）
-  const [query, setQuery] = useState(filters.search)
-  const debounced = useDebouncedSearch(query.trim())
-  useEffect(() => {
-    if (debounced !== filters.search) setFilters({ ...filters, search: debounced }, { replace: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在防抖值变化时写回
-  }, [debounced])
-  useEffect(() => {
-    setQuery((q) => (q.trim() === filters.search ? q : filters.search))
-  }, [filters.search])
+  // 关键词停顿后写入 URL（打字不是导航：改写当前历史）；交给 URL 的词去掉首尾空白
+  const search = useSearchDraft(
+    filters.search,
+    (next) => setFilters({ ...filters, search: next }, { replace: true }),
+    (d) => d.trim(),
+  )
 
   const rows = useMemo(() => list.data?.items ?? [], [list.data])
   const total = list.data?.total ?? 0
@@ -173,7 +170,7 @@ export function CorpusPage() {
             canReset={hasFilter}
             onReset={() => {
               resetFilters()
-              setQuery('')
+              search.setDraft('')
             }}
             trailing={
               <PaginationToolbar
@@ -230,8 +227,10 @@ export function CorpusPage() {
 
             <SearchInput
               className="w-64"
-              value={query}
-              onChange={setQuery}
+              value={search.draft}
+              onChange={search.setDraft}
+              onSubmit={search.submit}
+              onRefresh={() => void list.refetch()}
               placeholder="搜索标题与正文…"
               ariaLabel="搜索知识的标题与正文"
             />

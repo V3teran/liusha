@@ -112,7 +112,7 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 	}
 }
 
-// replayJudgeITest 判定前自主复放一次（模拟 RouterJudge 的 replay_for_verification）。
+// replayJudgeITest 判定前自主复放一次（模拟 RouterJudge 的 repro_replay）。
 type replayJudgeITest struct{ verdict string }
 
 func (j replayJudgeITest) Judge(_ context.Context, _ string, _, _ json.RawMessage, replay evaluator.ReplayFunc) (evaluator.Verdict, error) {

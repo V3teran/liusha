@@ -1,7 +1,8 @@
 // Package config 加载部署配置：配置文件（必须存在且列出全部键）→ LIUSHA_ 环境变量，再校验。
 //
 // 设计原则：
-//   - 配置文件是唯一的取值来源：程序里不内置配置、不为缺键补值；缺键、未知键都拒绝启动
+//   - 配置文件是唯一的取值来源：程序里不内置配置、不为缺键补值；缺键、未知键都拒绝启动。
+//     唯一的例外是与配置文件可能不同版本的进程：它按自己读的范围加载（见 View），别的段不读不查
 //   - 文件只写字面值；环境变量按键名覆盖（键 a.b_c ↔ LIUSHA_A_B_C），文件列出全部键，
 //     因此每个键都能被覆盖。LIUSHA_ 命名空间里不对应配置键的变量（LIUSHA_CONFIG、.env 的部署变量、
 //     开发工具参数）不得与配置键同名，见 envnames_test.go
@@ -32,6 +33,8 @@ type AppConfig struct {
 	Conversation ConversationConfig `mapstructure:"conversation"`
 	Tools        ToolsConfig        `mapstructure:"tools"`
 	Traffic      TrafficConfig      `mapstructure:"traffic"`
+
+	WebSearch WebSearchConfig `mapstructure:"web_search"`
 }
 
 // ToolsConfig 是工具调用记录的留存参数。
@@ -39,6 +42,22 @@ type ToolsConfig struct {
 	// InvocationRetentionDays 是工具调用记录的留存天数；0 = 永久留存。
 	// 记录是运行过程流水（诊断），按时间清理；任务证据与审计链不在此列。
 	InvocationRetentionDays int `mapstructure:"invocation_retention_days"`
+}
+
+// WebSearchConfig 是公开网页检索的后端（web_search 工具用它取回网页结果）。
+//
+// 程序只认约定、不认服务：这里定的是「接到哪、怎么鉴权」，不定「是哪一家」。接一家搜索服务
+// 通常只需填地址和密钥——两种事实上的响应惯例程序都认（见 internal/websearch）。
+type WebSearchConfig struct {
+	// URL 是搜索接口的地址：程序在它后面追加查询词 q 发起 GET。接口自带的固定参数（语言、
+	// 条数……）写进地址里。空 = 不启用：web_search 工具不注册。
+	URL string `mapstructure:"url"`
+	// AuthHeader 是密钥放在哪个请求头里。空 = Authorization（值写成 Bearer <密钥>，标准做法）；
+	// 接口要求别的头时填它的名字（如 X-Subscription-Token），此时头里放裸密钥。
+	AuthHeader string `mapstructure:"auth_header"`
+	// APIKey 是接口的鉴权密钥；接口不鉴权时留空。
+	// 密钥，经 LIUSHA_WEB_SEARCH_API_KEY 注入。
+	APIKey string `mapstructure:"api_key"`
 }
 
 // TrafficConfig 是流量记录的留存参数。
@@ -175,9 +194,9 @@ type RuntimeConfig struct {
 	// StepLLMTimeoutSeconds 是单步 LLM 看门狗：一次模型调用的上限，挂死的调用即失败。规划一整轮的
 	// 预算、压缩链的时限都由它推导。
 	StepLLMTimeoutSeconds int `mapstructure:"step_llm_timeout_seconds" json:"step_llm_timeout_seconds"`
-	// StepToolTimeoutSeconds 是 run_command 超时的上限（模型自传的 timeout_seconds 不得超过它）。
+	// StepToolTimeoutSeconds 是 command_run 超时的上限（模型自传的 timeout_seconds 不得超过它）。
 	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds" json:"step_tool_timeout_seconds"`
-	// RunTailBytes 是 run_command 输出保留尾部的字节数（输出末段是结果所在）。
+	// RunTailBytes 是 command_run 输出保留尾部的字节数（输出末段是结果所在）。
 	RunTailBytes int `mapstructure:"run_tail_bytes" json:"run_tail_bytes"`
 	// ToolOutputTailBytes 是任意工具输出进模型上下文前的全局尾部保留字节数。
 	ToolOutputTailBytes int `mapstructure:"tool_output_tail_bytes" json:"tool_output_tail_bytes"`
@@ -237,7 +256,7 @@ type RunnerConfig struct {
 
 // SandboxConfig 是沙盒服务参数：沙盒自身的监听与鉴权、浏览器、工作区留存、对外回连契约。
 //
-// run_command 单次硬超时不在这里：LLM 调用时必传 timeout_seconds，上限由系统设置
+// command_run 单次硬超时不在这里：LLM 调用时必传 timeout_seconds，上限由系统设置
 // runtime.step_tool_timeout_seconds 钳制（前端「系统配置」可热改）。
 type SandboxConfig struct {
 	ListenAddr string `mapstructure:"listen_addr"`

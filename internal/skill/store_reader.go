@@ -17,7 +17,7 @@ type Source interface {
 // StoreReader 把生效技能适配成渐进式加载 Reader，是运行时（runner 认知循环）的后端：
 //
 //	Tier 1 Metas：EnabledSkills 列表 → 索引卡（name/description）
-//	Tier 2 Load ：Skill 单条 → 全文卡（read_skill 正文）
+//	Tier 2 Load ：Skill 单条 → 全文卡（skill_read 正文）
 //
 // 前端对技能的自定义无需重启 runner 即生效。
 type StoreReader struct {

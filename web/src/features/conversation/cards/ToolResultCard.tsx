@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { agentAccent, agentLabel } from '@/lib/agentColor'
 import { cn } from '@/lib/utils'
 
 interface ToolResultCardProps {
@@ -8,7 +7,8 @@ interface ToolResultCardProps {
   result: string
   durationMs: number
   err: string
-  agentName?: string
+  /** 左侧色条的颜色：取所属智能体的身份色（归属由所在的轮卡表明，卡内不重复标签） */
+  accent?: string
 }
 
 function prettyResult(err: string, result: string): string {
@@ -26,10 +26,9 @@ function preview(err: string, result: string): string {
   return s.length > 64 ? s.slice(0, 64) + '…' : s
 }
 
-// 工具结果卡：状态点(成功/错误) + 工具名 + 耗时，折叠看美化结果；错误默认展开。按 agent 名着色。
-export function ToolResultCard({ tool, result, durationMs, err, agentName }: ToolResultCardProps) {
+// 工具结果卡（配不上调用的孤立结果）：状态点(成功/错误) + 工具名 + 耗时，折叠看美化结果；错误默认展开。
+export function ToolResultCard({ tool, result, durationMs, err, accent }: ToolResultCardProps) {
   const [open, setOpen] = useState(!!err)
-  const accent = agentAccent(agentName) // 每个 agent 独立色
   const pretty = prettyResult(err, result)
   const previewText = preview(err, result)
 
@@ -38,7 +37,7 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        style={agentName ? { borderLeft: `2px solid ${accent.accent}` } : undefined}
+        style={accent ? { borderLeft: `2px solid ${accent}` } : undefined}
         className={cn(
           'flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-left text-sm text-text',
           'hover:border-border-strong',
@@ -49,14 +48,6 @@ export function ToolResultCard({ tool, result, durationMs, err, agentName }: Too
         <span className={cn('h-1.5 w-1.5 flex-shrink-0 rounded-full', err ? 'bg-status-error' : 'bg-status-success')} />
         <code className="font-mono text-text-secondary">{tool}</code>
         <span className="text-xs text-text-secondary">{durationMs}ms</span>
-        {agentName && (
-          <span
-            className="flex-shrink-0 rounded-md px-1.5 py-0 font-mono text-xs"
-            style={{ color: accent.accent, background: accent.soft }}
-          >
-            {agentLabel(agentName)}
-          </span>
-        )}
         {!open && <span className="overflow-hidden truncate font-mono text-text-secondary">{previewText}</span>}
       </button>
       {open && (

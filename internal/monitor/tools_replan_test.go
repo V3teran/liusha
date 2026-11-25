@@ -79,7 +79,7 @@ func TestPublishDecision_RequiresObservedState(t *testing.T) {
 		Type: DecisionRequestReplan, Problem: ProblemStalled, EvidenceIDs: []string{"a-done"}, Reason: "停滞",
 	}))
 	require.NoError(t, err)
-	assert.Contains(t, out.Error, "get_global_state")
+	assert.Contains(t, out.Error, "task_survey")
 	assert.Empty(t, planner.reasons)
 }
 

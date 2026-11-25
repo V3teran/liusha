@@ -13,6 +13,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/allowlist"
 	"github.com/V3teran/liusha/internal/constants"
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -128,10 +129,10 @@ func New(cfg Config) *Agent {
 
 	// 注册监察工具（function_tools 白名单过滤；nil=拒绝，[]=空集，["*"]=全量）
 	var registryTools []registry.Tool
-	if registry.Allows(cfg.FunctionTools, "get_global_state") {
+	if allowlist.Allows(cfg.FunctionTools, "task_survey") {
 		registryTools = append(registryTools, NewGetGlobalStateTool(cfg.Graph, cfg.TaskID, metricsCollector))
 	}
-	if registry.Allows(cfg.FunctionTools, "publish_decision") {
+	if allowlist.Allows(cfg.FunctionTools, "decision_publish") {
 		registryTools = append(registryTools, NewPublishDecisionTool(cfg.Graph, cfg.Replanner, cfg.TaskID))
 	}
 	for _, tool := range registryTools {
@@ -293,7 +294,7 @@ func (a *Agent) evaluate(ctx context.Context, reviewReasons []string) error {
 		Temperature:          0.3,     // 较低温度，确保稳定性
 		MessageModifierChain: runtime.NewCompactionChain(a.contextBudget(ctx), "monitor", a.distiller, a.compactionTimeouts),
 		ToolOutputTailBytes:  a.toolOutputTailBytes,
-		// 监察链路也会多轮调工具（get_global_state 深挖/重试）：循环检测与
+		// 监察链路也会多轮调工具（task_survey 深挖/重试）：循环检测与
 		// 无进展止损与其余三个 agent 同口径；GoalAlignment 不适用（评估目标
 		// 每轮现构建，无固定目标可对齐——与 evaluator judge 同理）。
 		MiddlewareChain: runtime.NewMiddlewareChain(
@@ -314,13 +315,15 @@ func (a *Agent) evaluate(ctx context.Context, reviewReasons []string) error {
 		config.OnThoughtDelta = a.thoughts.Delta
 		config.OnThinkingDelta = a.thoughts.ThinkingDelta
 	}
-	// 每轮评估一份所见记录：决策只能基于本轮经 get_global_state 看到的态势
+	// 每轮评估一份所见记录：决策只能基于本轮经 task_survey 看到的态势
+	// 本轮的工具过程事件与终稿带同一个轮次标识
+	ctx = reasoning.BeginRound(ctx)
 	result, err := a.reactRuntime.Run(withSeenSurface(ctx), config)
 	if err != nil {
 		return fmt.Errorf("ReAct runtime execution: %w", err)
 	}
 	if a.thoughts != nil {
-		a.thoughts.Done(reasoning.RoundOf(result))
+		a.thoughts.Done(ctx, reasoning.RoundOf(result))
 	}
 
 	a.logger.Info().
@@ -347,7 +350,7 @@ func (a *Agent) buildEvaluationObjective(reviewReasons []string) string {
 }
 
 // buildSystemPrompt 组装监察 system prompt：章程 + 任务场景块（无场景时没有）。监察的决策经
-// publish_decision 工具调用发布，形状由工具 schema 约束，最终文本不被解析，
+// decision_publish 工具调用发布，形状由工具 schema 约束，最终文本不被解析，
 // 因此没有需要随代码固定的输出契约。章程为空时返回空串让 ReAct.Run 报错
 // （自定义层在写入时已拒绝空章程，此处只是兜底）。
 func (a *Agent) buildSystemPrompt() string {

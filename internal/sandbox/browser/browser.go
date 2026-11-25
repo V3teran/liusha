@@ -5,7 +5,7 @@
 // 端口与口令写在端点目录（沙盒运行目录下，只对本用户开放）的 <任务ID>/<身份>.json 里，约定与
 // client.py / service.py 一致。身份只在任务内有意义（同名身份在不同任务里是不同的浏览器），
 // 任务归属由目录表达。回环 TCP 而不是 unix 套接字：全平台同一机制（Windows 上的 Python
-// 没有 unix 套接字）。drive_browser 工具在沙盒里执行 `browser-use <子命令>`，由本包生成的包装
+// 没有 unix 套接字）。browser_drive 工具在沙盒里执行 `browser-use <子命令>`，由本包生成的包装
 // 脚本以 sandbox.browser_python 运行 client.py。
 package browser
 

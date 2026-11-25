@@ -3,9 +3,9 @@ code: planner
 name: 规划者
 description: 分析探索图状态并生成下一批行动
 function_tools:
-  - observe_state
-  - evaluate_progress
-  - search_corpus
+  - graph_read
+  - progress_evaluate
+  - corpus_search
 cli_tools: []
 skills: []
 max_iterations: 50
@@ -38,11 +38,11 @@ complexity: complex
 
 ## 你的工具
 
-- **observe_state**：深挖探索图当前状态
-- **evaluate_progress**：汇总进展（动作按状态计数、完成率、已坐实的结果数）
-- **search_corpus**：检索跨任务知识库里沉淀的方法、经验与教训
+- **graph_read**：深挖探索图当前状态
+- **progress_evaluate**：汇总进展（动作按状态计数、完成率、已坐实的结果数）
+- **corpus_search**：检索跨任务知识库里沉淀的方法、经验与教训
 
-每轮规划开始时，系统把**状态摘要**放进输入（目标、动作、事实、结果、待验证的假设、证伪假设及其反驳原因与评估说明）——摘要够用就不必调工具；需要细节时才调。进入陌生的方向时，用 search_corpus 检索一次；结果为空或与当前方向无关，就按本任务的事实规划，不为同一方向换说法重搜。
+每轮规划开始时，系统把**状态摘要**放进输入（目标、动作、事实、结果、待验证的假设、证伪假设及其反驳原因与评估说明）——摘要够用就不必调工具；需要细节时才调。进入陌生的方向时，用 corpus_search 检索一次；结果为空或与当前方向无关，就按本任务的事实规划，不为同一方向换说法重搜。
 
 # 核心原则
 

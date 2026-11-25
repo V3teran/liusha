@@ -9,8 +9,10 @@ const ITEM_CLASS =
   'flex w-full cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-text outline-none data-[highlighted]:bg-surface-2'
 
 /**
- * 对话行的「⋯」菜单（Radix DropdownMenu，层级走 app-menu）：跳转（只看这个对话的任务、发现、
- * 探索图，规则见 taskJumps；纯聊天没有任务，不显示）+ 重命名 + 删除（任务进行中禁删）。
+ * 对话行的「⋯」菜单（Radix DropdownMenu，层级走 app-menu）：去处 + 重命名 + 删除（任务进行中禁删）。
+ *
+ * 去处都只看这个对话的（规则见 taskJumps）：任务、发现、探索图要有任务才有；「模型日志」纯聊天
+ * 也有——问答的调用记在它名下。这是对话相关去处的唯一入口，对话页顶栏不放。
  * 由 ConversationList 持有重命名 / 删除逻辑，本组件只负责菜单本身。
  */
 export function ConvMenu({
@@ -27,18 +29,17 @@ export function ConvMenu({
   onRename: (c: Conversation) => void
   onDelete: (c: Conversation) => void
 }) {
-  const jumps = conv.task_id
-    ? taskJumps(
-        {
-          taskId: conv.task_id,
-          conversationId: conv.id,
-          source: conv.source ?? '',
-          findingCount: conv.finding_count ?? 0,
-          from: 'conversation',
-        },
-        ['task', 'findings', 'exploration'],
-      )
-    : []
+  // 规则自己决定哪些去处成立：没有任务就没有任务、发现、探索图；模型日志不依赖任务
+  const jumps = taskJumps(
+    {
+      taskId: conv.task_id,
+      conversationId: conv.id,
+      source: conv.source ?? '',
+      findingCount: conv.finding_count ?? 0,
+      from: 'conversation',
+    },
+    ['task', 'findings', 'exploration', 'llmAudit'],
+  )
   // 选了「重命名」：菜单收起后焦点留给行内的重命名输入框，不交还给 ⋯ 按钮
   const toRenameRef = useRef(false)
   return (

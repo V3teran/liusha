@@ -1,8 +1,5 @@
 /**
  * 探索图模块 React Query hooks（对齐 useTaskQueries 约定）。探索图属于任务，一律按任务 ID 取。
- *
- * 探索图是运行时动态图，任务推进中节点持续增长：存在 running 节点时
- * 10s 轮询自动跟进，图静止后停轮询。
  */
 
 import { useQuery } from '@tanstack/react-query'
@@ -15,14 +12,19 @@ const explorationKeys = {
   latestTask: () => ['exploration', 'latest-task'] as const,
 }
 
-/** 任务的完整探索图。taskId 为空（未选定）不发请求。 */
-export function useTaskGraph(taskId: string) {
+/**
+ * 任务的完整探索图。taskId 为空（未选定）不发请求。
+ *
+ * live（任务在跑：active 且未暂停）时每 10 秒重取，图随探索推进；结束后静态。是否在跑以任务行
+ * 为准，图自己说了不算：动作刚排出、还没被认领时图上没有 running 节点，照图判断会在这时停掉
+ * 轮询，此后的执行就再也看不到。
+ */
+export function useTaskGraph(taskId: string, live: boolean) {
   return useQuery({
     queryKey: explorationKeys.graph(taskId),
     queryFn: () => getTaskGraph(taskId),
     enabled: taskId !== '',
-    refetchInterval: (query) =>
-      query.state.data?.nodes.some((n) => n.state === 'running') ? 10_000 : false,
+    refetchInterval: live ? 10_000 : false,
   })
 }
 

@@ -73,6 +73,7 @@ export function TrafficPage() {
           contentTypes={contentTypesQuery.data ?? []}
           onChange={setFilters}
           onReset={resetFilters}
+          onRefresh={() => void listQuery.refetch()}
           trailing={
             <PaginationToolbar
               page={page}

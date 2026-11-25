@@ -162,30 +162,6 @@ func TestRegistry_TimeoutInterceptorContextReachesTool(t *testing.T) {
 	}
 }
 
-// TestAllows 锁定 function_tools / cli_tools / skills 三类名单共用的唯一判定。
-func TestAllows(t *testing.T) {
-	cases := []struct {
-		name      string
-		allowlist []string
-		item      string
-		want      bool
-	}{
-		{"nil 默认拒绝", nil, "a", false},
-		{"空名单为空集", []string{}, "a", false},
-		{"通配放行全部", []string{"*"}, "a", true},
-		{"含通配即全部", []string{"b", "*"}, "a", true},
-		{"名单内放行", []string{"a", "b"}, "a", true},
-		{"名单外拒绝", []string{"b"}, "a", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := Allows(tc.allowlist, tc.item); got != tc.want {
-				t.Fatalf("Allows(%v, %q) = %v, want %v", tc.allowlist, tc.item, got, tc.want)
-			}
-		})
-	}
-}
-
 // 工具目录里出现的每个函数工具分类都有中文显示名（未命名会让工具页显示原始分类码）。
 func TestFunctionToolCategoriesHaveNames(t *testing.T) {
 	for _, meta := range FunctionToolCatalog {

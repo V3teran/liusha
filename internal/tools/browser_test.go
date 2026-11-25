@@ -10,7 +10,7 @@ import (
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// fakeSandboxClient 按预设脚本回放 Exec 结果——drive_browser 的 CLI 输出语义测试夹具。
+// fakeSandboxClient 按预设脚本回放 Exec 结果——browser_drive 的 CLI 输出语义测试夹具。
 type fakeSandboxClient struct {
 	responses []sandbox.ExecResult
 	calls     int
@@ -129,7 +129,7 @@ func TestDriveBrowser_WatchdogSelfHealExhausted(t *testing.T) {
 }
 
 // AGENT_ID 按 action 隔离 tab：并行执行 action 时（engine 已把 actionID 挂入
-// ctx），drive_browser 命令必须带 AGENT_ID 前缀，否则多个 action 共抢同一 tab。
+// ctx），browser_drive 命令必须带 AGENT_ID 前缀，否则多个 action 共抢同一 tab。
 func TestDriveBrowser_AgentIDTabIsolation(t *testing.T) {
 	fake := &fakeSandboxClient{responses: []sandbox.ExecResult{
 		{Stdout: "url: http://t/\n[exit_code: 0]"},
@@ -154,7 +154,7 @@ func TestDriveBrowser_AgentIDTabIsolation(t *testing.T) {
 }
 
 // 浏览器身份按身份名传给沙盒（缺省 default）：任务隔离由沙盒按命令所属任务完成，agent 在
-// run_command 里手写 IDENTITY=<身份名> 与本工具指向同一个浏览器。身份名中的非法字符清洗为 -
+// command_run 里手写 IDENTITY=<身份名> 与本工具指向同一个浏览器。身份名中的非法字符清洗为 -
 // （它是端点文件名，且要原样进 shell）。
 func TestDriveBrowser_IdentityName(t *testing.T) {
 	for _, c := range []struct{ args, want string }{

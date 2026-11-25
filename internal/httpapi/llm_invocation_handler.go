@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/V3teran/liusha/internal/llminvocation"
@@ -25,7 +27,7 @@ type InvocationsAPI interface {
 	GetDetailByID(ctx context.Context, id int64) (llminvocation.Invocation, error)
 }
 
-// defaultInvocationPageSize / maxInvocationPageSize：/llm/invocations/:task_id 分页默认值/上限。
+// defaultInvocationPageSize / maxInvocationPageSize：列表分页默认值/上限。
 // ListByTask 自身也有硬上限（防御纵深），这里的上限对齐它，避免 handler 层看似能开更大窗口。
 const (
 	defaultInvocationPageSize = 200
@@ -35,16 +37,27 @@ const (
 // parseInvocationFilter 从 query 解析筛选条件（列表/统计/分面共用，保证口径一致）。
 //
 //	q=<search> role=<角色> model=<模型> only_err=1 start=<RFC3339> end=<RFC3339> page=<n> size=<n>
+//	task=<任务 ID> conversation=<对话 ID>
 //
 // 时间用 RFC3339（前端 Date.toISOString() 直出）；写错时返回错误（handler 回 400）。
+// task / conversation 是范围：从任务或对话跳来时只看它名下的调用（两者语义见 ListFilter）。
 //
 // offset 分页（非游标）：对齐流量/漏洞模块的「共 X 条 + N/M 页」体验，配合 Count 算总页数。
 func parseInvocationFilter(c *gin.Context, page, size int) (llminvocation.ListFilter, error) {
 	f := llminvocation.ListFilter{
-		Search:  c.Query("q"), // 允许为空：空 = 全量（按时间倒序），全局审计不强制先选对话
+		Search:  c.Query("q"), // 允许为空：空 = 全量（按 id 倒序），全局审计不强制先选对话
 		Role:    c.Query("role"),
 		Model:   c.Query("model"),
 		OnlyErr: c.Query("only_err") == "1" || c.Query("only_err") == "true",
+	}
+	// 范围按 uuid 比较，不是合法的 ID 在这里就报出，不把它带进 SQL
+	for param, dst := range map[string]*string{"task": &f.TaskID, "conversation": &f.ConversationID} {
+		if v := c.Query(param); v != "" {
+			if _, err := uuid.Parse(v); err != nil {
+				return f, fmt.Errorf("参数 %s 不是合法的 ID", param)
+			}
+			*dst = v
+		}
 	}
 	var err error
 	if f.Start, err = timeQuery(c, "start"); err != nil {
@@ -60,10 +73,10 @@ func parseInvocationFilter(c *gin.Context, page, size int) (llminvocation.ListFi
 	return f, nil
 }
 
-// llmInvocationsSearchHandler 处理 GET /llm/invocations/search?q=<search>&page=&size=&role=&model=&only_err=&start=&end=。
+// llmInvocationsSearchHandler 处理 GET /llm/invocations/search（筛选参数见 parseInvocationFilter）。
 //
-// 全局搜索端点：支持按 task_id/conversation_id/assignment_id 搜索 LLM 调用。
-// q 为空时返回所有数据（按时间倒序），不需要先选对话，适用于全局审计场景。
+// q 为空时返回所有数据（按 id 倒序），不需要先选对话，适用于全局审计场景；q 非空时按
+// task_id/conversation_id/assignment_id 搜索。
 //
 // 响应结构：
 //
@@ -126,7 +139,7 @@ func llmInvocationsSearchHandler(api InvocationsAPI) gin.HandlerFunc {
 	}
 }
 
-// llmInvocationsSearchStatHandler 处理 GET /llm/invocations/search/stat?q=&role=&model=&only_err=&start=&end=。
+// llmInvocationsSearchStatHandler 处理 GET /llm/invocations/search/stat（与列表同一套筛选参数）。
 //
 // 全局搜索口径的用量合计（整个筛选结果集，与翻到第几页无关）——审计页头部统计 chip
 // 的数据源。此前前端用当页行自行 reduce 聚合，50 条/页时「调用 50」与分页器

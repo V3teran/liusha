@@ -38,6 +38,7 @@ export interface TimelineEventMeta {
   text: string // reasoning 的推理文字（已知协议在后端解析边界转人读叙述；原文在 模型日志页按调用可查）
   thinking: string // 模型扩展思考终稿（metadata.thinking，折叠区展示）
   agent_name: string // 产出该事件的 agent 名（planner/executor/evaluator/monitor；聊天助手为 assistant）
+  round_id?: string // reasoning/tool_call/tool_result：所属的轮（一次 agent 运行）的标识，同一轮的终稿与工具事件相同；标识上线之前的事件没有
   in_tokens: number // reasoning：本轮 LLM 输入 token 累计
   out_tokens: number // reasoning：本轮 LLM 输出 token 累计
   latency_ms: number // reasoning：本轮墙钟耗时(ms)
@@ -247,7 +248,7 @@ export interface Tool {
   description: string
   sort_order: number
   synced_at?: string
-  // 沙盒是否已安装（CLI 工具看沙盒的 PATH，drive_browser 看浏览器能力，其余函数工具恒为 true）；
+  // 沙盒是否已安装（CLI 工具看沙盒的 PATH，browser_drive 看浏览器能力，其余函数工具恒为 true）；
   // null = 沙盒不可达、状态未知。工具可用 = 已装配到智能体 ∩ 已安装。
   installed: boolean | null
 }
@@ -536,7 +537,7 @@ export interface LLMInvocationSummary {
   finish_reason: string
   error_message: string
   error_kind: string
-  role: string // 调用者角色：planner / executor / evaluator / monitor，及路由键 inspector / compactor / distill
+  role: string // 调用者角色：planner / executor / evaluator / monitor，以及不在认知循环里的 inspector / compaction / distill
   created_at: string
 }
 // LLMInvocationDetail 是点击钻取的完整行（messages/result 为后端 inline jsonb，结构不定 → unknown）。
@@ -578,6 +579,9 @@ export interface LLMInvocationFacets {
 }
 // LLMInvocationFilters 是前端持有的筛选态，序列化进 query 后由服务端筛。
 export interface LLMInvocationFilters {
+  /** 范围：从任务或对话跳来时只看它名下的调用（二者至多一个非空，见 features/relations/scope.ts） */
+  task?: string
+  conversation?: string
   role: string
   model: string
   onlyErr: boolean
@@ -692,9 +696,9 @@ export interface CompactionSettings {
 
 // RuntimeSettings 工具运行时旋钮。
 export interface RuntimeSettings {
-  step_tool_timeout_seconds: number // run_command 超时钳制上限秒（LLM 自传 timeout_seconds 的上界），>0
+  step_tool_timeout_seconds: number // command_run 超时钳制上限秒（LLM 自传 timeout_seconds 的上界），>0
   step_llm_timeout_seconds: number // 单步 LLM 看门狗超时秒（审计页超时判定同源），>0
-  run_tail_bytes: number // run_command 输出保留尾部字节数，>0
+  run_tail_bytes: number // command_run 输出保留尾部字节数，>0
   tool_output_tail_bytes: number // 任意工具输出进上下文前的全局尾部保留字节（运行时统一收口），>0
 }
 

@@ -68,7 +68,7 @@ func equal(a, b []string) bool {
 	return true
 }
 
-// TestLoad_RejectsInvalidNames 验证：工具名是 cli_tools 名单与 run_command 的寻址键，
+// TestLoad_RejectsInvalidNames 验证：工具名是 cli_tools 名单与 command_run 的寻址键，
 // 重名或缺名都让清单加载失败（重名会在提示词的工具目录里重复出现，且名单只能指代其一）。
 func TestLoad_RejectsInvalidNames(t *testing.T) {
 	cases := map[string]string{
