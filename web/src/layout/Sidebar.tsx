@@ -4,6 +4,8 @@ import { useTheme } from '@/hooks/useTheme'
 import { UserMenu } from '@/features/auth/UserMenu'
 import { cn } from '@/lib/utils'
 import { NAV_GROUPS, type NavItem } from './navigation'
+import { AppVersion, formatVersion } from './AppVersion'
+import { useVersion } from './useVersionQueries'
 
 interface SidebarProps {
   /** 图标栏形态（80px，仅图标 + 悬停原生 tooltip） */
@@ -19,8 +21,8 @@ interface SidebarProps {
  * 完全一致）。资产自带浅底圆角容器与发丝描边，深浅主题下都能与背景分离；外面不再
  * 套容器——套 accent 着色容器会成灰底小剪影，与登录页对不上。
  */
-export function BrandMark({ className }: { className?: string }) {
-  return <img src="/brand/app-icon.svg" alt="liusha" className={cn('flex-shrink-0', className ?? 'h-9 w-9')} />
+export function BrandMark({ className, title }: { className?: string; title?: string }) {
+  return <img src="/brand/app-icon.svg" alt="liusha" title={title} className={cn('flex-shrink-0', className ?? 'h-9 w-9')} />
 }
 
 /**
@@ -30,16 +32,21 @@ export function BrandMark({ className }: { className?: string }) {
 export function Sidebar({ rail, onToggleRail, onNavigate }: SidebarProps) {
   const { theme, toggle } = useTheme()
   const location = useLocation()
+  const version = useVersion().data?.version
 
   return (
     <div className="flex h-full flex-col">
       {/* 品牌行：与页头同为 56px 高，与下方导航之间不画线——品牌标识不是导航的一项，
           一条横线会让它看起来像「导航栏的标题」。侧栏自己的底色已经把它和内容区分开 */}
       <div className={cn('flex h-14 flex-shrink-0 items-center px-3', rail && 'justify-center gap-1')}>
-        <BrandMark />
+        {/* 图标栏里放不下版本号：挂在徽记的悬停提示上 */}
+        <BrandMark title={rail && version ? `liusha ${formatVersion(version)}` : undefined} />
         {!rail && (
           <div className="ml-3 min-w-0 flex-1">
-            <span className="brand-mark block font-mono text-base font-bold leading-tight tracking-tight">liusha</span>
+            <div className="flex min-w-0 items-baseline gap-1.5">
+              <span className="brand-mark flex-shrink-0 font-mono text-base font-bold leading-tight tracking-tight">liusha</span>
+              {version && <AppVersion version={version} />}
+            </div>
             <span className="block truncate text-xs leading-tight text-text-tertiary">LLM 智能化渗透测试平台</span>
           </div>
         )}

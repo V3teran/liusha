@@ -57,7 +57,8 @@ import (
 )
 
 // Run 运行 api 组件直到 ctx 取消。启动失败返回错误。
-func Run(ctx context.Context, cfg config.AppConfig) error {
+// version 是程序版本（入口接构建注入的值）：经 GET /version 交给控制台显示。
+func Run(ctx context.Context, cfg config.AppConfig, version string) error {
 	logger := logx.New("api")
 
 	pool, err := db.NewPgPool(ctx, cfg.Postgres, logger)
@@ -195,6 +196,7 @@ func Run(ctx context.Context, cfg config.AppConfig) error {
 			Auth:                authStore,
 			AuthAudit:           auditStore,
 			CookieSecure:        cfg.API.CookieSecure,
+			Version:             version,
 			Workspaces:          workspaceStore,
 			WorkspaceLabels:     taskStore,
 			Credentials:         credAPI,

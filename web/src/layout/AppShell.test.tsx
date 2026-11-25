@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { AppShell } from './AppShell'
 import { useTheme } from '@/hooks/useTheme'
@@ -19,6 +20,9 @@ vi.mock('@/api/auth', () => ({
   changePassword: vi.fn(),
 }))
 
+// 侧栏品牌行的版本号取自 GET /version：jsdom 无 fetch，给定一个固定版本
+vi.mock('@/api/version', () => ({ getVersion: vi.fn(async () => ({ version: '0.15.0' })) }))
+
 const mockedUseTheme = useTheme as unknown as ReturnType<typeof vi.fn>
 
 function LoginProbe() {
@@ -26,21 +30,24 @@ function LoginProbe() {
 }
 
 function renderShell(initialPath: string, withLoginRoute = false) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <Routes>
-        {withLoginRoute && <Route path="/login" element={<LoginProbe />} />}
-        <Route path="/conversations/direct" element={<AppShell />}>
-          <Route index element={<div>child-active</div>} />
-        </Route>
-        <Route path="/findings" element={<AppShell />}>
-          <Route index element={<div>child-findings</div>} />
-        </Route>
-        <Route path="/exploration-graph" element={<AppShell />}>
-          <Route index element={<div>child-exploration-graph</div>} />
-        </Route>
-      </Routes>
-    </MemoryRouter>,
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          {withLoginRoute && <Route path="/login" element={<LoginProbe />} />}
+          <Route path="/conversations/direct" element={<AppShell />}>
+            <Route index element={<div>child-active</div>} />
+          </Route>
+          <Route path="/findings" element={<AppShell />}>
+            <Route index element={<div>child-findings</div>} />
+          </Route>
+          <Route path="/exploration-graph" element={<AppShell />}>
+            <Route index element={<div>child-exploration-graph</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
   )
 }
 
@@ -77,6 +84,12 @@ describe('AppShell', () => {
     expect(btn).toBeTruthy()
     expect(btn.querySelector('svg')).toBeTruthy()
     expect(btn).not.toHaveTextContent('T')
+  })
+
+  it('侧栏品牌行显示程序版本（取自 GET /version）', async () => {
+    mockedUseTheme.mockReturnValue({ theme: 'dark', toggle: vi.fn() })
+    renderShell('/conversations/direct')
+    expect(await screen.findByText('v0.15.0')).toBeTruthy()
   })
 
   it('渲染全部导航项', () => {
