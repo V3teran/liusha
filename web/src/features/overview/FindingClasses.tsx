@@ -42,7 +42,6 @@ export function FindingClasses({ classes, className }: { classes: ClassCount[]; 
               <li key={c.class}>
                 <Link
                   to={`/findings?class=${encodeURIComponent(c.class)}`}
-                  aria-label={`${c.name}：共 ${c.total} 条，待处理 ${c.open} 条`}
                   title={`共 ${c.total} 条，待处理 ${c.open} 条`}
                   className="-mx-2 grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_2.5rem] items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-2 focus-visible:bg-surface-2"
                 >
@@ -56,7 +55,7 @@ export function FindingClasses({ classes, className }: { classes: ClassCount[]; 
                 title={`共 ${restRow.total} 条，待处理 ${restRow.open} 条`}
                 className="-mx-2 grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_2.5rem] items-center gap-3 px-2 py-1.5"
               >
-                <ClassRow label={`其余 ${restRow.kinds} 类`} muted total={restRow.total} open={restRow.open} max={max} index={shown.length} />
+                <ClassRow label={`其余 ${restRow.kinds} 类`} muted total={restRow.total} open={restRow.open} max={max} index={shown.length} detail={false} />
               </li>
             )}
           </ul>
@@ -76,7 +75,13 @@ export function FindingClasses({ classes, className }: { classes: ClassCount[]; 
   )
 }
 
-/** 一行的三格：类型名 · 两段条 · 总数（待处理与已处置由条的两段表达，精确数在悬停提示与可访问名里）。 */
+/**
+ * 一行的三格：类型名 · 两段条 · 总数。
+ *
+ * 可访问名由内容生成、不另写 aria-label：可见的「类型名 总数」照读，条形对读屏隐藏（它表达的是比例，
+ * 没有文字），「共 N 条，待处理 M 条」作为隐藏文本接在可见文字之后。语音控制按屏幕上看到的字说出来
+ * 选得中它，读屏又读得到条形表达不了的精确数。
+ */
 function ClassRow({
   label,
   muted,
@@ -84,6 +89,7 @@ function ClassRow({
   open,
   max,
   index,
+  detail = true,
 }: {
   label: string
   muted?: boolean
@@ -91,11 +97,13 @@ function ClassRow({
   open: number
   max: number
   index: number
+  /** 在内容里带上「共 N 条，待处理 M 条」（可访问名由内容生成的行用）；行自己有 aria-label 时不带 */
+  detail?: boolean
 }) {
   const grow: CSSProperties = { width: `${(total / max) * 100}%`, animationDelay: `${index * STAGGER_MS}ms` }
   return (
     <>
-      <span aria-hidden className={`truncate text-xs ${muted ? 'text-text-tertiary' : 'text-text'}`} title={label}>
+      <span className={`truncate text-xs ${muted ? 'text-text-tertiary' : 'text-text'}`} title={label}>
         {label}
       </span>
       <span aria-hidden className="flex h-2.5 min-w-0">
@@ -107,9 +115,8 @@ function ClassRow({
           {total > open && <span className="h-full basis-0 bg-(--cat-sky)/35" style={{ flexGrow: total - open }} />}
         </span>
       </span>
-      <span aria-hidden className="text-right text-sm font-medium tabular-nums text-text">
-        {total}
-      </span>
+      <span className="text-right text-sm font-medium tabular-nums text-text">{total}</span>
+      {detail && <span className="sr-only">：共 {total} 条，待处理 {open} 条</span>}
     </>
   )
 }
