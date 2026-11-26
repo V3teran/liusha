@@ -83,6 +83,13 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		return registry.ToolResult{Error: fmt.Sprintf("list observations: %v", err)}, nil
 	}
 
+	// 待深挖的线索由图结构推导（标了 opens_deeper、没有被判不追、没有算数的动作在跟进）。
+	// 线索堆积不深挖是可直接观测的功能障碍。
+	openLeads, err := t.graph.OpenLeads(ctx, t.taskID)
+	if err != nil {
+		return registry.ToolResult{Error: fmt.Sprintf("list open leads: %v", err)}, nil
+	}
+
 	// 根目标（任务本身）
 	root, ok, err := t.graph.RootObjectiveOf(ctx, t.taskID)
 	if err != nil {
@@ -104,6 +111,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		Actions:        allActions,
 		Results:        findings,
 		Hypotheses:     hypothesisViews(observations),
+		OpenLeads:      openLeadViews(openLeads),
 		RunningActions: t.runningActionViews(allActions, time.Now()),
 		Metrics:        t.metricsCollector.Snapshot(),
 	}
@@ -141,6 +149,18 @@ func hypothesisViews(observations []explorationgraph.Node) []HypothesisView {
 		})
 	}
 	sort.SliceStable(views, func(i, j int) bool { return views[i].CreatedAt.Before(views[j].CreatedAt) })
+	return views
+}
+
+// openLeadViews 把待深挖的线索（由 Store.OpenLeads 推导）映射成监察视图，保持入参的
+// 创建先后序。入参已是筛选后的待深挖线索，这里不再判定。
+func openLeadViews(leads []explorationgraph.Node) []OpenLead {
+	views := []OpenLead{}
+	for i := range leads {
+		if statement := leads[i].Statement(); statement != "" {
+			views = append(views, OpenLead{ID: leads[i].ID, Statement: statement})
+		}
+	}
 	return views
 }
 

@@ -1,6 +1,7 @@
 package planner
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -171,5 +172,135 @@ func TestBuildPendingHypothesesSection(t *testing.T) {
 	}
 	if strings.Count(got, "主张甲") != 1 {
 		t.Fatalf("同一陈述只渲染一次，得:\n%s", got)
+	}
+}
+
+// 待深挖的线索按陈述去重逐条渲染，带 ID（供动作 pursues_lead 认领）；没有时不渲染该节。
+func TestBuildOpenLeadsSection(t *testing.T) {
+	if got := buildOpenLeadsSection(nil); got != "" {
+		t.Fatalf("没有待深挖线索时不应渲染，得:\n%s", got)
+	}
+	got := buildOpenLeadsSection([]OpenLead{
+		{ID: "o1", Statement: "管理入口未鉴权"},
+		{ID: "o2", Statement: "参数可注入"},
+		{ID: "o3", Statement: "管理入口未鉴权"},
+	})
+	if !strings.Contains(got, "待深挖的线索") {
+		t.Fatalf("应有小节标题，得:\n%s", got)
+	}
+	for _, want := range []string{"[o1]", "管理入口未鉴权", "[o2]", "参数可注入"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("应渲染线索 %q，得:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "管理入口未鉴权") != 1 {
+		t.Fatalf("同一陈述只渲染一次，得:\n%s", got)
+	}
+}
+
+// 已判定不追的线索带理由逐条渲染；只增不减，超过上限时只留尾部、更早的折叠成计数行。
+func TestBuildDeclinedLeadsSection(t *testing.T) {
+	if got := buildDeclinedLeadsSection(nil); got != "" {
+		t.Fatalf("没有已判定不追的线索时不应渲染，得:\n%s", got)
+	}
+	got := buildDeclinedLeadsSection([]DeclinedLead{{ID: "o1", Statement: "管理入口未鉴权", Reason: "超出任务目标"}})
+	for _, want := range []string{"已判定不追的线索", "管理入口未鉴权", "理由：超出任务目标"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("应渲染 %q，得:\n%s", want, got)
+		}
+	}
+
+	var many []DeclinedLead
+	for i := 0; i < declinedLeadFoldLimit+5; i++ {
+		many = append(many, DeclinedLead{ID: fmt.Sprintf("d%d", i), Statement: fmt.Sprintf("线索-%d", i), Reason: "前提已证伪"})
+	}
+	got = buildDeclinedLeadsSection(many)
+	if strings.Count(got, "\n- 线索-") != declinedLeadFoldLimit {
+		t.Fatalf("只逐条渲染最新的 %d 条，得 %d 行:\n%s", declinedLeadFoldLimit, strings.Count(got, "\n- 线索-"), got)
+	}
+	if !strings.Contains(got, fmt.Sprintf("（更早的 %d 条已判定不追的线索已折叠）", 5)) ||
+		!strings.Contains(got, "\n- 线索-5（") || strings.Contains(got, "\n- 线索-4（") {
+		t.Fatalf("折叠的应是最早的 5 条并留计数行，得:\n%s", got)
+	}
+}
+
+// 对象清单类（entity / note）合计只留最新的若干条，另外三类不占名额、全量渲染：侦查期
+// 涌入的大量对象类事实，不会把更早的入口、机制、关系类事实挤出视野。
+func TestBuildFactsSection_InventoryCappedOthersKept(t *testing.T) {
+	var facts []Fact
+	for i := 0; i < inventoryRenderLimit+40; i++ {
+		facts = append(facts, Fact{Category: explorationgraph.CategoryEntity, Statement: fmt.Sprintf("对象-%03d", i)})
+	}
+	// 创建序最早的三类事实：合计名额若按全局近优先分，它们最先被挤掉
+	oldest := []Fact{
+		{Category: explorationgraph.CategoryAccess, Statement: "入口甲可用身份 A 进入"},
+		{Category: explorationgraph.CategoryBehavior, Statement: "输入过长时报错并回显"},
+		{Category: explorationgraph.CategoryStructure, Statement: "甲经乙连到丙"},
+	}
+	facts = append(oldest, facts...)
+
+	got := buildFactsSection(facts)
+	for _, want := range oldest {
+		if !strings.Contains(got, "\n- "+want.Statement+"\n") {
+			t.Fatalf("%s 类事实被对象类事实挤出视野:\n%s", want.Category, got)
+		}
+	}
+	if !strings.Contains(got, fmt.Sprintf("另有 %d 条较早的对象类事实未逐条列出", 40)) {
+		t.Fatalf("超名额的对象类事实应折叠并留计数行，得:\n%s", got)
+	}
+	if !strings.Contains(got, "\n- 对象-040\n") || strings.Contains(got, "\n- 对象-039\n") {
+		t.Fatalf("对象类应保留最新的 %d 条:\n%s", inventoryRenderLimit, got)
+	}
+
+	// 另外三类不设上限：数量远超对象类名额时仍逐条保留
+	var many []Fact
+	for i := 0; i < inventoryRenderLimit*3; i++ {
+		many = append(many, Fact{Category: explorationgraph.CategoryAccess, Statement: fmt.Sprintf("条件-%03d", i)})
+	}
+	got = buildFactsSection(many)
+	if strings.Count(got, "\n- 条件-") != inventoryRenderLimit*3 || strings.Contains(got, "未逐条列出") {
+		t.Fatalf("入口 / 关系 / 机制类事实应全量渲染，得:\n%s", got)
+	}
+}
+
+// 对象清单类的两个类别合起来按新旧取名额：一类的新事实再多，也不能把另一类更近的事实挤掉。
+func TestBuildFactsSection_InventorySharesBudgetAcrossCategories(t *testing.T) {
+	var facts []Fact
+	// 创建序：40 条 note 在前，之后 40 条 entity。合计 80，应留最新的 60 条。
+	for i := 0; i < 40; i++ {
+		facts = append(facts, Fact{Category: explorationgraph.CategoryNote, Statement: fmt.Sprintf("杂项-%03d", i)})
+	}
+	for i := 0; i < 40; i++ {
+		facts = append(facts, Fact{Category: explorationgraph.CategoryEntity, Statement: fmt.Sprintf("对象-%03d", i)})
+	}
+
+	got := buildFactsSection(facts)
+	if !strings.Contains(got, "\n- 杂项-020\n") || strings.Contains(got, "\n- 杂项-019\n") {
+		t.Fatalf("应保留最新的 20 条杂项（两类合计 %d），得:\n%s", inventoryRenderLimit, got)
+	}
+	if !strings.Contains(got, "\n- 对象-000\n") || !strings.Contains(got, "\n- 对象-039\n") {
+		t.Fatalf("40 条对象类都在最新的 %d 条之内，应全部保留，得:\n%s", inventoryRenderLimit, got)
+	}
+	if !strings.Contains(got, "另有 20 条较早的对象类事实未逐条列出") {
+		t.Fatalf("应折叠最早的 20 条并留计数行，得:\n%s", got)
+	}
+}
+
+// 去重按陈述全文：开头相同、后半不同的两条事实，截断后文本一样，也各占一行；陈述完全
+// 相同的只留一条。按截断后的文本去重会把前者错并成一条，被并掉的事实就此消失。
+func TestBuildFactsSection_DedupsByFullStatement(t *testing.T) {
+	prefix := strings.Repeat("长", factClampRunes)
+	same := Fact{Category: explorationgraph.CategoryAccess, Statement: "入口可达"}
+	got := buildFactsSection([]Fact{
+		{Category: explorationgraph.CategoryBehavior, Statement: prefix + "：结论甲"},
+		same,
+		{Category: explorationgraph.CategoryBehavior, Statement: prefix + "：结论乙"},
+		same,
+	})
+	if n := strings.Count(got, "\n- "+prefix); n != 2 {
+		t.Fatalf("开头相同的两条事实应各占一行，得 %d 行:\n%s", n, got)
+	}
+	if strings.Count(got, "\n- 入口可达\n") != 1 {
+		t.Fatalf("陈述完全相同的事实只留一条，得:\n%s", got)
 	}
 }

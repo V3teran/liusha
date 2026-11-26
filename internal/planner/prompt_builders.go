@@ -5,6 +5,7 @@ import (
 
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -81,30 +82,40 @@ func buildStatisticsSection(ctx *PlanningContext) string {
 
 // ── 渲染预算 ─────────────────────────────────────────────────────────
 // 规划 prompt 是 planner ReAct 的首条输入，其体量必须有界：探索图只增不减，
-// 长任务下全量渲染会无界增长直至撞上长度校验哨兵弄死整轮规划。按记忆价值
-// 分层——pending 动作与已确认发现全量（规划的直接输入与依据），终态动作
-// 只逐条渲染尾部、更早的折叠成类型计数行，事实近优先限量。确定性渲染，
-// 无 LLM 参与、不可能失败；折叠处以显式文字留痕（不静默）。
+// 长任务下全量渲染会无界增长直至撞上长度校验哨兵弄死整轮规划。按用途分层——
+// pending 动作、已确认发现与待深挖的线索全量（规划的直接输入），终态动作与已判定
+// 不追的线索只逐条渲染尾部、更早的折叠成计数行，事实按类别分配名额（见
+// buildFactsSection）。确定性渲染，无 LLM 参与、不可能失败；折叠处以显式文字留痕
+// （不静默）。
 
 const (
 	// actionFoldLimit 是终态动作（completed/failed/aborted）逐条渲染的上限。
 	actionFoldLimit = 30
-	// factRenderLimit 是事实逐条渲染的上限。
-	factRenderLimit = 80
+	// declinedLeadFoldLimit 是已判定不追的线索逐条渲染的上限。
+	declinedLeadFoldLimit = 30
+	// inventoryRenderLimit 是对象清单类事实（entity / note）合计逐条渲染的上限，只留
+	// 最新的这些；其余三类不占这个名额，全量渲染（见 buildFactsSection）。
+	inventoryRenderLimit = 60
 	// prompt 内嵌文本的钳长（rune）。
 	actionClampRunes  = 300
 	resultClampRunes  = 600
 	factClampRunes    = 400
+	reasonClampRunes  = 200
 	historyClampRunes = 600
 )
 
+// foldTail 把按时间先后排列的序列拆成「逐条渲染的尾部」与被折叠的更早条数。
+func foldTail[T any](items []T, limit int) (shown []T, foldedTotal int) {
+	if len(items) <= limit {
+		return items, 0
+	}
+	cut := len(items) - limit
+	return items[cut:], cut
+}
+
 // foldTerminalActions 把终态动作序列拆成「逐条渲染的尾部」与被折叠的更早条数。
 func foldTerminalActions(actions []explorationgraph.Node) (shown []explorationgraph.Node, foldedTotal int) {
-	if len(actions) <= actionFoldLimit {
-		return actions, 0
-	}
-	cut := len(actions) - actionFoldLimit
-	return actions[cut:], cut
+	return foldTail(actions, actionFoldLimit)
 }
 
 // foldLine 渲染折叠计数行。
@@ -269,49 +280,118 @@ func buildResultsSection(results []explorationgraph.Node) string {
 	return sb.String()
 }
 
+// buildOpenLeadsSection 构建待深挖的线索：执行者已探通、尚未推进到结论的路径，单列在
+// 事实之前，带 ID 供动作的 pursues_lead 认领。同一陈述只列一条——它说的是同一条路。
+func buildOpenLeadsSection(leads []OpenLead) string {
+	if len(leads) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("## 待深挖的线索（执行者已探通、尚未推进到结论）\n")
+	seen := make(map[string]bool, len(leads))
+	for _, lead := range leads {
+		st := textx.TruncateRunes(lead.Statement, factClampRunes, "…（截断）")
+		if seen[st] {
+			continue
+		}
+		seen[st] = true
+		fmt.Fprintf(&sb, "- [%s] %s\n", lead.ID, st)
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// buildDeclinedLeadsSection 构建已判定不追的线索，带当初的理由：规划者据此不再推进它们。
+// 它们只增不减，尾部逐条渲染、更早的折叠成计数行（与终态动作同一口径）。
+func buildDeclinedLeadsSection(leads []DeclinedLead) string {
+	if len(leads) == 0 {
+		return ""
+	}
+	shown, folded := foldTail(leads, declinedLeadFoldLimit)
+	var sb strings.Builder
+	sb.WriteString("## 已判定不追的线索\n")
+	sb.WriteString(foldLine("已判定不追的线索", folded))
+	for _, lead := range shown {
+		fmt.Fprintf(&sb, "- %s（理由：%s）\n",
+			textx.TruncateRunes(lead.Statement, factClampRunes, "…（截断）"),
+			textx.TruncateRunes(lead.Reason, reasonClampRunes, "…（截断）"))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// inventoryFactCategories 是对象清单类的事实类别：说明「有什么」，侦查期产出最多。
+// 写指令时逐字要用的是另外三类（怎么进入 / 怎么连接 / 怎么反应）。
+var inventoryFactCategories = []explorationgraph.ObservationCategory{
+	explorationgraph.CategoryEntity,
+	explorationgraph.CategoryNote,
+}
+
 // buildFactsSection 构建已确认事实部分——规划基底。事实由产出它的动作背书（写入即
 // 终态），怎样利用由章程说明。
+//
+// 去重按陈述全文：陈述完全相同的事实说的是同一件事；只按截断后的文本去重，会把开头
+// 相同、后半不同的两条事实错并成一条，被并掉的那条就此从规划者眼前消失。
+//
+// 逐条渲染的名额只分给对象清单类：它们说明「有什么」，侦查期产出最多，合计只留最新的
+// inventoryRenderLimit 条，更早的折叠成计数行、细节经 graph_read 按需读。另外三类（怎么
+// 进入 / 怎么连接 / 怎么反应）不占这个名额，全量渲染。
 func buildFactsSection(facts []Fact) string {
 	if len(facts) == 0 {
 		return ""
 	}
 
-	// 去重 + 近优先：事实按创建序传入，自最新向回收纳（同文重复取最新转写），
-	// 超上限的更早事实以计数行显式留痕。
+	// 事实按创建序传入，自最新向回收纳；同文只留最新的一条。归不了已知类别的记入「其他」。
 	dedup := make([]Fact, 0, len(facts))
 	seen := make(map[string]bool, len(facts))
 	for i := len(facts) - 1; i >= 0; i-- {
-		st := textx.TruncateRunes(facts[i].Statement, factClampRunes, "…（截断）")
-		if seen[st] {
+		statement := facts[i].Statement
+		if statement == "" || seen[statement] {
 			continue
 		}
-		seen[st] = true
-		dedup = append(dedup, Fact{Category: facts[i].Category, Statement: st})
+		seen[statement] = true
+		category := facts[i].Category
+		if _, known := factCategoryHeadings[category]; !known {
+			category = explorationgraph.CategoryNote
+		}
+		dedup = append(dedup, Fact{Category: category, Statement: statement})
+	}
+
+	// 对象清单类的名额在 dedup 上取：它是跨类别的新旧序，两个类别合起来留最新的。分桶之后
+	// 再取就只剩桶内先后，一类会把另一类更近的挤掉。dedup 新的在前，转成时间序才能截尾部。
+	inventory := make([]Fact, 0, len(dedup))
+	for i := len(dedup) - 1; i >= 0; i-- {
+		if slices.Contains(inventoryFactCategories, dedup[i].Category) {
+			inventory = append(inventory, dedup[i])
+		}
+	}
+	inventory, inventoryFolded := foldTail(inventory, inventoryRenderLimit)
+	kept := make(map[string]bool, len(inventory))
+	for _, f := range inventory {
+		kept[f.Statement] = true
+	}
+
+	// 按类别分桶（桶内近者在前）；被折叠的对象清单类事实不再逐条渲染。
+	byCategory := make(map[explorationgraph.ObservationCategory][]Fact, len(explorationgraph.FactCategories))
+	for _, f := range dedup {
+		if slices.Contains(inventoryFactCategories, f.Category) && !kept[f.Statement] {
+			continue
+		}
+		byCategory[f.Category] = append(byCategory[f.Category], f)
 	}
 
 	var sb strings.Builder
 	sb.WriteString("## 已确认的事实\n")
-	shown := dedup
-	if len(dedup) > factRenderLimit {
-		fmt.Fprintf(&sb, "- （另有 %d 条更早事实未逐条列出，需要时用 graph_read 深挖）\n", len(dedup)-factRenderLimit)
-		shown = dedup[:factRenderLimit]
-	}
-	// 按类别分组（同类别内近者在前）：规划器先看清环境的各个侧面，再据此推导。
-	byCategory := make(map[explorationgraph.ObservationCategory][]string, len(explorationgraph.FactCategories))
-	for _, f := range shown {
-		category := f.Category
-		if _, known := factCategoryHeadings[category]; !known {
-			category = explorationgraph.CategoryNote
-		}
-		byCategory[category] = append(byCategory[category], f.Statement)
+	if inventoryFolded > 0 {
+		fmt.Fprintf(&sb, "- （另有 %d 条较早的对象类事实未逐条列出，需要时用 graph_read 深挖）\n", inventoryFolded)
 	}
 	for _, category := range explorationgraph.FactCategories {
 		if len(byCategory[category]) == 0 {
 			continue
 		}
 		fmt.Fprintf(&sb, "### %s\n", factCategoryHeadings[category])
-		for _, st := range byCategory[category] {
-			fmt.Fprintf(&sb, "- %s\n", st)
+		for _, f := range byCategory[category] {
+			fmt.Fprintf(&sb, "- %s\n", textx.TruncateRunes(f.Statement, factClampRunes, "…（截断）"))
 		}
 	}
 	sb.WriteString("\n")

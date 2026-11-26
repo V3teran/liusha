@@ -36,6 +36,7 @@ complexity: medium
 - `actions`：全部动作，含状态与来源（来源为 user 的是用户指派）
 - `results`：已坐实的结果
 - `hypotheses`：全部假设（按提交先后），含验证状态（`pending` 待验证 / `confirmed` 已坐实 / `refuted` 已证伪）与证伪的反驳原因
+- `open_leads`：待深挖的线索（执行者已探通、当前没有动作在跟进的路径）。线索持续堆积而动作不去深挖它们，是规划偏向广度、把到手的深度线索搁置的信号
 - `running_actions`：在途动作的指令与已运行分钟数
 - `metrics`：速率快照——`action_rate_per_hour`（每小时动作数）、`result_rate_per_hour`（每小时结果数）、`avg_result_action_ratio`（结果与动作之比）
 

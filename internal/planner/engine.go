@@ -202,6 +202,20 @@ type Fact struct {
 	Statement string
 }
 
+// OpenLead 是一条待深挖的线索：执行者已探通、但尚未推进到结论，且当前没有算数的跟进
+// 动作。规划时单列、优先处理——动作以 pursues_lead 认领它，落图为 pursues 边。
+type OpenLead struct {
+	ID        string
+	Statement string
+}
+
+// DeclinedLead 是一条已被判定不追的线索：带着当初的理由呈现，规划者据此不再推进它。
+type DeclinedLead struct {
+	ID        string
+	Statement string
+	Reason    string
+}
+
 // PlanningContext 规划上下文
 type PlanningContext struct {
 	Objective         string                  // 根目标描述（任务目标）
@@ -214,6 +228,8 @@ type PlanningContext struct {
 	RejectedActions   []explorationgraph.Node // 已否决的 Action（监察者或用户判定不该做；含原因与否决方，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	PendingHypotheses []string                // 待验证的假设陈述（复现门验证中，不必为它们安排动作）
+	OpenLeads         []OpenLead              // 待深挖的线索（单列，优先处理）
+	DeclinedLeads     []DeclinedLead          // 已判定不追的线索（含理由）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
 	ReplanReasons     []string                // 强制重规划的理由（常规规划为空）
 	KnowledgeQueries  []string                // 本次运行已发出的知识库查询
@@ -226,21 +242,33 @@ type ActionProposal struct {
 	Priority    string   `json:"priority"`     // 优先级: critical/high/medium/low
 	Reasoning   string   `json:"reasoning"`    // 规划理由
 	TriggeredBy []string `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
+	PursuesLead string   `json:"pursues_lead"` // 本动作跟进的待深挖线索 ID（可选；认领后线索退出待深挖清单，动作沿它推进到结论）
+}
+
+// LeadDeclineProposal LLM 返回的「不追」提案
+type LeadDeclineProposal struct {
+	ID     string `json:"id"`     // 被判定不追的线索 ID
+	Reason string `json:"reason"` // 不追的理由
 }
 
 // PlanningResponse LLM 响应
 type PlanningResponse struct {
-	ShouldContinue bool             `json:"should_continue"` // 是否应该继续执行
-	Reasoning      string           `json:"reasoning"`       // 推理过程
-	Actions        []ActionProposal `json:"actions"`         // 新提议的 Action
+	ShouldContinue bool                  `json:"should_continue"` // 是否应该继续执行
+	Reasoning      string                `json:"reasoning"`       // 推理过程
+	Actions        []ActionProposal      `json:"actions"`         // 新提议的 Action
+	DeclinedLeads  []LeadDeclineProposal `json:"declined_leads"`  // 判定不追的线索
 }
 
 // PlanOutcome 是一次常规规划的结论。
 type PlanOutcome struct {
 	// Stop 为真表示规划者判定停止探索（契约的 should_continue=false）：这是对任务的结论，
 	// 不是「本轮没有新动作」——由 Agent 收回规划者尚未做完的动作，等其余工作落定后收敛。
-	Stop    bool
-	Actions []explorationgraph.ActionDraft // 新提议的动作（Stop 时为空）
+	Stop bool
+	// Actions 是新提议的动作，DeclinedLeads 是判定不追的线索（Stop 时都为空）。
+	Actions       []explorationgraph.ActionDraft
+	DeclinedLeads []explorationgraph.LeadDecline
+	// OpenLeadCount 是规划时待深挖线索的条数：落图时据此核对这一轮有没有处理它们。
+	OpenLeadCount int
 }
 
 // planTools 按 function_tools 白名单列出本次规划要注册的工具。共享拦截链只包装
@@ -409,10 +437,25 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		return PlanOutcome{Stop: true}, nil
 	}
 
-	// 6. 转换 LLM 提案为动作草稿
+	// 6. 转换 LLM 提案为动作草稿与不追处置
 	drafts := e.convertProposals(ctx, graph, taskID, response.Actions)
-	e.logger.Info().Int("action_count", len(drafts)).Msg("智能规划完成")
-	return PlanOutcome{Actions: drafts}, nil
+	declines := convertLeadDeclines(response.DeclinedLeads)
+	e.logger.Info().Int("action_count", len(drafts)).Int("declined_leads", len(declines)).Msg("智能规划完成")
+	return PlanOutcome{Actions: drafts, DeclinedLeads: declines, OpenLeadCount: len(planCtx.OpenLeads)}, nil
+}
+
+// convertLeadDeclines 把不追提案转成图修订的处置：ID 去空白，没有 ID 的条目丢弃。理由
+// 为空的条目照常交下去——是否成立由修订校验判定并如实报告（见 PlanRevision）。
+func convertLeadDeclines(proposals []LeadDeclineProposal) []explorationgraph.LeadDecline {
+	declines := make([]explorationgraph.LeadDecline, 0, len(proposals))
+	for _, p := range proposals {
+		id := strings.TrimSpace(p.ID)
+		if id == "" {
+			continue
+		}
+		declines = append(declines, explorationgraph.LeadDecline{LeadID: id, Reason: p.Reason})
+	}
+	return declines
 }
 
 // gatherContext 收集规划所需的上下文信息
@@ -503,6 +546,32 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 		}
 	}
 
+	// 线索单列，不埋在事实堆里让规划者每轮自己认：待深挖的排在事实之前（动作据 ID 认领），
+	// 已判定不追的带着理由（规划者据此尊重自己此前的判断）。两者都由图结构推导（见
+	// explorationgraph 的 lead.go）：跟进动作被撤回或否决后，线索自动回到待深挖。
+	openLeads, err := graph.OpenLeads(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("获取待深挖线索失败: %w", err)
+	}
+	planCtx.OpenLeads = make([]OpenLead, 0, len(openLeads))
+	for _, lead := range openLeads {
+		if statement := lead.Statement(); statement != "" {
+			planCtx.OpenLeads = append(planCtx.OpenLeads, OpenLead{ID: lead.ID, Statement: statement})
+		}
+	}
+	declinedLeads, err := graph.DeclinedLeads(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("获取已判定不追的线索失败: %w", err)
+	}
+	planCtx.DeclinedLeads = make([]DeclinedLead, 0, len(declinedLeads))
+	for _, lead := range declinedLeads {
+		if statement := lead.Statement(); statement != "" {
+			planCtx.DeclinedLeads = append(planCtx.DeclinedLeads, DeclinedLead{
+				ID: lead.ID, Statement: statement, Reason: lead.LeadDeclineReason(),
+			})
+		}
+	}
+
 	return planCtx, nil
 }
 
@@ -538,7 +607,12 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 8. 已坐实的结果
 	sb.WriteString(buildResultsSection(ctx.Results))
 
-	// 8.5 已确认的事实（规划基底）
+	// 8.5 线索：待深挖的排在事实之前——它是要处理的事，不是背景；已判定不追的紧随其后，
+	// 带着理由，规划者据此不再推进它们
+	sb.WriteString(buildOpenLeadsSection(ctx.OpenLeads))
+	sb.WriteString(buildDeclinedLeadsSection(ctx.DeclinedLeads))
+
+	// 8.8 已确认的事实（规划基底）
 	sb.WriteString(buildFactsSection(ctx.Facts))
 
 	// 9. 待验证与已被证伪的假设
@@ -674,7 +748,9 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 			CreatedAt:  time.Now(),
 		}
 
-		drafts = append(drafts, explorationgraph.ActionDraft{Node: node, TriggeredBy: validTriggeredBy})
+		drafts = append(drafts, explorationgraph.ActionDraft{
+			Node: node, TriggeredBy: validTriggeredBy, PursuesLead: strings.TrimSpace(proposal.PursuesLead),
+		})
 
 		e.logger.Debug().
 			Str("action_id", actionID).
@@ -685,14 +761,25 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 	return drafts
 }
 
-// planningNarrative 把规划协议转成时间线人读叙述：结论 + 动作清单 + 理由。
+// planningNarrative 把规划协议转成时间线人读叙述：结论 + 动作清单 + 不追的线索 + 理由。
 // 协议原文随 Round.Raw 折叠可查——叙述只在此处发生一次，前端不做协议解释。
 func planningNarrative(r PlanningResponse) string {
 	var b strings.Builder
 	if r.ShouldContinue {
-		fmt.Fprintf(&b, "继续执行，本轮派发 %d 个动作：", len(r.Actions))
-		for i, a := range r.Actions {
-			fmt.Fprintf(&b, "\n%d. %s", i+1, a.Instruction)
+		if len(r.Actions) > 0 || len(r.DeclinedLeads) == 0 {
+			fmt.Fprintf(&b, "继续执行，本轮派发 %d 个动作：", len(r.Actions))
+			for i, a := range r.Actions {
+				fmt.Fprintf(&b, "\n%d. %s", i+1, a.Instruction)
+			}
+		}
+		if len(r.DeclinedLeads) > 0 {
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString("判定不追的线索：")
+			for _, d := range r.DeclinedLeads {
+				fmt.Fprintf(&b, "\n- %s", d.Reason)
+			}
 		}
 	} else {
 		b.WriteString("任务收敛，不再派发动作。")

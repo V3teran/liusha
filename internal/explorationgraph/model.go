@@ -117,6 +117,7 @@ const (
 	RelGenerates  Relation = "generates"  // 上游产出下游（推导链）
 	RelTriggers   Relation = "triggers"   // result → objective/action（发现滋生动作/新方向）
 	RelSupersedes Relation = "supersedes" // objective → objective（吸收：新目标接管旧目标范围）
+	RelPursues    Relation = "pursues"    // action → observation（动作跟进某条待深挖线索）
 )
 
 // SourceType 是节点的来源类型
@@ -202,17 +203,66 @@ func RootObjective(objectives []Node) (Node, bool) {
 // 结论已落图」恒同真同假——跨 run（暂停后继续、崩溃重投）也不会重复分析。
 const metaAnalyzed = "analyzed"
 
-// IsAnalyzed 判断 result 是否已被规划层分析过（见 metaAnalyzed）。
-func (n *Node) IsAnalyzed() bool {
+// meta 解析节点的 metadata（缺失或解析失败时为 nil）。
+func (n *Node) meta() map[string]interface{} {
 	if len(n.Metadata) == 0 {
-		return false
+		return nil
 	}
 	var m map[string]interface{}
 	if json.Unmarshal(n.Metadata, &m) != nil {
-		return false
+		return nil
 	}
-	analyzed, _ := m[metaAnalyzed].(bool)
+	return m
+}
+
+// IsAnalyzed 判断 result 是否已被规划层分析过（见 metaAnalyzed）。
+func (n *Node) IsAnalyzed() bool {
+	analyzed, _ := n.meta()[metaAnalyzed].(bool)
 	return analyzed
+}
+
+// metaOpensDeeper 是事实观察上的线索信号键：执行者标记本条观察揭示了一条走得通、
+// 但尚未推进到结论的路径。线索之后怎么走不写在标志上，由图上的跟进关系与不追批注
+// 推导（见 lead.go）。
+const metaOpensDeeper = "opens_deeper"
+
+// OpensDeeperMetadata 构造线索信号的节点 metadata（供执行者跨包写入，不暴露键字面量）。
+func OpensDeeperMetadata() json.RawMessage {
+	b, _ := json.Marshal(map[string]interface{}{metaOpensDeeper: true})
+	return b
+}
+
+// OpensDeeper 判断事实观察是否被执行者标为线索（见 metaOpensDeeper）。
+func (n *Node) OpensDeeper() bool {
+	flag, _ := n.meta()[metaOpensDeeper].(bool)
+	return n.IsFact() && flag
+}
+
+// metaLeadDeclined 是线索上的不追批注键：规划层判定不再跟进这条线索，值是
+// {"reason": …}。随认定它的那次规划修订同事务写入（RevisePlan）；批注是一次性的，
+// 同一条线索不会被判两次。
+const metaLeadDeclined = "lead_declined"
+
+// LeadDeclineReason 返回线索被判定不追的理由；空串表示没有被判不追。
+func (n *Node) LeadDeclineReason() string {
+	mark, _ := n.meta()[metaLeadDeclined].(map[string]interface{})
+	reason, _ := mark["reason"].(string)
+	return reason
+}
+
+// Statement 返回事实观察的陈述（非事实观察或内容缺失时为空）。线索是事实观察，它的
+// 陈述就是这条线索说了什么。
+func (n *Node) Statement() string {
+	if !n.IsFact() || len(n.Content) == 0 {
+		return ""
+	}
+	var c struct {
+		Statement string `json:"statement"`
+	}
+	if json.Unmarshal(n.Content, &c) != nil {
+		return ""
+	}
+	return c.Statement
 }
 
 // IsAction 判断节点是否是 action

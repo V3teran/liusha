@@ -306,22 +306,72 @@ func TestHarvestObservation_NoExecutionTrace(t *testing.T) {
 }
 
 // 动作的执行输入只陈述事实：指令、来源（仅用户指派时）、复杂度、任务目标原文（逐字，
-// 取自图上的根目标，调整目标后下一个动作即生效）。
+// 取自图上的根目标，调整目标后下一个动作即生效）、认领的线索（仅认领了线索的动作）。
 func TestActionObjective(t *testing.T) {
 	moderate := explorationgraph.ComplexityModerate
 	user := explorationgraph.Node{SourceType: explorationgraph.SourceUser, Complexity: &moderate}
 	planned := explorationgraph.Node{SourceType: explorationgraph.SourcePlanner}
 	goal := "检查 http://t.local/login.php，账号 admin/password"
 
-	got := actionObjective(user, &ActionContent{Instruction: "复测登录"}, goal)
+	got := actionObjective(user, &ActionContent{Instruction: "复测登录"}, goal, nil)
 	for _, want := range []string{"## 动作指令\n复测登录", "来源：用户指派", "复杂度：moderate", "## 任务目标（用户原文）\n" + goal} {
 		if !strings.Contains(got, want) {
 			t.Errorf("执行输入缺少 %q:\n%s", want, got)
 		}
 	}
-	got = actionObjective(planned, &ActionContent{Instruction: "列出目录"}, "")
+	if strings.Contains(got, "认领的线索") {
+		t.Errorf("没有认领线索的动作不该出现这一节:\n%s", got)
+	}
+	got = actionObjective(planned, &ActionContent{Instruction: "列出目录"}, "", nil)
 	if got != "## 动作指令\n列出目录\n" {
 		t.Fatalf("规划者的动作不带来源，无复杂度与目标时只有指令，得 %q", got)
+	}
+	got = actionObjective(planned, &ActionContent{Instruction: "深挖参数甲"}, goal, []string{"参数甲回显了输入", "入口乙未鉴权可达"})
+	for _, want := range []string{"## 认领的线索\n- 参数甲回显了输入\n- 入口乙未鉴权可达\n", "## 任务目标（用户原文）\n" + goal} {
+		if !strings.Contains(got, want) {
+			t.Errorf("执行输入缺少 %q:\n%s", want, got)
+		}
+	}
+}
+
+// 执行者从图上读到动作认领的线索：只取 pursues 边指向的线索，陈述为空的不列；没有认领
+// 线索的动作得到空列表。
+func TestPursuedLeadStatements(t *testing.T) {
+	graph := explorationgraph.NewMemoryStore()
+	ctx := context.Background()
+	lead := explorationgraph.Node{ID: "lead-1", TaskID: "t-leads", Kind: core.KindObservation,
+		SourceType: explorationgraph.SourceExecutor, Metadata: explorationgraph.OpensDeeperMetadata(),
+		Content: json.RawMessage(`{"category":"access","statement":"参数甲回显了输入"}`)}
+	if _, err := graph.CreateNode(ctx, lead); err != nil {
+		t.Fatalf("建线索失败: %v", err)
+	}
+	action := explorationgraph.Node{ID: "act-1", TaskID: "t-leads", Kind: core.KindAction,
+		Content: json.RawMessage(`{"instruction":"深挖"}`)}
+	if err := graph.CreateNodeWithEdges(ctx, action, []explorationgraph.Edge{
+		{TaskID: "t-leads", SrcID: "act-1", Rel: explorationgraph.RelPursues, DstID: "lead-1"},
+	}); err != nil {
+		t.Fatalf("建动作失败: %v", err)
+	}
+	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.Nop()})
+
+	got, err := e.pursuedLeadStatements(ctx, action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != "参数甲回显了输入" {
+		t.Fatalf("应读到认领的线索陈述，得 %q", got)
+	}
+
+	plain := explorationgraph.Node{ID: "act-2", TaskID: "t-leads", Kind: core.KindAction, Content: action.Content}
+	if _, err := graph.CreateNode(ctx, plain); err != nil {
+		t.Fatalf("建动作失败: %v", err)
+	}
+	got, err = e.pursuedLeadStatements(ctx, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("没有认领线索的动作应得到空列表，得 %q", got)
 	}
 }
 
@@ -341,5 +391,52 @@ func TestBuildSystemPrompt_AppendsScenario(t *testing.T) {
 	got := NewEngine(EngineConfig{Charter: "你是执行者。", Scenario: block, Logger: zerolog.Nop()}).buildSystemPrompt(nil)
 	if got != plain+"\n\n"+block {
 		t.Fatalf("场景块应拼在末尾:\n%s", got)
+	}
+}
+
+// opens_deeper 是事实观察专属的线索信号：事实标注它时落进节点 metadata（待深挖线索
+// 由 Store.OpenLeads 据此推导）；假设不采纳（它本身在复现门里推进）。
+func TestHarvestObservation_OpensDeeperOnlyOnFact(t *testing.T) {
+	graph := explorationgraph.NewMemoryStore()
+	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.Nop()})
+	action := explorationgraph.Node{
+		ID: "act-lead", TaskID: "t-lead", Kind: core.KindAction,
+		Content: json.RawMessage(`{"instruction":"i"}`),
+	}
+	if _, err := graph.CreateNode(context.Background(), action); err != nil {
+		t.Fatalf("建 action 失败: %v", err)
+	}
+
+	// 事实标 opens_deeper：落图后带线索信号
+	lead := e.harvestObservation(context.Background(), action, Observation{
+		Category: explorationgraph.CategoryAccess, Statement: "存在未鉴权可达的管理入口", OpensDeeper: true,
+	})
+	if lead == nil || !lead.IsFact() {
+		t.Fatalf("事实应落图: %+v", lead)
+	}
+	if !lead.OpensDeeper() {
+		t.Fatalf("标了 opens_deeper 的事实应带线索信号: metadata=%s", lead.Metadata)
+	}
+
+	// 未标 opens_deeper 的事实：不是线索
+	plain := e.harvestObservation(context.Background(), action, Observation{
+		Category: explorationgraph.CategoryEntity, Statement: "目标为 nginx",
+	})
+	if plain.OpensDeeper() {
+		t.Fatalf("未标 opens_deeper 的事实不应是线索: metadata=%s", plain.Metadata)
+	}
+
+	// 假设即便给 OpensDeeper 也不采纳（它走复现门，不走深挖线索通道）
+	hyp := e.harvestObservation(context.Background(), action, Observation{
+		Category:    explorationgraph.CategoryHypothesis,
+		Statement:   "参数存在可复现注入",
+		OpensDeeper: true,
+		Repro:       json.RawMessage(`{"kind":"steps","recipe":{"steps":"1. 发请求"},"assert":{"description":"看到回显"}}`),
+	})
+	if hyp == nil || !hyp.HasVerificationStatus(explorationgraph.VerificationPending) {
+		t.Fatalf("假设应待验证落图: %+v", hyp)
+	}
+	if hyp.OpensDeeper() {
+		t.Fatalf("假设不应携带 opens_deeper 线索信号: metadata=%s", hyp.Metadata)
 	}
 }

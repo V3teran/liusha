@@ -111,6 +111,46 @@ func TestGetGlobalStateTool_ListsHypotheses(t *testing.T) {
 	assert.Empty(t, state.Hypotheses[1].RefuteReason)
 }
 
+// 监察者判断「线索堆积着没人深挖」要看待深挖的线索：全局状态按创建先后列出它们；被动作
+// 跟进的、被判不追的与普通事实都不在其列。
+func TestGetGlobalStateTool_ListsOpenLeads(t *testing.T) {
+	graph := newGraphWithActions(t)
+	ctx := context.Background()
+	lead := func(id, statement string) explorationgraph.Node {
+		return explorationgraph.Node{ID: id, TaskID: "t1", Kind: core.KindObservation, SourceType: explorationgraph.SourceExecutor,
+			Content: []byte(`{"category":"access","statement":"` + statement + `"}`), Metadata: explorationgraph.OpensDeeperMetadata()}
+	}
+	for _, n := range []explorationgraph.Node{
+		lead("lead-open", "待深挖的线索"),
+		lead("lead-held", "被跟进的线索"),
+		{ID: "lead-declined", TaskID: "t1", Kind: core.KindObservation, SourceType: explorationgraph.SourceExecutor,
+			Content:  []byte(`{"category":"access","statement":"已不追的线索"}`),
+			Metadata: json.RawMessage(`{"opens_deeper":true,"lead_declined":{"reason":"超出任务目标"}}`)},
+		{ID: "fact", TaskID: "t1", Kind: core.KindObservation,
+			Content: []byte(`{"category":"access","statement":"普通事实"}`)},
+	} {
+		_, err := graph.CreateNode(ctx, n)
+		require.NoError(t, err)
+	}
+	// open 状态的规划动作经 pursues 边跟进 lead-held
+	open := explorationgraph.StateOpen
+	require.NoError(t, graph.CreateNodeWithEdges(ctx, explorationgraph.Node{
+		ID: "a-pursuing", TaskID: "t1", Kind: core.KindAction, State: &open, SourceType: explorationgraph.SourcePlanner,
+		Content: []byte(`{"instruction":"深挖"}`),
+	}, []explorationgraph.Edge{{TaskID: "t1", SrcID: "a-pursuing", Rel: explorationgraph.RelPursues, DstID: "lead-held"}}))
+
+	tool := NewGetGlobalStateTool(graph, "t1", metrics.NewCollector(graph, "t1", zerolog.Nop()))
+	out, err := tool.Execute(ctx, []byte(`{}`))
+	require.NoError(t, err)
+	require.Empty(t, out.Error)
+
+	var state struct {
+		OpenLeads []OpenLead `json:"open_leads"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out.Output), &state))
+	assert.Equal(t, []OpenLead{{ID: "lead-open", Statement: "待深挖的线索"}}, state.OpenLeads)
+}
+
 func TestPublishDecisionTool_RejectAction_AppliesStateChange(t *testing.T) {
 	graph := newGraphWithActions(t)
 	ctx := observedCtx(t, graph, "t1")

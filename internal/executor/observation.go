@@ -59,7 +59,13 @@ func (e *Engine) createObservationNode(
 		node.VerificationStatus = &pending
 
 	case explorationgraph.CategoryEntity, explorationgraph.CategoryAccess, explorationgraph.CategoryStructure, explorationgraph.CategoryBehavior, explorationgraph.CategoryNote:
-		// 事实只带 statement/category/reasoning —— 无 repro/impact/suggestion/priority/验证状态
+		// 事实只带 statement/category/reasoning —— 无 repro/impact/suggestion/priority/验证状态。
+		// opens_deeper 是事实专属的线索信号：本条观察揭示了一条走得通、尚未推进到结论的
+		// 路径，写进 metadata 供规划层优先深挖（见 Node.OpensDeeper）。假设本身就在复现门里
+		// 推进，不带此信号。
+		if obs.OpensDeeper {
+			node.Metadata = explorationgraph.OpensDeeperMetadata()
+		}
 
 	default:
 		return nil, fmt.Errorf("unknown observation category: %s", obs.Category)
@@ -122,4 +128,9 @@ type Observation struct {
 	// Repro：复现配方 —— hypothesis 必带（无配方的推测无从验证），事实不带。
 	// 形式：信封 {kind, recipe, assert}，recipe/assert 的形状由 kind 定义（http=HTTP 请求，steps=自然语言步骤）
 	Repro json.RawMessage `json:"repro,omitempty"`
+
+	// OpensDeeper 是事实观察专属的线索信号：本条观察揭示了一条走得通、但尚未推进到
+	// 结论的路径。事实类写入即终态，这个信号让规划层把它单列为待深挖的线索优先处理；
+	// 假设不带（它本身就在复现门里推进）。createObservationNode 只对事实类采纳。
+	OpensDeeper bool `json:"opens_deeper,omitempty"`
 }
