@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -107,8 +108,9 @@ func (a *Agent) planningBasis(ctx context.Context) (explorationgraph.GoalBasis, 
 // applyOutcome 落定一次规划结论（常规规划与强制重规划共用）：
 //   - 停止探索：收回规划者排出、还没做完的动作（以 basis 为前置），记下结论，走收敛判定——
 //     余下的只有用户指派的动作、待验证假设与待分析结果，落定后即收敛；
-//   - 有新动作：落图，此前的结论随之作废；
-//   - 没有实际新增：记下「等待」结论，走收敛判定。
+//   - 图面有了变化（排了新动作，或判定不追了线索）：落图，此前的结论随之作废，下一轮按
+//     新图面重新规划；
+//   - 没有变化：记下「等待」结论，走收敛判定。
 //
 // 目标在规划期间被改写时返回 ErrGoalChanged，什么都不落。
 func (a *Agent) applyOutcome(ctx context.Context, basis explorationgraph.GoalBasis, view explorationgraph.Surface, outcome PlanOutcome, trigger string) error {
@@ -121,11 +123,11 @@ func (a *Agent) applyOutcome(ctx context.Context, basis explorationgraph.GoalBas
 		a.conclusion = &conclusion{stop: true, view: view}
 		return a.handleNoActions(ctx, basis, trigger)
 	}
-	added, err := a.applyPlan(ctx, basis, outcome.Actions)
+	changed, err := a.applyPlan(ctx, basis, outcome)
 	if err != nil {
 		return err
 	}
-	if added {
+	if changed {
 		a.conclusion = nil
 		return nil
 	}
@@ -134,28 +136,44 @@ func (a *Agent) applyOutcome(ctx context.Context, basis explorationgraph.GoalBas
 }
 
 // stopReason 是规划者停止探索时收回动作所记的原因。
-const stopReason = "规划者已停止探索，收回未做完的动作"
+const stopReason = "规划者已停止探索，收回未做完的规划动作"
 
 // applyPlan 把规划提案以 basis 为前置原子落图（与结果分析的修订同一条写入路径），返回
-// 是否实际新增了动作。提案全被过滤（空指令 / 与既有动作重复）与「没有提案」是同一局面，
-// 由调用方走无动作处理。目标在规划期间被改写时返回 ErrGoalChanged，什么都不落。
-func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis, actions []explorationgraph.ActionDraft) (bool, error) {
-	drafts := a.admitActions(ctx, actions)
-	if len(drafts) == 0 {
+// 图面是否因此有了变化——新增了动作，或判定不追了线索。动作全被过滤且没有不追处置，
+// 与「没有提案」是同一局面，由调用方走无动作处理。目标在规划期间被改写时返回
+// ErrGoalChanged，什么都不落。
+func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis, outcome PlanOutcome) (bool, error) {
+	drafts := a.admitActions(ctx, outcome.Actions)
+	if len(drafts) == 0 && len(outcome.DeclinedLeads) == 0 {
 		return false, nil
 	}
-	report, err := a.graph.RevisePlan(ctx, a.taskID, explorationgraph.PlanRevision{Basis: basis, AddedActions: drafts})
+	report, err := a.graph.RevisePlan(ctx, a.taskID, explorationgraph.PlanRevision{
+		Basis: basis, AddedActions: drafts, DeclinedLeads: outcome.DeclinedLeads,
+	})
 	for _, r := range report.Rejected {
 		a.logger.Warn().Str("field", string(r.Field)).Str("ref", r.ID).Str("reason", r.Reason).Msg("规划提案剔除无效引用")
 	}
 	if err != nil {
-		return false, fmt.Errorf("写入 Action: %w", err)
+		return false, fmt.Errorf("写入规划修订: %w", err)
 	}
 	for _, id := range report.AddedActions {
 		a.eventBus.PublishActionProposed(a.taskID, id)
 	}
-	a.logger.Info().Strs("action_ids", report.AddedActions).Msg("新 Action 已落图")
-	return true, nil
+	if len(report.AddedActions) > 0 {
+		a.logger.Info().Strs("action_ids", report.AddedActions).Msg("新 Action 已落图")
+	}
+	if len(report.DeclinedLeads) > 0 {
+		a.logger.Info().Strs("lead_ids", report.DeclinedLeads).Msg("线索已判定不追")
+	}
+
+	pursued := slices.ContainsFunc(drafts, func(d explorationgraph.ActionDraft) bool { return d.PursuesLead != "" })
+	if outcome.OpenLeadCount > 0 && !pursued && len(report.DeclinedLeads) == 0 {
+		// 章程要求待深挖的线索非空时本轮至少处理一条。这里只留证据，不替规划者补动作：
+		// 是否已构成功能障碍由监察者据 open_leads 判断。
+		a.logger.Warn().Int("open_leads", outcome.OpenLeadCount).
+			Msg("本轮有待深挖的线索，规划者既未认领也未判定不追")
+	}
+	return len(report.AddedActions) > 0 || len(report.DeclinedLeads) > 0, nil
 }
 
 // admitActions 过滤规划提案：指令级字面去重（见 admit）——空指令不可执行，与图上既有

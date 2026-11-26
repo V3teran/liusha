@@ -377,6 +377,10 @@ type GlobalState struct {
 	// 验证是否接连落空、是否还有待验证的假设。
 	Hypotheses []HypothesisView `json:"hypotheses"`
 
+	// OpenLeads 是待深挖的线索（执行者已探通、当前没有动作在跟进）：堆积不深挖是一种
+	// 可直接观测的功能障碍——规划者本应优先深挖它们而去铺广度。
+	OpenLeads []OpenLead `json:"open_leads"`
+
 	// RunningActions 是在途动作的指令与已运行时长（显式算好分钟数，不让决策者做
 	// 时间戳算术）。卡死由执行者看门狗处理，这里只供判断重复与偏离。
 	RunningActions []RunningActionView `json:"running_actions"`
@@ -399,6 +403,12 @@ type HypothesisView struct {
 	VerificationStatus explorationgraph.VerificationStatus `json:"verification_status"` // pending / confirmed / refuted
 	RefuteReason       string                              `json:"refute_reason,omitempty"`
 	CreatedAt          time.Time                           `json:"created_at"`
+}
+
+// OpenLead 是一条待深挖线索的监察视图。
+type OpenLead struct {
+	ID        string `json:"id"`
+	Statement string `json:"statement"`
 }
 
 // RunningActionView 是 running 动作的监察视图。

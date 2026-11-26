@@ -26,7 +26,8 @@
     {
       "category": "entity",
       "statement": "环境里存在什么、它有什么属性",
-      "reasoning": "依据来自哪个实测输出"
+      "reasoning": "依据来自哪个实测输出",
+      "opens_deeper": true
     }
   ]
 }
@@ -49,6 +50,7 @@
 
 - **hypothesis** 必须带 `statement`、`reasoning`、`priority`（`low` / `medium` / `high` / `critical`）、`impact`、`suggestion` 与 `repro`；没有配方的假设无从验证，会被降级为 note
 - 事实类（entity / access / structure / behavior / note）只带 `statement` 与 `reasoning`，不带 repro、priority、impact、suggestion
+- 事实类观察可选带 `opens_deeper: true`（布尔，默认不带）：标记本条揭示了一条走得通、但尚未推进到结论的路径，供规划层单列优先深挖；仅事实类可带，hypothesis 不带
 - 分界：可交付的主张写 hypothesis，事实只陈述环境是什么样、怎么反应；单个对象的存在与属性记 entity，对象之间怎么连接、怎么组织记 structure
 - 纯过程记录（「执行了某命令」「请求返回成功」）不是观察
 

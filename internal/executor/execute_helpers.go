@@ -29,12 +29,13 @@ func (e *Engine) parseActionContent(action explorationgraph.Node) (*ActionConten
 	return &data, nil
 }
 
-// actionObjective 构建一个动作的执行输入：只陈述事实——指令、来源、复杂度与任务目标
-// 原文。怎样对待这些事实（用户指派不扩大范围、按复杂度把握投入）由章程说明。
+// actionObjective 构建一个动作的执行输入：只陈述事实——指令、来源、复杂度、认领的线索与
+// 任务目标原文。怎样对待这些事实（用户指派不扩大范围、按复杂度把握投入、认领线索的动作
+// 沿线索推进到结论）由章程说明。
 //
 // 任务目标逐字附上（取自图上的根目标，调整目标后即时生效）：执行者曾凭记忆转录目标里的
 // 入口地址而打空整轮，逐字原文比任何摘要都可靠。
-func actionObjective(action explorationgraph.Node, content *ActionContent, goal string) string {
+func actionObjective(action explorationgraph.Node, content *ActionContent, goal string, leads []string) string {
 	var b strings.Builder
 	b.WriteString("## 动作指令\n" + content.Instruction + "\n")
 	if action.SourceType == explorationgraph.SourceUser {
@@ -43,10 +44,32 @@ func actionObjective(action explorationgraph.Node, content *ActionContent, goal 
 	if action.Complexity != nil {
 		b.WriteString("\n复杂度：" + string(*action.Complexity) + "\n")
 	}
+	if len(leads) > 0 {
+		b.WriteString("\n## 认领的线索\n")
+		for _, lead := range leads {
+			b.WriteString("- " + lead + "\n")
+		}
+	}
 	if goal != "" {
 		b.WriteString("\n## 任务目标（用户原文）\n" + goal + "\n")
 	}
 	return b.String()
+}
+
+// pursuedLeadStatements 返回这个动作经 pursues 边认领的线索的陈述：规划者认领线索时排出的
+// 动作带着它们，执行者据此知道自己接手的是哪条线索。
+func (e *Engine) pursuedLeadStatements(ctx context.Context, action explorationgraph.Node) ([]string, error) {
+	leads, err := e.graph.PursuedLeads(ctx, action.TaskID, action.ID)
+	if err != nil {
+		return nil, fmt.Errorf("读取认领的线索: %w", err)
+	}
+	statements := make([]string, 0, len(leads))
+	for _, lead := range leads {
+		if statement := lead.Statement(); statement != "" {
+			statements = append(statements, statement)
+		}
+	}
+	return statements, nil
 }
 
 // prepareReActTools 准备并过滤 ReAct 工具列表
@@ -69,7 +92,16 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	tools []registry.Tool,
 	own *ownership,
 ) (*runtime.ReActConfig, error) {
-	objective := actionObjective(action, actionContent, goal)
+	// 读不到认领的线索时照常执行，只是不带这一节：把读失败上抛会让动作落 failed，而失败的
+	// 跟进算数（线索随之算作已办结）——一次读失败就丢一条线索。run 被打断的情形原样交还。
+	leads, err := e.pursuedLeadStatements(ctx, action)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		e.logger.Warn().Err(err).Str("action_id", action.ID).Msg("读取认领的线索失败，本动作不带线索执行")
+	}
+	objective := actionObjective(action, actionContent, goal, leads)
 	systemPrompt := e.buildSystemPrompt(tools)
 
 	// 获取 LLM Provider

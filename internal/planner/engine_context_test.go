@@ -139,3 +139,53 @@ func TestGatherContext_FactsGroupedByCategory(t *testing.T) {
 	}
 	assert.NotContains(t, section, "怎么连接", "没有该类别的事实就不出现该类别标题")
 }
+
+// 线索进规划视野：标了 opens_deeper、没被算数的动作跟进、也没被判不追的事实是待深挖线索
+// （带 ID 供动作认领）；被在办动作跟进的不在其列；被判不追的带着理由单列。线索仍是事实，
+// 照常进 Facts。
+func TestGatherContext_Leads(t *testing.T) {
+	store := explorationgraph.NewMemoryStore()
+	ctx := context.Background()
+	openLead := contextObservation("lead-open", "access", "管理入口未鉴权可达", nil, "", 1*time.Second)
+	openLead.Metadata = explorationgraph.OpensDeeperMetadata()
+	held := contextObservation("lead-held", "behavior", "参数回显了输入", nil, "", 2*time.Second)
+	held.Metadata = explorationgraph.OpensDeeperMetadata()
+	declined := contextObservation("lead-declined", "entity", "旧版本提示", nil, "", 3*time.Second)
+	declined.Metadata, _ = json.Marshal(map[string]interface{}{
+		"opens_deeper": true, "lead_declined": map[string]interface{}{"reason": "超出任务目标"},
+	})
+	plain := contextObservation("plain", "entity", "目标为 nginx", nil, "", 4*time.Second)
+
+	for _, n := range []explorationgraph.Node{
+		revisionNode("root", core.KindObjective, explorationgraph.SourceUser, openState(), 0),
+		openLead, held, declined, plain,
+	} {
+		_, err := store.CreateNode(ctx, n)
+		require.NoError(t, err)
+	}
+	pursuing := revisionNode("act-1", core.KindAction, explorationgraph.SourcePlanner, openState(), 5*time.Second)
+	require.NoError(t, store.CreateNodeWithEdges(ctx, pursuing, []explorationgraph.Edge{
+		{TaskID: revisionTask, SrcID: "act-1", Rel: explorationgraph.RelPursues, DstID: "lead-held"},
+	}))
+
+	planCtx, err := (&Engine{}).gatherContext(ctx, store, revisionTask)
+	require.NoError(t, err)
+
+	require.Len(t, planCtx.OpenLeads, 1, "只有没被跟进、没被判不追的线索待深挖")
+	assert.Equal(t, "lead-open", planCtx.OpenLeads[0].ID)
+	assert.Equal(t, "管理入口未鉴权可达", planCtx.OpenLeads[0].Statement)
+
+	require.Len(t, planCtx.DeclinedLeads, 1)
+	assert.Equal(t, "lead-declined", planCtx.DeclinedLeads[0].ID)
+	assert.Equal(t, "旧版本提示", planCtx.DeclinedLeads[0].Statement)
+	assert.Equal(t, "超出任务目标", planCtx.DeclinedLeads[0].Reason)
+
+	// 线索仍是事实，四条都进 Facts（线索是事实的一个侧面，不替代事实基底）
+	statements := map[string]bool{}
+	for _, f := range planCtx.Facts {
+		statements[f.Statement] = true
+	}
+	for _, want := range []string{"管理入口未鉴权可达", "参数回显了输入", "旧版本提示", "目标为 nginx"} {
+		assert.True(t, statements[want], "事实 %q 应仍在 Facts 里", want)
+	}
+}

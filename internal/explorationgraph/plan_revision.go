@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -27,6 +28,7 @@ type PlanRevision struct {
 	AddedObjectives     []ObjectiveDraft      // 新提出的派生目标
 	CompletedObjectives []ObjectiveCompletion // 宣告达成的派生目标
 	AddedActions        []ActionDraft         // 常规规划新增的动作
+	DeclinedLeads       []LeadDecline         // 常规规划判定不追的线索
 }
 
 // ObjectiveDraft 是一个待落图的新派生目标。
@@ -46,6 +48,16 @@ type ObjectiveCompletion struct {
 type ActionDraft struct {
 	Node        Node     // 动作节点：kind=action、state=open、source=planner、属本任务
 	TriggeredBy []string // 催生它的 result（落 triggers 边）
+	// PursuesLead 是本动作跟进的待深挖线索（事实观察 ID，可空）。落图时建一条 pursues
+	// 边（action → 线索）：线索在动作在办期间退出待深挖清单，执行者据这条边知道自己
+	// 认领了什么。引用的不是修订开始时仍待深挖的线索时剔除该引用（不拖垮修订）。
+	PursuesLead string
+}
+
+// LeadDecline 是规划层对一条线索的处置：不再跟进，并记下理由。
+type LeadDecline struct {
+	LeadID string
+	Reason string
 }
 
 // RevisionField 标识修订中的引用位置（与分析输出契约的字段同名）。
@@ -53,10 +65,12 @@ type RevisionField string
 
 // 修订中的引用位置。
 const (
-	FieldCompleted   RevisionField = "completed_objectives"
-	FieldEvidence    RevisionField = "evidence_ids"
-	FieldTriggeredBy RevisionField = "triggered_by"
-	FieldSupersedes  RevisionField = "supersedes"
+	FieldCompleted     RevisionField = "completed_objectives"
+	FieldEvidence      RevisionField = "evidence_ids"
+	FieldTriggeredBy   RevisionField = "triggered_by"
+	FieldSupersedes    RevisionField = "supersedes"
+	FieldPursuesLead   RevisionField = "pursues_lead"
+	FieldDeclinedLeads RevisionField = "declined_leads"
 )
 
 // RejectedReference 是修订中被剔除的无效引用。修订内容来自 LLM 提案：引用
@@ -71,6 +85,7 @@ type RejectedReference struct {
 type RevisionReport struct {
 	AddedObjectives      []string            // 新建的派生目标
 	AddedActions         []string            // 新建的动作
+	DeclinedLeads        []string            // 被判定不追的线索
 	CompletedObjectives  []string            // 转 completed 的派生目标
 	SupersededObjectives []string            // 转 superseded 的派生目标
 	Rejected             []RejectedReference // 被剔除的无效引用
@@ -79,7 +94,7 @@ type RevisionReport struct {
 // IsEmpty 判断修订是否没有任何内容。
 func (r PlanRevision) IsEmpty() bool {
 	return len(r.Analyzed) == 0 && len(r.AddedObjectives) == 0 &&
-		len(r.CompletedObjectives) == 0 && len(r.AddedActions) == 0
+		len(r.CompletedObjectives) == 0 && len(r.AddedActions) == 0 && len(r.DeclinedLeads) == 0
 }
 
 // RevisePlan 校验并原子应用一次规划修订。
@@ -110,19 +125,25 @@ func (s *Store) RevisePlan(ctx context.Context, taskID string, rev PlanRevision)
 	if err != nil {
 		return RevisionReport{}, fmt.Errorf("读取结果快照: %w", err)
 	}
+	leads, err := s.openLeadIndex(ctx, taskID, rev)
+	if err != nil {
+		return RevisionReport{}, err
+	}
 
 	root, ok := RootObjective(objectives)
 	if !ok || root.ID != rev.Basis.ObjectiveID {
 		return RevisionReport{}, fmt.Errorf("修订依据 %s 不是任务 %s 的根目标", rev.Basis.ObjectiveID, taskID)
 	}
 
-	b := newRevisionBuilder(s, taskID, objectives, results)
+	b := newRevisionBuilder(s, taskID, objectives, results, leads)
 	b.changes.Preconditions = []core.GraphNodeVersion{{TaskID: taskID, NodeID: root.ID, Version: rev.Basis.Version}}
 	if err := b.markAnalyzed(rev.Analyzed); err != nil {
 		return RevisionReport{}, err
 	}
 	b.complete(rev.CompletedObjectives)
 	b.addObjectives(rev.AddedObjectives)
+	// 不追先于动作：同一条线索既被判不追又被认领时，认领落空（见 pursueLead）。
+	b.declineLeads(rev.DeclinedLeads)
 	if err := b.addActions(rev.AddedActions); err != nil {
 		return RevisionReport{Rejected: b.report.Rejected}, err
 	}
@@ -143,23 +164,25 @@ type revisionBuilder struct {
 	objectives []Node
 	objective  map[string]Node
 	results    map[string]Node
+	leads      map[string]Node // 修订开始时仍待深挖的线索（供 pursues_lead / declined_leads 校验）
 	now        time.Time
 
 	completed  map[string]bool // 本次宣告达成的目标
 	superseded map[string]bool // 本次被吸收的目标
+	declined   map[string]bool // 本次判定不追的线索
 
 	changes core.GraphChangeSet
 	report  RevisionReport
 }
 
-func newRevisionBuilder(s *Store, taskID string, objectives []Node, results map[string]Node) *revisionBuilder {
+func newRevisionBuilder(s *Store, taskID string, objectives []Node, results, leads map[string]Node) *revisionBuilder {
 	byID := make(map[string]Node, len(objectives))
 	for _, n := range objectives {
 		byID[n.ID] = n
 	}
 	return &revisionBuilder{
-		store: s, taskID: taskID, objectives: objectives, objective: byID, results: results,
-		now: time.Now(), completed: map[string]bool{}, superseded: map[string]bool{},
+		store: s, taskID: taskID, objectives: objectives, objective: byID, results: results, leads: leads,
+		now: time.Now(), completed: map[string]bool{}, superseded: map[string]bool{}, declined: map[string]bool{},
 	}
 }
 
@@ -257,8 +280,53 @@ func (b *revisionBuilder) addActions(drafts []ActionDraft) error {
 		for _, resultID := range b.validResults(FieldTriggeredBy, d.TriggeredBy) {
 			b.edge(resultID, RelTriggers, d.Node.ID)
 		}
+		b.pursueLead(d.Node.ID, d.PursuesLead)
 	}
 	return nil
+}
+
+// pursueLead 为本动作落一条 pursues 边（action → 线索）：跟进关系在图上可查、可回溯，
+// 线索随之退出待深挖清单（见 lead.go）。引用的不是修订开始时仍待深挖的线索（幻觉
+// ID、已被在办动作跟进、同一修订里刚被判不追）即剔除，不拖垮修订——与 result 引用的
+// 剔除同口径。
+func (b *revisionBuilder) pursueLead(actionID, leadID string) {
+	if leadID == "" {
+		return
+	}
+	if b.declined[leadID] {
+		b.reject(FieldPursuesLead, leadID, "同一修订已判定不追这条线索")
+		return
+	}
+	if _, ok := b.leads[leadID]; !ok {
+		b.reject(FieldPursuesLead, leadID, "不是本任务仍待深挖的线索")
+		return
+	}
+	b.edge(actionID, RelPursues, leadID)
+}
+
+// declineLeads 判定线索不追：在线索上批注理由，它从此退出待深挖清单。引用的不是修订
+// 开始时仍待深挖的线索、或没给理由的，剔除该条并如实报告，不拖垮修订。批注是一次性的：
+// 并发的两次修订判定同一条线索时只有一次能提交，理由不会落两遍。
+func (b *revisionBuilder) declineLeads(declines []LeadDecline) {
+	for _, d := range declines {
+		if b.declined[d.LeadID] {
+			continue
+		}
+		if _, ok := b.leads[d.LeadID]; !ok {
+			b.reject(FieldDeclinedLeads, d.LeadID, "不是本任务仍待深挖的线索")
+			continue
+		}
+		if strings.TrimSpace(d.Reason) == "" {
+			b.reject(FieldDeclinedLeads, d.LeadID, "缺少不追的理由")
+			continue
+		}
+		b.declined[d.LeadID] = true
+		b.changes.Annotations = append(b.changes.Annotations, core.GraphNodeAnnotation{
+			TaskID: b.taskID, NodeID: d.LeadID, Once: true,
+			Metadata: map[string]interface{}{metaLeadDeclined: map[string]interface{}{"reason": strings.TrimSpace(d.Reason)}},
+		})
+		b.report.DeclinedLeads = append(b.report.DeclinedLeads, d.LeadID)
+	}
 }
 
 // revisable 判定一个既有目标能否被本次修订改写，不能时给出原因。
@@ -352,6 +420,31 @@ func (s *Store) nodesByID(ctx context.Context, taskID string, kind core.NodeKind
 		index[n.ID] = n
 	}
 	return index, nil
+}
+
+// openLeadIndex 收集修订开始时仍待深挖的线索（按 ID 索引，供 pursues_lead 与
+// declined_leads 校验）。本次修订既不认领也不判定线索时跳过加载——纯结果分析修订与
+// 不碰线索的常规规划不为此多查。
+func (s *Store) openLeadIndex(ctx context.Context, taskID string, rev PlanRevision) (map[string]Node, error) {
+	wanted := len(rev.DeclinedLeads) > 0
+	for _, a := range rev.AddedActions {
+		if a.PursuesLead != "" {
+			wanted = true
+			break
+		}
+	}
+	if !wanted {
+		return nil, nil
+	}
+	leads, err := s.OpenLeads(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]Node, len(leads))
+	for _, n := range leads {
+		byID[n.ID] = n
+	}
+	return byID, nil
 }
 
 func stateLabel(state *State) string {
