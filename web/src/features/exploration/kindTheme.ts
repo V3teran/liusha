@@ -90,6 +90,52 @@ export const OBSERVATION_CATEGORY_META: Record<string, string> = {
   hypothesis: '假设',
 }
 
+/* ========== 线索（事实观察上的信号） ========== */
+
+/** 线索关闭类别的展示文案（与后端 explorationgraph.LeadClosureKind 同一词表） */
+export const LEAD_CLOSURE_META: Record<string, string> = {
+  not_worth: '价值够不上一个动作',
+  out_of_scope: '超出任务目标',
+  premise_refuted: '前提已证伪',
+  exhausted: '已走到头',
+  blocked: '受阻',
+  concluded: '已有结论',
+  dry: '干涸',
+  vetoed: '被否决关闭',
+}
+
+export interface LeadMeta {
+  /** 已关闭（规划层判定不再跟进，或由跟进的结局结算） */
+  closed: boolean
+  /** 关闭原因全文：类别加理由（仅已关闭、且记下了原因时有） */
+  detail: string
+}
+
+function metadataOf(node: GraphNode): Record<string, unknown> {
+  return node.metadata && typeof node.metadata === 'object' ? (node.metadata as Record<string, unknown>) : {}
+}
+
+/**
+ * 线索是执行者在事实观察上留下的信号（metadata.opens_deeper）：这条路走得通、还没走到结论。
+ * 假设观察不成线索；关闭时 metadata.lead_closed 记下类别与理由。
+ */
+export function leadMeta(node: GraphNode): LeadMeta | null {
+  if (node.kind !== 'observation' || node.verification_status || metadataOf(node).opens_deeper !== true) return null
+  const closure = metadataOf(node).lead_closed
+  if (!closure || typeof closure !== 'object') return { closed: false, detail: '' }
+  const { kind, reason } = closure as { kind?: unknown; reason?: unknown }
+  const kindLabel = typeof kind === 'string' ? (LEAD_CLOSURE_META[kind] ?? kind) : ''
+  const reasonText = typeof reason === 'string' ? reason.trim() : ''
+  if (kindLabel && reasonText) return { closed: true, detail: `${kindLabel}：${reasonText}` }
+  return { closed: true, detail: kindLabel || reasonText }
+}
+
+/** 动作否决的范围（metadata.rejected_scope）：只否决这一步，还是连它跟进的线索一起。用户否决一律只否决这一步。 */
+export function rejectionScope(node: GraphNode): 'step' | 'lead' | null {
+  if (node.state !== 'rejected') return null
+  return metadataOf(node).rejected_scope === 'lead' ? 'lead' : 'step'
+}
+
 /* ========== 内容提取（content 按 kind 多态） ========== */
 
 function contentOf(node: GraphNode): Record<string, unknown> {
@@ -120,6 +166,8 @@ export interface NodeChips {
   verification?: string
   /** 高优先级（节点优先级；仅 P0/P1 上卡，避免噪音） */
   priority?: { code: string; className: string }
+  /** 线索（仅被标为线索的事实观察）：点取跟进线的颜色，与指向它的连线同色 */
+  lead?: { label: string; closed: boolean; detail: string }
 }
 
 /** 卡片底部徽章行的取值（详情面板另有更全的展示） */
@@ -137,6 +185,9 @@ export function nodeChips(node: GraphNode): NodeChips {
   if (node.kind === 'observation' || node.kind === 'result') {
     chips.verification = verificationMeta(node.verification_status) ?? undefined
   }
+  const lead = leadMeta(node)
+  if (lead) chips.lead = { label: lead.closed ? '已关闭' : '线索', closed: lead.closed, detail: lead.detail }
+
   if (node.priority === 'critical' || node.priority === 'high') {
     chips.priority = {
       code: PRIORITY_META[node.priority].code,

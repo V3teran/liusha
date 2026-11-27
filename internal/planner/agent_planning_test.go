@@ -124,9 +124,9 @@ func TestApplyOutcome_PursuingActionClaimsLead(t *testing.T) {
 	assert.Nil(t, a.conclusion, "排了新动作，此前的结论作废")
 }
 
-// 线索挂到在办动作上：落 attaches 边，线索由那个动作结算、退出待深挖清单；不排新动作也算
+// 在办动作覆盖一条线索：落 covers 边，线索由那个动作结算、退出待深挖清单；不排新动作也算
 // 图面有变化，「等待」结论作废，也不走收敛判定。
-func TestApplyOutcome_AttachesLeadToInFlightAction(t *testing.T) {
+func TestApplyOutcome_InFlightActionCoversLead(t *testing.T) {
 	store, ctx := leadGraph(t)
 	running := explorationgraph.StateRunning
 	_, err := store.CreateNode(ctx, revisionNode("a-running", core.KindAction, explorationgraph.SourcePlanner, &running, 3*time.Second))
@@ -136,21 +136,21 @@ func TestApplyOutcome_AttachesLeadToInFlightAction(t *testing.T) {
 		onConverged: func(string, explorationgraph.GoalBasis) { converged++ }}
 
 	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), explorationgraph.Surface{}, PlanOutcome{
-		Attachments: []explorationgraph.Pursuit{{ActionID: "a-running", LeadID: "lead-1"}},
+		Covers: []explorationgraph.Pursuit{{ActionID: "a-running", LeadID: "lead-1"}},
 	}, "planning"))
 
 	edges, err := store.ListEdgesByTask(ctx, revisionTask)
 	require.NoError(t, err)
-	attached := false
+	covered := false
 	for _, e := range edges {
-		if e.Rel == explorationgraph.RelAttaches && e.SrcID == "a-running" && e.DstID == "lead-1" {
-			attached = true
+		if e.Rel == explorationgraph.RelCovers && e.SrcID == "a-running" && e.DstID == "lead-1" {
+			covered = true
 		}
 	}
-	assert.True(t, attached, "挂接落成 attaches 边")
+	assert.True(t, covered, "覆盖落成 covers 边")
 	pursued, err := store.PursuedLeads(ctx, revisionTask, "a-running")
 	require.NoError(t, err)
-	assert.Empty(t, pursued, "挂接只记账，不进这个动作的执行输入")
+	assert.Empty(t, pursued, "覆盖只记账，不进这个动作的执行输入")
 	assert.Equal(t, []string{"lead-2"}, openLeadIDs(t, store, ctx))
 	assert.Nil(t, a.conclusion, "图面有变化，等待结论不作数")
 	assert.Equal(t, 0, converged, "不因这一轮没有新动作就走收敛判定")

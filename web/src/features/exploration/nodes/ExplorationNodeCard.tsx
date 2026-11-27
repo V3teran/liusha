@@ -11,7 +11,7 @@ import { memo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { cn } from '@/lib/utils'
 import { kindProfile, nodeChips, nodeTitle } from '../kindTheme'
-import type { ExplorationFlowNode } from '../layout'
+import { EDGE_LOOKS, type ExplorationFlowNode } from '../layout'
 
 export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode>) => {
   const { node } = data
@@ -53,6 +53,18 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
           <span className="inline-flex flex-shrink-0 items-center gap-1">
             <span className={cn('h-1.5 w-1.5 rounded-full', chips.state.dotClass)} />
             {chips.state.label}
+          </span>
+        )}
+        {chips.lead && (
+          <span
+            className="inline-flex flex-shrink-0 items-center gap-1"
+            title={chips.lead.detail || '执行者已探通、尚未推进到结论的路径'}
+          >
+            <span
+              className={cn('h-1.5 w-1.5 rounded-full', chips.lead.closed && 'bg-status-neutral')}
+              style={chips.lead.closed ? undefined : { background: EDGE_LOOKS.pursues.color }}
+            />
+            {chips.lead.label}
           </span>
         )}
         {chips.category && <span className="flex-shrink-0">{chips.category}</span>}

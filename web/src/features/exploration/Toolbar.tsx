@@ -143,19 +143,19 @@ export function Toolbar({
                 </button>
               )
             })}
-            {/* 方向关系一次规划才添几条，整图里淹没在推导链与归属的扇形中；收起来才看得全。
-                样本线即图例：琥珀虚线是滋生，紫色长虚线是吸收，玫红短虚线是推进 */}
+            {/* 这两种边一次结果分析才添几条，整图里淹没在推导链与归属的扇形中；收起来才看得全。
+                样本线即图例：琥珀短虚线是滋生，紫色长虚线是吸收 */}
             {directionEdgeCount > 0 && (
               <button
                 type="button"
                 onClick={() => onDirectionOnly(!directionOnly)}
                 aria-pressed={directionOnly}
-                title={directionOnly ? '回到整张图' : '只看方向关系：结果催生方向、方向之间吸收、为方向出力'}
+                title={directionOnly ? '回到整张图' : '只看结果催生方向、方向之间吸收的关系'}
                 className={cn(CHIP, directionOnly ? 'font-semibold' : CHIP_IDLE)}
                 style={directionOnly ? activeTint(EDGE_LOOKS.triggers.color) : undefined}
               >
                 <span aria-hidden className="flex flex-col gap-[3px]">
-                  {(['triggers', 'supersedes', 'serves'] as const).map((look) => (
+                  {(['triggers', 'supersedes'] as const).map((look) => (
                     <svg key={look} width="18" height="3">
                       <line
                         x1="0"
@@ -169,7 +169,7 @@ export function Toolbar({
                     </svg>
                   ))}
                 </span>
-                方向关系
+                滋生 · 吸收
               </button>
             )}
           </div>

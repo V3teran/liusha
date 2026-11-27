@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nodeTitle, nodeChips } from './kindTheme'
+import { leadMeta, nodeTitle, nodeChips, rejectionScope } from './kindTheme'
 import type { GraphNode } from '@/api/explorationgraph'
 
 function node(o: Partial<GraphNode> = {}): GraphNode {
@@ -61,5 +61,48 @@ describe('kindTheme（kind 视觉档案与内容提取）', () => {
     const chips = nodeChips(node({ id: 'n-fact', kind: 'observation', content: { category: 'behavior' } }))
     expect(chips.category).toBe('行为')
     expect(chips.verification).toBeUndefined()
+  })
+})
+
+describe('kindTheme（线索与否决范围）', () => {
+  const fact = (o: Partial<GraphNode> = {}) =>
+    node({ kind: 'observation', content: { statement: '上传目录可写' }, ...o })
+
+  it('只有被标为线索的事实观察才是线索；假设观察即使带了标记也不是', () => {
+    expect(leadMeta(fact())).toBeNull()
+    expect(leadMeta(fact({ metadata: { opens_deeper: false } }))).toBeNull()
+    expect(leadMeta(fact({ metadata: { opens_deeper: true }, verification_status: 'pending' }))).toBeNull()
+    expect(leadMeta(fact({ metadata: { opens_deeper: true } }))).toEqual({ closed: false, detail: '' })
+  })
+
+  it('关闭原因由类别与理由拼成；类别不在词表里按原值，缺理由只剩类别', () => {
+    expect(leadMeta(fact({ metadata: { opens_deeper: true, lead_closed: { kind: 'dry' } } }))).toEqual({
+      closed: true,
+      detail: '干涸',
+    })
+    expect(
+      leadMeta(fact({ metadata: { opens_deeper: true, lead_closed: { kind: 'out_of_scope', reason: ' 不在本期范围 ' } } })),
+    ).toEqual({ closed: true, detail: '超出任务目标：不在本期范围' })
+    expect(leadMeta(fact({ metadata: { opens_deeper: true, lead_closed: { kind: 'odd' } } }))).toEqual({
+      closed: true,
+      detail: 'odd',
+    })
+  })
+
+  it('卡片的线索徽章：开着标「线索」，关闭后标「已关闭」', () => {
+    expect(nodeChips(fact({ metadata: { opens_deeper: true } })).lead).toEqual({ label: '线索', closed: false, detail: '' })
+    expect(nodeChips(fact({ metadata: { opens_deeper: true, lead_closed: { kind: 'dry' } } })).lead).toEqual({
+      label: '已关闭',
+      closed: true,
+      detail: '干涸',
+    })
+    expect(nodeChips(fact()).lead).toBeUndefined()
+  })
+
+  it('否决范围只在已否决的动作上有：没记范围按只否决这一步', () => {
+    const action = (o: Partial<GraphNode> = {}) => node({ kind: 'action', state: 'rejected', ...o })
+    expect(rejectionScope(action())).toBe('step')
+    expect(rejectionScope(action({ metadata: { rejected_scope: 'lead' } }))).toBe('lead')
+    expect(rejectionScope(action({ state: 'running' }))).toBeNull()
   })
 })

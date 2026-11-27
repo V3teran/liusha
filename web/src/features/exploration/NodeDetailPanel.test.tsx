@@ -71,7 +71,50 @@ describe('NodeDetailPanel 已否决动作', () => {
       />,
     )
     expect(screen.getByText('已否决')).toBeTruthy()
-    expect(screen.getByText('否决（用户）：超出授权范围')).toBeTruthy()
+    // 用户的否决一律只否决这一步
+    expect(screen.getByText('否决（用户，只否决这一步）：超出授权范围')).toBeTruthy()
+  })
+
+  it('监察者的否决写明范围：只否决这一步，还是连它跟进的线索一起', () => {
+    const rejected = (scope: string): GraphNode => ({
+      ...node,
+      state: 'rejected',
+      state_reason: '对象不在目标范围内',
+      metadata: { rejected_by: 'monitor', rejected_scope: scope },
+    })
+    const { unmount } = render(<NodeDetailPanel node={rejected('lead')} onClose={vi.fn()} />)
+    expect(screen.getByText('否决（监察者，连它跟进的线索一起）：对象不在目标范围内')).toBeTruthy()
+    unmount()
+    render(<NodeDetailPanel node={rejected('step')} onClose={vi.fn()} />)
+    expect(screen.getByText('否决（监察者，只否决这一步）：对象不在目标范围内')).toBeTruthy()
+  })
+})
+
+describe('NodeDetailPanel 线索', () => {
+  const lead = (metadata: Record<string, unknown>): GraphNode => ({
+    ...node,
+    kind: 'observation',
+    state: undefined,
+    content: { statement: '上传目录可写且可执行', category: 'access' },
+    metadata: { opens_deeper: true, ...metadata },
+  })
+
+  it('开着的线索：详情标出「线索：待跟进」', () => {
+    render(<NodeDetailPanel node={lead({})} onClose={vi.fn()} />)
+    expect(screen.getByText('线索')).toBeTruthy()
+    expect(screen.getByText('待跟进')).toBeTruthy()
+    expect(screen.queryByText(/线索已关闭/)).toBeNull()
+  })
+
+  it('已关闭的线索带关闭原因（类别与理由）', () => {
+    render(
+      <NodeDetailPanel
+        node={lead({ lead_closed: { kind: 'blocked', reason: '需要管理员凭据' } })}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('已关闭')).toBeTruthy()
+    expect(screen.getByText('线索已关闭（受阻：需要管理员凭据）')).toBeTruthy()
   })
 })
 

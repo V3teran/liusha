@@ -148,7 +148,7 @@ func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis,
 	for _, draft := range drafts {
 		admitted[draft.Node.ID] = true
 	}
-	pursuits := make([]explorationgraph.Pursuit, 0, len(outcome.Claims)+len(outcome.Attachments))
+	pursuits := make([]explorationgraph.Pursuit, 0, len(outcome.Claims)+len(outcome.Covers))
 	for _, pursuit := range outcome.Claims {
 		if admitted[pursuit.ActionID] {
 			pursuits = append(pursuits, pursuit)
@@ -156,7 +156,7 @@ func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis,
 			a.logger.Warn().Str("lead_id", pursuit.LeadID).Msg("认领线索的动作与既有动作重复被拦下，这条线索本轮无人跟进")
 		}
 	}
-	pursuits = append(pursuits, outcome.Attachments...)
+	pursuits = append(pursuits, outcome.Covers...)
 
 	if len(drafts) == 0 && len(pursuits) == 0 && len(outcome.Closings) == 0 {
 		return false, nil
@@ -176,13 +176,13 @@ func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis,
 	if len(report.AddedActions) > 0 {
 		a.logger.Info().Strs("action_ids", report.AddedActions).Msg("新 Action 已落图")
 	}
-	if len(report.AttachedLeads) > 0 {
-		a.logger.Info().Strs("lead_ids", report.AttachedLeads).Msg("线索已挂到在办动作上")
+	if len(report.CoveredLeads) > 0 {
+		a.logger.Info().Strs("lead_ids", report.CoveredLeads).Msg("线索已由在办动作覆盖")
 	}
 	if len(report.ClosedLeads) > 0 {
 		a.logger.Info().Strs("lead_ids", report.ClosedLeads).Msg("线索已关闭")
 	}
-	return len(report.AddedActions) > 0 || len(report.AttachedLeads) > 0 || len(report.ClosedLeads) > 0, nil
+	return len(report.AddedActions) > 0 || len(report.CoveredLeads) > 0 || len(report.ClosedLeads) > 0, nil
 }
 
 // admitActions 过滤规划提案：指令级字面去重（见 admit）——空指令不可执行，与图上既有

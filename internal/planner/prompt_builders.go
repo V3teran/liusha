@@ -33,10 +33,10 @@ func buildTeamRosterSection(roster []AgentBrief) string {
 	return sb.String()
 }
 
-// buildObjectiveSection 构建任务目标部分：根目标即任务目标本体；进行中的方向带短号逐条
-// 列出——动作据它声明归属，线索据它归组。已收敛的方向不再列出：已达成的无需再投入，
-// 已吸收的范围由吸收它的新方向承接（新方向本身在列）。
-func buildObjectiveSection(objective string, directions []Direction) string {
+// buildObjectiveSection 构建任务目标部分：根目标即任务目标本体；进行中的派生目标（方向）
+// 逐条列出，供规划者分组与取舍。已收敛的方向不再列出：已达成的无需再投入，已吸收的
+// 范围由吸收它的新方向承接（新方向本身在列）。
+func buildObjectiveSection(objective string, directions []explorationgraph.Node) string {
 	var sb strings.Builder
 	sb.WriteString("## 任务目标\n")
 	if objective != "" {
@@ -48,8 +48,8 @@ func buildObjectiveSection(objective string, directions []Direction) string {
 
 	if len(directions) > 0 {
 		sb.WriteString("### 进行中的方向\n")
-		for i, d := range directions {
-			fmt.Fprintf(&sb, "- [%s] %s\n", ordinal(directionPrefix, i), d.Goal)
+		for _, d := range directions {
+			fmt.Fprintf(&sb, "- %s\n", objectiveDescription(d))
 		}
 		sb.WriteString("\n")
 	}
@@ -190,7 +190,7 @@ func buildCompletedActionsSection(actions []explorationgraph.Node) string {
 }
 
 // buildPendingActionsSection 构建进行中工作部分（规划的直接输入，全量逐条）。每条带短号
-// （线索可以挂到它上）与它推进的方向。
+// （线索可以声明由它覆盖）。
 func buildPendingActionsSection(ctx *PlanningContext) string {
 	if len(ctx.PendingActions) == 0 {
 		return ""
@@ -200,9 +200,6 @@ func buildPendingActionsSection(ctx *PlanningContext) string {
 	sb.WriteString("## 进行中的工作\n")
 	for i, action := range ctx.PendingActions {
 		fmt.Fprintf(&sb, "- [%s] %s", ordinal(actionPrefix, i), actionTag("进行中", action))
-		if handle := ctx.directionHandle(ctx.actionDirection[action.ID]); handle != "" {
-			fmt.Fprintf(&sb, " [推进 %s]", handle)
-		}
 		fmt.Fprintf(&sb, " [ID: %s] %s\n", action.ID, actionInstruction(action))
 	}
 	sb.WriteString("\n")
@@ -314,8 +311,8 @@ func buildResultsSection(results []explorationgraph.Node) string {
 
 // buildOpenLeadsSection 构建待深挖的线索：执行者已探通、尚未推进到结论的路径，单列在
 // 事实之前，带短号供动作认领。同一陈述的线索并成一行、短号都列出（没有哪条线索是看不见
-// 的）；每条带它由图上推导的处境——属于哪个方向、由哪个在办动作产出、挂了多久、几次
-// 跟进而没做完、几次被否决。
+// 的）；每条带它由图上推导的处境——由哪个在办动作产出、挂了多久、几次跟进而没做完、
+// 几次被否决。
 func buildOpenLeadsSection(ctx *PlanningContext) string {
 	if len(ctx.OpenLeads) == 0 {
 		return ""
@@ -381,9 +378,6 @@ func (ctx *PlanningContext) leadStatus(lead OpenLead, now time.Time) string {
 	parts := make([]string, 0, 6)
 	if handle := ctx.actionHandle(lead.ProducerID); handle != "" {
 		parts = append(parts, "由在办的 "+handle+" 产出")
-	}
-	if handle := ctx.directionHandle(lead.DirectionID); handle != "" {
-		parts = append(parts, "属于 "+handle)
 	}
 	parts = append(parts, agePhrase(lead.CreatedAt, now))
 	if lead.Truncated > 0 {

@@ -225,6 +225,14 @@ FORBIDDEN=(
   'DeclinedLead'
   'lead_declined'
   'LeadDecline'
+  # 探索图的关系收敛为五种后的名字不得回流：serves（动作或线索「推进」某个派生目标，没有
+  #   任何判断依赖它）连同方向短号一起删除；attaches 更名 covers，中文「挂接」更名「覆盖」
+  #   （原名与对话附件撞词，中文又与「跟进」难以区分）。
+  "RelServes"
+  "'serves'"
+  "'attaches'"
+  "RelAttaches"
+  '挂接'
 )
 
 # 术语豁免：某条术语在含「豁免串」的行里不算残留。写法是「术语||豁免串」——分隔符用两个竖线，

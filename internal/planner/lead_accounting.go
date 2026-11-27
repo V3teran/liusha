@@ -13,12 +13,11 @@ import (
 	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
 )
 
-// 短号：规划输入给进行中的方向、在办的动作、待深挖的线索编的短号（D1、A1、L1）。模型按
-// 短号引用，不必照抄 UUID；短号就是它在输入清单里的序号，规划输出按同一份清单解析。
+// 短号：规划输入给在办的动作、待深挖的线索编的短号（A1、L1）。模型按短号引用，不必
+// 照抄 UUID；短号就是它在输入清单里的序号，规划输出按同一份清单解析。
 const (
-	directionPrefix = "D"
-	actionPrefix    = "A"
-	leadPrefix      = "L"
+	actionPrefix = "A"
+	leadPrefix   = "L"
 )
 
 func ordinal(prefix string, index int) string { return fmt.Sprintf("%s%d", prefix, index+1) }
@@ -42,23 +41,6 @@ func canonical(prefix, handle string) string {
 		return strings.ToUpper(strings.TrimSpace(handle))
 	}
 	return strings.TrimSpace(handle)
-}
-
-// directionID 把方向的短号解析成方向（派生目标）的 ID。
-func (c *PlanningContext) directionID(handle string) (string, bool) {
-	i, ok := ordinalIndex(directionPrefix, handle)
-	if !ok || i >= len(c.Directions) {
-		return "", false
-	}
-	return c.Directions[i].ID, true
-}
-
-// directionHandle 是方向在输入里的短号；方向已不在进行中的清单里时为空。
-func (c *PlanningContext) directionHandle(id string) string {
-	if i := slices.IndexFunc(c.Directions, func(d Direction) bool { return d.ID == id }); i >= 0 {
-		return ordinal(directionPrefix, i)
-	}
-	return ""
 }
 
 // actionID 把在办动作的短号解析成动作 ID。
@@ -104,11 +86,11 @@ type leadProblem struct {
 
 // leadPlan 是规划输出里对线索的交代，解析到图上引用之后的结果。
 type leadPlan struct {
-	claims      map[int][]string           // 动作在响应里的下标 → 它认领的线索 ID
-	attachments []explorationgraph.Pursuit // 挂到图上在办动作上的线索
-	closings    []explorationgraph.LeadClosing
-	left        int // 明确留待下轮的线索条数
-	problems    []leadProblem
+	claims   map[int][]string           // 动作在响应里的下标 → 它认领的线索 ID
+	covers   []explorationgraph.Pursuit // 声明由图上在办的动作覆盖的线索
+	closings []explorationgraph.LeadClosing
+	left     int // 明确留待下轮的线索条数
+	problems []leadProblem
 }
 
 // describe 把交代上的问题列成给模型或日志看的一句话一条。
@@ -121,7 +103,7 @@ func (p leadPlan) describe() []string {
 }
 
 // accountLeads 核对规划输出对每条待深挖线索的交代：每条恰一次——被本轮某个动作的 pursues
-// 引用，或在 leads 里有一条成立的处置（attach / close / leave）。不成立的地方原样列出，
+// 引用，或在 leads 里有一条成立的处置（cover / close / leave）。不成立的地方原样列出，
 // 成立的部分照常保留：一条交代不成立不让其余的跟着作废。
 func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 	plan := leadPlan{claims: map[int][]string{}}
@@ -145,7 +127,7 @@ func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 		return true
 	}
 	const (
-		duplicated  = "被重复交代：一条线索本轮只由一个动作跟进、只交代一次——多出的认领去掉 pursues，改用 serves 归到方向下"
+		duplicated  = "被重复交代：一条线索本轮只由一个动作跟进、只交代一次——多出的认领去掉 pursues"
 		unknownLead = "不是「待深挖的线索」里的编号"
 	)
 
@@ -176,10 +158,10 @@ func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 		touch(ids)
 		// 先校验、后登记：交代不成立的线索不算已交代，模型给的下一个版本仍可成立。
 		switch strings.ToLower(strings.TrimSpace(d.Decision)) {
-		case "attach":
+		case "cover":
 			actionID, ok := planCtx.actionID(d.Action)
 			if !ok {
-				plan.problems = append(plan.problems, leadProblem{handle, "attach 的 action 不是「进行中的工作」里的在办动作编号"})
+				plan.problems = append(plan.problems, leadProblem{handle, "cover 的 action 不是「进行中的工作」里的在办动作编号"})
 				continue
 			}
 			if !admit(ids) {
@@ -187,7 +169,7 @@ func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 				continue
 			}
 			for _, id := range ids {
-				plan.attachments = append(plan.attachments, explorationgraph.Pursuit{ActionID: actionID, LeadID: id})
+				plan.covers = append(plan.covers, explorationgraph.Pursuit{ActionID: actionID, LeadID: id})
 			}
 		case "close":
 			kind := explorationgraph.LeadClosureKind(strings.ToLower(strings.TrimSpace(d.Kind)))
@@ -215,7 +197,7 @@ func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 		case "":
 			plan.problems = append(plan.problems, leadProblem{handle, "还没有交代"})
 		default:
-			plan.problems = append(plan.problems, leadProblem{handle, "decision 只能是 attach、close 或 leave"})
+			plan.problems = append(plan.problems, leadProblem{handle, "decision 只能是 cover、close 或 leave"})
 		}
 	}
 

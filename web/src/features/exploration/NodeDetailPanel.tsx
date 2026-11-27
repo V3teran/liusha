@@ -9,7 +9,16 @@ import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 import type { GraphNode, Verification } from '@/api/explorationgraph'
 import { priorityMeta } from '@/lib/priority'
-import { kindProfile, nodeTitle, stateMeta, verificationMeta, COMPLEXITY_META, OBSERVATION_CATEGORY_META } from './kindTheme'
+import {
+  kindProfile,
+  leadMeta,
+  nodeTitle,
+  rejectionScope,
+  stateMeta,
+  verificationMeta,
+  COMPLEXITY_META,
+  OBSERVATION_CATEGORY_META,
+} from './kindTheme'
 import { RejectActionDialog } from './RejectActionDialog'
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -61,6 +70,12 @@ function rejectedBy(node: GraphNode): string {
   return ''
 }
 
+/** 否决的说法：谁否决的、否决到哪一步（只否决这一步，还是连它跟进的线索一起）、为什么。 */
+function rejectionText(node: GraphNode): string {
+  const scope = rejectionScope(node) === 'lead' ? '，连它跟进的线索一起' : '，只否决这一步'
+  return `否决（${SOURCE_LABELS[rejectedBy(node)] ?? '未知'}${scope}）：${node.state_reason}`
+}
+
 export function NodeDetailPanel({
   node,
   verification,
@@ -75,6 +90,7 @@ export function NodeDetailPanel({
   const title = nodeTitle(node)
   const state = stateMeta(node.state)
   const verificationLabel = verificationMeta(node.verification_status)
+  const lead = leadMeta(node)
   const content = (node.content ?? {}) as Record<string, unknown>
   // 主文本已置顶展示，k/v 里跳过同值字段避免重复
   const contentEntries = Object.entries(content).filter(
@@ -121,6 +137,7 @@ export function NodeDetailPanel({
             <MetaChip label="复杂度" value={COMPLEXITY_META[node.complexity]} />
           )}
           {verificationLabel && <MetaChip label="验证" value={verificationLabel} />}
+          {lead && <MetaChip label="线索" value={lead.closed ? '已关闭' : '待跟进'} />}
           <MetaChip label="来源" value={SOURCE_LABELS[node.source_type] ?? node.source_type} />
           <MetaChip label="创建" value={new Date(node.created_at).toLocaleString()} />
         </div>
@@ -135,10 +152,14 @@ export function NodeDetailPanel({
         {node.kind === 'action' && node.state_reason && (
           <section className="rounded-lg border border-border bg-background/50 px-3 py-2 text-xs text-text-secondary">
             <div className="text-status-warning">
-              {node.state === 'rejected'
-                ? `否决（${SOURCE_LABELS[rejectedBy(node)] ?? '未知'}）：${node.state_reason}`
-                : `原因：${node.state_reason}`}
+              {node.state === 'rejected' ? rejectionText(node) : `原因：${node.state_reason}`}
             </div>
+          </section>
+        )}
+
+        {lead?.closed && lead.detail && (
+          <section className="rounded-lg border border-border bg-background/50 px-3 py-2 text-xs text-text-secondary">
+            <div className="break-words">线索已关闭（{lead.detail}）</div>
           </section>
         )}
 

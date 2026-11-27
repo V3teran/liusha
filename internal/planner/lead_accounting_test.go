@@ -18,12 +18,11 @@ import (
 	"github.com/V3teran/liusha/internal/framework/runtime"
 )
 
-// leadAccountingContext 建一份规划上下文：一个方向 d1（D1）、两个在办动作（A1、A2）、
-// 四条待深挖线索（L1 与 L3 是同一陈述，在输入里并成一行）。
+// leadAccountingContext 建一份规划上下文：两个在办动作（A1、A2）、四条待深挖线索（L1 与
+// L3 是同一陈述，在输入里并成一行）。
 func leadAccountingContext() *PlanningContext {
 	open := explorationgraph.StateOpen
 	return &PlanningContext{
-		Directions: []Direction{{ID: "d1", Goal: "摸清配置面"}},
 		PendingActions: []explorationgraph.Node{
 			{ID: "run-1", Kind: core.KindAction, State: &open},
 			{ID: "run-2", Kind: core.KindAction, State: &open},
@@ -37,20 +36,12 @@ func leadAccountingContext() *PlanningContext {
 	}
 }
 
-// 短号是清单里的序号：方向、在办动作、线索各按自己的清单解析；同一陈述的线索引用其中任意
-// 一个短号都指这一行上的全部线索；越界、前缀不对、不是数字的都不认。
+// 短号是清单里的序号：在办动作、线索各按自己的清单解析；同一陈述的线索引用其中任意一个
+// 短号都指这一行上的全部线索；越界、前缀不对、不是数字的都不认。
 func TestPlanningContext_ResolvesHandles(t *testing.T) {
 	ctx := leadAccountingContext()
 
-	id, ok := ctx.directionID(" D1 ")
-	require.True(t, ok)
-	assert.Equal(t, "d1", id)
-	_, ok = ctx.directionID("D2")
-	assert.False(t, ok, "越界")
-	_, ok = ctx.directionID("L1")
-	assert.False(t, ok, "前缀不对")
-
-	id, ok = ctx.actionID("A2")
+	id, ok := ctx.actionID("A2")
 	require.True(t, ok)
 	assert.Equal(t, "run-2", id)
 	_, ok = ctx.actionID("A3")
@@ -64,8 +55,6 @@ func TestPlanningContext_ResolvesHandles(t *testing.T) {
 		assert.False(t, ok, "不认 %q", bad)
 	}
 
-	assert.Equal(t, "D1", ctx.directionHandle("d1"))
-	assert.Empty(t, ctx.directionHandle("d-gone"), "不在进行中的清单里的方向没有短号")
 	assert.Equal(t, "A2", ctx.actionHandle("run-2"))
 	assert.Empty(t, ctx.actionHandle("run-done"))
 }
@@ -86,15 +75,15 @@ func TestAccountLeads_EveryLeadAccountedOnce(t *testing.T) {
 	assert.Empty(t, plan.problems)
 	assert.Equal(t, map[int][]string{0: {"lead-1", "lead-3"}, 1: {"lead-2"}}, plan.claims, "引用 L1 即认领这一行上的两条线索")
 	assert.Equal(t, []explorationgraph.LeadClosing{{LeadID: "lead-4", Kind: explorationgraph.ClosureBlocked, Reason: "需要管理员凭据"}}, plan.closings)
-	assert.Empty(t, plan.attachments)
+	assert.Empty(t, plan.covers)
 	assert.Zero(t, plan.left)
 }
 
-// 挂接把线索挂到在办动作上；留待只计数、不产生任何落图的内容。
+// 覆盖声明线索由在办动作结算；留待只计数、不产生任何落图的内容。
 func TestAccountLeads_AttachAndLeave(t *testing.T) {
 	plan := accountLeads(leadAccountingContext(), &PlanningResponse{
 		Leads: []LeadDecisionProposal{
-			{ID: "L1", Decision: "ATTACH", Action: "a2"},
+			{ID: "L1", Decision: "COVER", Action: "a2"},
 			{ID: "L2", Decision: "leave"},
 		},
 	})
@@ -102,7 +91,7 @@ func TestAccountLeads_AttachAndLeave(t *testing.T) {
 	assert.Equal(t, "L4：还没有交代", plan.problems[0].handle+"："+plan.problems[0].message)
 	assert.Equal(t, []explorationgraph.Pursuit{
 		{ActionID: "run-2", LeadID: "lead-1"}, {ActionID: "run-2", LeadID: "lead-3"},
-	}, plan.attachments, "挂接同样落在这一行上的全部线索；大小写与空白不敏感")
+	}, plan.covers, "覆盖同样落在这一行上的全部线索；大小写与空白不敏感")
 	assert.Equal(t, 1, plan.left)
 }
 
@@ -121,20 +110,20 @@ func TestAccountLeads_ReportsLeadsNobodyMentioned(t *testing.T) {
 }
 
 // 交代不成立的原样列出，成立的部分不受影响：引用了不存在的短号、同一条线索交代两次、
-// 挂到不在办的编号上、关闭的类别不对或没写理由、decision 不在契约里。
+// 覆盖它的不是在办动作、关闭的类别不对或没写理由、decision 不在契约里。
 func TestAccountLeads_ReportsInvalidDispositions(t *testing.T) {
 	plan := accountLeads(leadAccountingContext(), &PlanningResponse{
 		Actions: []ActionProposal{{Instruction: "沿乙深挖", Pursues: []string{"L2", "L9"}}},
 		Leads: []LeadDecisionProposal{
 			{ID: "L2", Decision: "leave"},
-			{ID: "L4", Decision: "attach", Action: "A9"},
+			{ID: "L4", Decision: "cover", Action: "A9"},
 			{ID: "L0", Decision: "leave"},
 		},
 	})
 	assert.Equal(t, []string{
 		"L9：不是「待深挖的线索」里的编号",
-		"L2：被重复交代：一条线索本轮只由一个动作跟进、只交代一次——多出的认领去掉 pursues，改用 serves 归到方向下",
-		"L4：attach 的 action 不是「进行中的工作」里的在办动作编号",
+		"L2：被重复交代：一条线索本轮只由一个动作跟进、只交代一次——多出的认领去掉 pursues",
+		"L4：cover 的 action 不是「进行中的工作」里的在办动作编号",
 		"L0：不是「待深挖的线索」里的编号",
 		"L1、L3：还没有交代",
 	}, plan.describe())
@@ -149,7 +138,7 @@ func TestAccountLeads_ReportsInvalidDispositions(t *testing.T) {
 	assert.Equal(t, []string{
 		"L1：close 的 kind 不在契约列出的类别里",
 		"L2：close 缺少 reason",
-		"L4：decision 只能是 attach、close 或 leave",
+		"L4：decision 只能是 cover、close 或 leave",
 	}, plan.describe())
 	assert.Empty(t, plan.closings)
 }
@@ -157,14 +146,14 @@ func TestAccountLeads_ReportsInvalidDispositions(t *testing.T) {
 // 交代不成立的条目不算已交代：同一条线索后面跟着的成立版本照常生效，不被判成重复。
 func TestAccountLeads_InvalidEntryDoesNotCoverTheLead(t *testing.T) {
 	plan := accountLeads(leadAccountingContext(), &PlanningResponse{Leads: []LeadDecisionProposal{
-		{ID: "L4", Decision: "attach", Action: "A9"},
+		{ID: "L4", Decision: "cover", Action: "A9"},
 		{ID: "L4", Decision: "close", Kind: "out_of_scope", Reason: " 范围外 "},
 		{ID: "L2", Decision: "park"},
 		{ID: "L2", Decision: "leave"},
 	}})
 	assert.Equal(t, []string{
-		"L4：attach 的 action 不是「进行中的工作」里的在办动作编号",
-		"L2：decision 只能是 attach、close 或 leave",
+		"L4：cover 的 action 不是「进行中的工作」里的在办动作编号",
+		"L2：decision 只能是 cover、close 或 leave",
 		"L1、L3：还没有交代",
 	}, plan.describe())
 	require.Len(t, plan.closings, 1, "后面的成立版本生效")

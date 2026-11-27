@@ -12,18 +12,14 @@
 // exploration_verification 审计链，不建节点。
 //
 // 关系（与 DB 约束 ck_exploration_edge_rel 一致，见 Relation）：
-//   - generates: objective → action、action → observation、observation → result（推导链）
+//   - generates: objective → action、action → observation、observation → result（推导链：
+//     目标派生动作，动作产出观察，假设坐实成结果）
 //   - triggers: result → objective/action（结果催生新目标 / 新动作）
 //   - supersedes: objective → objective（新派生目标吸收旧派生目标，src=新、dst=旧；
 //     与旧目标的 superseded 状态同一事务落定，见 RevisePlan）
-//   - pursues: action → observation（动作为跟进这条线索而排出：指令为它而写）
-//   - attaches: action → observation（在办动作挂到线索上：只记账，不改动作的范围）
-//   - serves: action → objective（不追线索的动作推进某个派生目标）；
-//     observation → objective（规划者改写一条线索的方向归属）
-//
-// 每个动作只有一个归属：追线索的挂在线索下，不追线索的挂在方向下，两者都不声明的
-// 留在根目标下（铺开对象面的探索）。线索的方向沿来源链推导（线索 → 产出它的动作 →
-// 它的方向），规划者显式改写过时以 serves 边为准（见 lead.go）。
+//   - pursues: action → observation（动作为跟进这条线索而排出：线索进入它的执行范围）
+//   - covers: action → observation（在办的动作覆盖这条线索：只记账，线索由它的结局
+//     结算，不改这个动作的范围）
 //
 // 动作之间没有执行依赖：open 即可执行，先后关系由增量规划表达——需要前一步结果的
 // 动作在前一步的观察落图后才被提出，指令因此基于真实结果。
@@ -113,7 +109,7 @@ const (
 	PriorityLow      = core.PriorityLow
 )
 
-// Relation 是边的关系类型（6 种，小写字面量即存储值）
+// Relation 是边的关系类型（5 种，小写字面量即存储值）
 type Relation string
 
 // 探索图关系（与 DB 约束 ck_exploration_edge_rel 严格一致）：
@@ -126,8 +122,7 @@ const (
 	RelTriggers   Relation = "triggers"   // result → objective/action（发现滋生动作/新方向）
 	RelSupersedes Relation = "supersedes" // objective → objective（吸收：新目标接管旧目标范围）
 	RelPursues    Relation = "pursues"    // action → observation（动作为跟进这条线索而排出）
-	RelAttaches   Relation = "attaches"   // action → observation（在办动作挂到线索上，只记账）
-	RelServes     Relation = "serves"     // action → objective / observation → objective（推进某个方向）
+	RelCovers     Relation = "covers"     // action → observation（在办动作覆盖这条线索，只记账）
 )
 
 // SourceType 是节点的来源类型
