@@ -326,7 +326,7 @@ func TestPlanActions_AnalysisRevisesDirectionThenPlanningSchedules(t *testing.T)
 	a, store := revisionAgent(t, nil)
 	planner := &directionPlanner{
 		store:    store,
-		analysis: &ResultAnalysis{NewObjectives: []NewObjective{{Description: "换一个入口", Priority: core.PriorityHigh, TriggeredBy: []string{"r1"}}}},
+		analysis: &ResultAnalysis{NewObjectives: []NewObjective{{Description: "换一个入口", TriggeredBy: []string{"r1"}}}},
 		plan:     []explorationgraph.ActionDraft{planAction("p1", "沿新结果探测")},
 	}
 	a.planner = planner

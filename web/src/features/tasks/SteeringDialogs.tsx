@@ -67,7 +67,7 @@ export function AdjustGoalDialog({ task, open, onOpenChange }: SteeringDialogPro
   )
 }
 
-/** 指派动作：用户直接要求执行的一步，优先级缺省 P1（高）。 */
+/** 指派动作：用户直接要求执行的一步。优先级只有用户指派的动作才有（缺省 P1），决定它与规划者排出的动作谁先占用空位。 */
 export function AssignActionDialog({ task, open, onOpenChange }: SteeringDialogProps) {
   const instructionId = useId()
   const priorityId = useId()
@@ -82,7 +82,7 @@ export function AssignActionDialog({ task, open, onOpenChange }: SteeringDialogP
       open={open}
       onOpenChange={onOpenChange}
       title="指派动作"
-      description="执行者有空位即按优先级执行这一步，只按指令执行、不扩大范围；监察者不会否决它。"
+      description="只按指令执行这一步、不扩大范围，监察者不会否决它；有空位才执行，P0 / P1 排在规划者排出的动作之前，P2 与之同序，P3 在其后。"
       submitLabel="指派"
       canSubmit={instruction.trim() !== ''}
       pending={mutation.isPending}

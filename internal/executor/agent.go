@@ -140,6 +140,8 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 // dispatch 按「优先级高 → 创建早」把 open 动作派到空位上，每个动作一个协程执行。
+// 优先级只有用户指派的动作带（缺省 high）：它排在规划者排出的动作前面；规划者排出的
+// 动作不带优先级，彼此按创建先后。
 // 认领在执行协程里以 CAS 完成，派发只占位防同一动作重复派发。
 func (a *Agent) dispatch(ctx context.Context) error {
 	select {
@@ -177,7 +179,7 @@ func (a *Agent) dispatch(ctx context.Context) error {
 	return nil
 }
 
-// priorityRank 把优先级映射为认领次序（越小越先）；缺省按「中」。
+// priorityRank 把优先级映射为认领次序（越小越先）；不带优先级的动作按「中」。
 func priorityRank(p explorationgraph.Priority) int {
 	switch p {
 	case explorationgraph.PriorityCritical:

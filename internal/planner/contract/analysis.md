@@ -8,7 +8,6 @@
   "new_objectives": [
     {
       "description": "新方向",
-      "priority": "critical|high|medium|low",
       "triggered_by": ["<本次分析的Result ID>"],
       "reasoning": "为什么需要这个方向"
     }

@@ -147,7 +147,9 @@ type Node struct {
 	VerificationStatus *VerificationStatus `json:"verification_status,omitempty"`
 
 	// 通用字段
-	Priority   Priority        `json:"priority"` // critical/high/medium/low
+	// Priority 是优先级，只有两处有含义：假设（坐实后即发现的严重度）与用户指派的动作
+	// （执行者派发的先后）。规划者排出的动作与方向不带——模型自评的优先级校准差。
+	Priority   Priority        `json:"priority"`
 	SourceType SourceType      `json:"source_type"`
 	Metadata   json.RawMessage `json:"metadata,omitempty"`
 
@@ -346,8 +348,8 @@ func (n *Node) refuteMark() refuteMark {
 	return m
 }
 
-// NormalizePriority 把 LLM 输出的优先级词归一到 Priority（未知值归 medium）。
-// 规划提案与结果分析共用本判定。
+// NormalizePriority 把模型或接口给出的优先级词归一到 Priority（未知值归 medium）。
+// 执行者写假设与用户指派动作共用本判定。
 func NormalizePriority(s string) Priority {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "critical":
