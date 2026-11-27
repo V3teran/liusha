@@ -210,11 +210,12 @@ describe('来路高亮', () => {
     const flow = buildFlowGraph(CHAIN, 'all', 'all', new Map())
     const view = applyFocus(flow, 'o2')
 
+    // 来路上的节点带 exp-path、选中的带 exp-selected，其余 exp-dimmed：三个层次各有着落
     expect(classes(view.nodes)).toEqual({
-      'n-obj': undefined,
-      a1: undefined,
-      l1: undefined,
-      a2: undefined,
+      'n-obj': 'exp-path',
+      a1: 'exp-path',
+      l1: 'exp-path',
+      a2: 'exp-path',
       o2: 'exp-selected',
       r: 'exp-dimmed',
       d1: 'exp-dimmed',
@@ -242,14 +243,14 @@ describe('来路高亮', () => {
 
   it('挂在方向下的动作：来路经过方向，再到催生它的结果', () => {
     const view = applyFocus(buildFlowGraph(CHAIN, 'all', 'all', new Map()), 'a3')
-    expect(classes(view.nodes)).toMatchObject({ a3: 'exp-selected', d1: undefined, r: undefined, 'n-obj': 'exp-dimmed', d2: 'exp-dimmed' })
+    expect(classes(view.nodes)).toMatchObject({ a3: 'exp-selected', d1: 'exp-path', r: 'exp-path', 'n-obj': 'exp-dimmed', d2: 'exp-dimmed' })
     expect(byId(view.edges, 'd1-a3-generates-7').hidden).toBe(false)
     expect(byId(view.edges, 'r-d1-triggers-5').style?.strokeWidth).toBe(2.4)
   })
 
   it('接管了旧方向的新方向：旧方向在它的来路上', () => {
     const view = applyFocus(buildFlowGraph(CHAIN, 'all', 'all', new Map()), 'd2')
-    expect(classes(view.nodes)).toMatchObject({ d2: 'exp-selected', d1: undefined, r: undefined, a3: 'exp-dimmed' })
+    expect(classes(view.nodes)).toMatchObject({ d2: 'exp-selected', d1: 'exp-path', r: 'exp-path', a3: 'exp-dimmed' })
     expect(byId(view.edges, 'd2-d1-supersedes-6').style?.strokeWidth).toBe(2.4)
   })
 
@@ -257,7 +258,7 @@ describe('来路高亮', () => {
     const view = applyFocus(buildFlowGraph(CHAIN, 'all', 'all', new Map()), 'a4')
     expect(classes(view.nodes)).toMatchObject({
       a4: 'exp-selected',
-      'n-obj': undefined,
+      'n-obj': 'exp-path',
       l2: 'exp-dimmed',
       a1: 'exp-dimmed',
       a3: 'exp-dimmed',
@@ -271,11 +272,11 @@ describe('来路高亮', () => {
   it('一直走到没有来路为止：指向根目标的边也算', () => {
     const view = applyFocus(buildFlowGraph(GRAPH, 'all', 'all', new Map()), 'n-act-b')
     expect(classes(view.nodes)).toEqual({
-      'n-obj': undefined,
-      'n-act-a': undefined,
+      'n-obj': 'exp-path',
+      'n-act-a': 'exp-path',
       'n-act-b': 'exp-selected',
-      'n-obs': undefined,
-      'n-res': undefined,
+      'n-obs': 'exp-path',
+      'n-res': 'exp-path',
     })
     expect(byId(view.edges, 'n-obj-n-act-a-generates-0').hidden).toBe(false)
   })

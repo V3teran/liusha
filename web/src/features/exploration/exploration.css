@@ -52,31 +52,56 @@
   border-radius: 10px;
 }
 
-/* 聚焦高亮（applyFocus 写入的包装类）。
-   非焦点节点「退到背景」而不是变透明：整卡透明会让文字一起跌破 4.5:1，而淡化的
-   节点仍是可读内容。去掉类型底色、阴影与彩色（图标/色点/优先级），边框换最浅一档，
-   文字统一用 tertiary——它对全部表面层都满足 AA；焦点节点保留色彩与主文字，层次靠
-   「有色 vs 去色」区分。 */
+/* 来路高亮（applyFocus 写入的包装类）：选中的节点、来路上其余的节点、与来路无关的节点。
+   无关的节点「退到背景」而不是整卡变透明：整卡透明会让里面的文字一起跌破 4.5:1。做法是
+   拿掉它的卡片——底色、边框、阴影、图标与色点都不见了，只留下仍可读的次级文字；来路上
+   的节点则把自己类别的颜色全拿出来：描边、更浓的底色、浮起。层次靠「有卡片 vs 没有
+   卡片」拉开，两边都不靠透明度。悬停无关的节点时卡片回来：看清要点的是什么再点。 */
 .react-flow__node.exp-dimmed .exp-card {
-  background: var(--surface) !important; /* 卡片底色是按类型算的内联样式，类选择器须 !important 才能覆盖 */
-  border-color: var(--border-subtle);
-  box-shadow: none;
-  filter: grayscale(1);
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out);
+  background: transparent !important; /* 卡片底色是按类型算的内联样式，类选择器须 !important 才能覆盖 */
+  border-color: transparent !important;
+  box-shadow: none !important;
 }
+
+.react-flow__node.exp-dimmed .exp-card:is(.exp-card-running) {
+  animation: none;
+}
+
 .react-flow__node.exp-dimmed .exp-card :is(p, span) {
   color: var(--text-tertiary);
 }
+
 .react-flow__node.exp-dimmed .exp-card :is(svg, .rounded-full),
 .react-flow__node.exp-dimmed .react-flow__handle {
-  opacity: 0.4;
+  opacity: 0;
+}
+
+.react-flow__node.exp-dimmed .exp-card:hover {
+  background: color-mix(in srgb, var(--exp-accent) 10%, var(--surface)) !important;
+  border-color: var(--border-strong) !important;
+}
+
+.react-flow__node.exp-dimmed .exp-card:hover :is(p, span) {
+  color: var(--text);
+}
+
+.react-flow__node.exp-dimmed .exp-card:hover :is(svg, .rounded-full) {
+  opacity: 1;
+}
+
+.react-flow__node.exp-path .exp-card {
+  background: color-mix(in srgb, var(--exp-accent) 24%, var(--surface)) !important;
+  border-color: color-mix(in srgb, var(--exp-accent) 85%, var(--border)) !important;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--exp-accent) 20%, transparent),
+    var(--shadow-md) !important;
 }
 
 .react-flow__node.exp-selected .exp-card {
-  border-color: var(--accent);
-  box-shadow: var(--glow-accent-strong);
+  border-color: var(--accent) !important;
+  box-shadow:
+    0 0 0 3px var(--accent-soft),
+    var(--glow-accent-strong) !important;
 }
 
 .react-flow__edge path {

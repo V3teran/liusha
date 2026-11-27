@@ -269,7 +269,7 @@ export function applyFocus(
   return {
     nodes: flow.nodes.map((n) => {
       if (n.id === selectedNodeId) return { ...n, className: 'exp-selected' }
-      return originNodes.has(n.id) ? { ...n, className: undefined } : { ...n, className: 'exp-dimmed' }
+      return originNodes.has(n.id) ? { ...n, className: 'exp-path' } : { ...n, className: 'exp-dimmed' }
     }),
     edges: flow.edges.map((e) => {
       const base = e.style ?? {}
