@@ -1,15 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Edge } from '@xyflow/react'
-import {
-  applyFocus,
-  buildFlowGraph,
-  EDGE_LOOKS,
-  EDGE_LOOK_LABELS,
-  EDGE_LOOK_ORDER,
-  hasRunningEdges,
-  owningDirection,
-  shownRelations,
-} from './layout'
+import { applyFocus, buildFlowGraph, EDGE_LOOKS, EDGE_LOOK_LABELS, EDGE_LOOK_ORDER, owningDirection } from './layout'
 import type { ExplorationGraph, GraphEdge, GraphNode } from '@/api/explorationgraph'
 
 function node(o: Partial<GraphNode> = {}): GraphNode {
@@ -91,7 +82,7 @@ describe('layout（LR 布局 + 边关系 + 来路高亮）', () => {
 
     expect(stats).toEqual({
       total: 5,
-      edgeCount: 3,
+      edgeCount: 4, // 三条关系边，加执行中的 n-act-a 从目标出发的那一段
       byKind: { objective: 1, action: 2, observation: 1, result: 1 },
       directionEdgeCount: 1,
     })
@@ -126,11 +117,8 @@ describe('layout（LR 布局 + 边关系 + 来路高亮）', () => {
 // 图例与线型同源：一种关系一种线，图例里列出的每一种都画得出来。
 describe('边的画法', () => {
   it('目标指向动作的 generates 平时不画：每个动作都挂在某个目标下，这条线不带信息', () => {
-    const { edges } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
-    // 仍在列表里（布局与来路高亮靠它），只是不画
-    const ownership = edges.filter((e) => e.source === 'n-obj' && e.id.includes('-generates-'))
-    expect(ownership).toHaveLength(2)
-    expect(ownership.every((e) => e.hidden)).toBe(true)
+    // n-act-b 待执行：它从目标出发的那一段不画；仍在列表里（布局与来路高亮靠它）
+    expect(byId(buildFlowGraph(GRAPH, 'all', 'all', new Map()).edges, 'n-obj-n-act-b-generates-1').hidden).toBe(true)
     expect(Object.keys(EDGE_LOOKS).sort()).toEqual([...EDGE_LOOK_ORDER].sort())
     expect(EDGE_LOOK_LABELS).toEqual({
       generates: '推导',
@@ -141,10 +129,17 @@ describe('边的画法', () => {
     })
   })
 
+  it('每种关系一个线型，不靠颜色也分得开', () => {
+    const dashes = EDGE_LOOK_ORDER.map((look) => EDGE_LOOKS[look].dash ?? '实线')
+    expect(new Set(dashes).size).toBe(dashes.length)
+  })
+
   it('跟进、覆盖各按自己的线型画；两者同色，靠线型分主次', () => {
     const { edges } = buildFlowGraph(CHAIN, 'all', 'all', new Map())
-    expect(byId(edges, 'a2-l1-pursues-3').style).toMatchObject({ stroke: EDGE_LOOKS.pursues.color })
-    expect(byId(edges, 'a2-l1-pursues-3').style?.strokeDasharray).toBeUndefined()
+    expect(byId(edges, 'a2-l1-pursues-3').style).toMatchObject({
+      stroke: EDGE_LOOKS.pursues.color,
+      strokeDasharray: '10 4 2 4',
+    })
     expect(byId(edges, 'a4-l2-covers-10').style).toMatchObject({
       stroke: EDGE_LOOKS.covers.color,
       strokeDasharray: EDGE_LOOKS.covers.dash,
@@ -244,8 +239,8 @@ describe('来路高亮', () => {
     // 平时不画的两段归属边在来路上显形
     expect(byId(view.edges, 'n-obj-a1-generates-0').hidden).toBe(false)
     expect(byId(view.edges, 'n-obj-a2-generates-1').hidden).toBe(false)
-    // 不在来路上的归属边照旧不画
-    expect(byId(view.edges, 'n-obj-a4-generates-8').hidden).toBe(true)
+    // 不在来路上的归属边照旧不画（a3 待执行；a4 在执行，它那一段本来就画着）
+    expect(byId(view.edges, 'd1-a3-generates-7').hidden).toBe(true)
     // 其余的线淡出（透明色后缀）
     expect(byId(view.edges, 'r-d1-triggers-5').style?.stroke).toMatch(/22$/)
   })
@@ -294,8 +289,8 @@ describe('来路高亮', () => {
     const flow = buildFlowGraph(CHAIN, 'all', 'all', new Map())
     const cleared = applyFocus(flow, '')
     expect(cleared.nodes.every((n) => !n.className)).toBe(true)
-    // 四段归属边（根目标下的三个动作、方向下的一个）照旧不画
-    expect(cleared.edges.filter((e) => e.hidden)).toHaveLength(4)
+    // 归属边里不在执行中的三段照旧不画（根目标下两个已完成的动作、方向下待执行的动作）
+    expect(cleared.edges.filter((e) => e.hidden)).toHaveLength(3)
     expect(cleared.edges.every((e) => e.style?.strokeWidth !== 2.4)).toBe(true)
   })
 })
@@ -309,26 +304,23 @@ describe('owningDirection', () => {
   })
 })
 
-// 图例只列这张图里有的：一种关系在图上一条边都没有，就不该在图例里占一项。
-describe('图例的内容', () => {
-  it('shownRelations：只返回画出来的关系，按图例顺序；平时不画的归属边不算', () => {
-    expect(shownRelations(buildFlowGraph(GRAPH, 'all', 'all', new Map()).edges)).toEqual(['generates', 'triggers'])
-    expect(shownRelations(buildFlowGraph(CHAIN, 'all', 'all', new Map()).edges)).toEqual([
-      'generates',
-      'triggers',
-      'supersedes',
-      'pursues',
-      'covers',
-    ])
-    expect(shownRelations([])).toEqual([])
+// 执行中不是一种关系，是一种活动状态：连到执行中动作的线流动。动作在跑的时候还没有产出，
+// 它唯一的连线是从目标出发的那一段，所以那一段此刻画出来。
+describe('执行中', () => {
+  it('动作执行中时，它从目标出发的那一段画出来并流动；待执行的不画', () => {
+    const { edges } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
+    expect(byId(edges, 'n-obj-n-act-a-generates-0')).toMatchObject({ hidden: false, animated: true })
+    expect(byId(edges, 'n-obj-n-act-b-generates-1')).toMatchObject({ hidden: true, animated: false })
   })
 
-  it('hasRunningEdges：有执行中的动作带出来的线才成立', () => {
-    expect(hasRunningEdges(buildFlowGraph(GRAPH, 'all', 'all', new Map()).edges)).toBe(true)
-    const still: ExplorationGraph = {
+  it('动作结束后它那一段收起，线不再流动', () => {
+    const done: ExplorationGraph = {
       ...GRAPH,
       nodes: GRAPH.nodes.map((n) => (n.id === 'n-act-a' ? { ...n, state: 'completed' } : n)),
     }
-    expect(hasRunningEdges(buildFlowGraph(still, 'all', 'all', new Map()).edges)).toBe(false)
+    const { edges, stats } = buildFlowGraph(done, 'all', 'all', new Map())
+    expect(byId(edges, 'n-obj-n-act-a-generates-0').hidden).toBe(true)
+    expect(edges.some((e) => e.animated)).toBe(false)
+    expect(stats.edgeCount).toBe(3)
   })
 })

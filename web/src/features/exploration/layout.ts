@@ -16,11 +16,18 @@
  *    以及目标 → 挂在它名下的动作。后者平时不画（hidden）：每个动作都有这条边，大图上
  *    只是从根目标铺开的一片扇形；它留在边的列表里——布局靠它把目标排在动作左侧，来路
  *    高亮靠它把动作接回目标，并且只在来路上才画出来
- *  - 滋生：结果 → 目标 / 动作（triggers），琥珀虚线——坐实的结果催生了新方向或新动作
+ *  - 滋生：结果 → 目标 / 动作（triggers），琥珀短虚线——坐实的结果催生了新方向或新动作
  *  - 吸收：旧派生目标 → 接管它的新派生目标（supersedes），紫色长虚线
- *  - 跟进：线索 → 跟进它的动作（pursues），青色实线——动作为追这条线索而排出
- *  - 覆盖：线索 → 覆盖它的在办动作（covers），青色细点线——线索晚出现，在办动作本来
+ *  - 跟进：线索 → 跟进它的动作（pursues），青色点划线——动作为追这条线索而排出
+ *  - 覆盖：线索 → 覆盖它的在办动作（covers），青色点线——线索晚出现，在办动作本来
  *    就在它上，只记账
+ *
+ * 每种关系一个线型，不靠颜色也分得开（实线 / 短虚线 / 长虚线 / 点划线 / 点线）。颜色按
+ * 语义分族：推导是中性的骨架，滋生是结果催生的，吸收是目标之间的，跟进与覆盖都是线索
+ * 与动作之间的。
+ *
+ * 执行中不是一个关系，是一种活动状态：连到执行中动作的线流动。动作在跑的时候还没有
+ * 产出（观察是结束时才写的），它唯一的连线是从目标出发的那一段——所以那一段此刻画出来。
  */
 
 import dagre from '@dagrejs/dagre'
@@ -38,14 +45,14 @@ export type ExplorationNodeData = {
 export type ExplorationFlowNode = Node<ExplorationNodeData, 'exploration'>
 
 /** 边上记的关系（库里那条边的 rel）；没有的按空串。 */
-export function edgeRel(e: Edge): string {
+function edgeRel(e: Edge): string {
   const rel = (e.data as { rel?: unknown } | undefined)?.rel
   return typeof rel === 'string' ? rel : ''
 }
 
 export interface GraphStats {
   total: number
-  /** 画出来的连线数：目标 → 动作的归属边平时不画，不计 */
+  /** 画出来的连线数：目标 → 动作的归属边只在动作执行中时画，平时不计 */
   edgeCount: number
   byKind: Record<string, number>
   /** 滋生与吸收两种边的条数（全量）：没有就不给「只看方向关系」的入口 */
@@ -85,14 +92,14 @@ export interface EdgeLookStyle {
 //  - 推导用 slate-500：slate-400 在浅色主题仅 2.4:1 会没入背景
 //  - 滋生用 amber-600：它是全图里少见的彩色关系边，amber-500 浅色下仅 2:1
 //  - 吸收回目标家族色（violet-500，与目标节点的 accent 同谱）：只出现在
-//    目标 ↔ 目标之间，长虚线与滋生的短虚线区分
-//  - 跟进与覆盖共用 teal-600（浅 3.6、深 5.2）：两者都是线索与动作之间的关系，实线与
-//    细点线分主次
+//    目标 ↔ 目标之间
+//  - 跟进与覆盖共用 teal-600（浅 3.6、深 5.2）：两者都是线索与动作之间的关系，点划线
+//    加粗与细点线分主次
 export const EDGE_LOOKS: Record<EdgeLook, EdgeLookStyle> = {
   generates: { color: '#64748b', width: 1.6, marker: 14 },
   triggers: { color: '#d97706', width: 1.6, dash: '6 4', marker: 14 },
-  supersedes: { color: '#8b5cf6', width: 1.4, dash: '10 6', marker: 14 },
-  pursues: { color: '#0d9488', width: 1.8, marker: 14 },
+  supersedes: { color: '#8b5cf6', width: 1.4, dash: '12 6', marker: 14 },
+  pursues: { color: '#0d9488', width: 1.8, dash: '10 4 2 4', marker: 14 },
   covers: { color: '#0d9488', width: 1.2, dash: '2 4', marker: 11 },
 }
 
@@ -105,19 +112,6 @@ export const EDGE_LOOK_LABELS: Record<EdgeLook, string> = {
   supersedes: '吸收',
   pursues: '跟进',
   covers: '覆盖',
-}
-
-/**
- * 画布上实际画着的关系，按图例顺序。图例只列这张图里有的：一种关系在图上一条边都没有，
- * 它的线型样例就无从对照，列出来只会让人去找一条不存在的线。
- */
-export function shownRelations(edges: Edge[]): EdgeLook[] {
-  return EDGE_LOOK_ORDER.filter((look) => edges.some((e) => !e.hidden && edgeRel(e) === look))
-}
-
-/** 画布上有没有流动着的线（执行中的动作带出来的）。 */
-export function hasRunningEdges(edges: Edge[]): boolean {
-  return edges.some((e) => !e.hidden && e.animated === true)
 }
 
 /** 滋生与吸收：结果催生方向、方向之间吸收——同是结果分析在图上留下的关系。 */
@@ -133,6 +127,11 @@ export function edgeLook(e: GraphEdge): EdgeLook {
 /** 归属边：目标 → 挂在它名下的动作。平时不画；布局与来路高亮认它。 */
 function isOwnership(e: GraphEdge, kindById: Map<string, string>): boolean {
   return e.rel === 'generates' && kindById.get(e.src_id) === 'objective'
+}
+
+/** 这条边连着的动作里有没有正在执行的：连到执行中动作的线流动。 */
+function isRunning(e: GraphEdge, stateById: Map<string, string>): boolean {
+  return stateById.get(e.src_id) === 'running' || stateById.get(e.dst_id) === 'running'
 }
 
 /**
@@ -164,11 +163,12 @@ export function buildFlowGraph(
 ): { nodes: ExplorationFlowNode[]; edges: Edge[]; stats: GraphStats } {
   // 统计始终基于全量数据（筛选只影响画布可见性）
   const kindById = new Map(graph.nodes.map((n) => [n.id, n.kind]))
+  const stateById = new Map(graph.nodes.map((n) => [n.id, n.state ?? '']))
   const byKind: Record<string, number> = {}
   for (const n of graph.nodes) byKind[n.kind] = (byKind[n.kind] ?? 0) + 1
   const stats: GraphStats = {
     total: graph.nodes.length,
-    edgeCount: graph.edges.filter((e) => !isOwnership(e, kindById)).length,
+    edgeCount: graph.edges.filter((e) => !isOwnership(e, kindById) || isRunning(e, stateById)).length,
     byKind,
     directionEdgeCount: graph.edges.filter(isDirectionEdge).length,
   }
@@ -199,26 +199,27 @@ export function buildFlowGraph(
       data: { node: n, verification: verificationsByNode.get(n.id) },
     }))
 
-  const stateById = new Map(graph.nodes.map((n) => [n.id, n.state ?? '']))
-
   // BuiltInEdge：smoothstep 的 pathOptions 只在联合类型的对应分支上（基础 Edge 无此字段）
   const edges: BuiltInEdge[] = shownEdges
     .filter((e) => visible.has(e.src_id) && visible.has(e.dst_id))
     .map((e, idx) => {
       const look = EDGE_LOOKS[edgeLook(e)]
       const [from, to] = UPSTREAM[edgeLook(e)] === 'dst' ? [e.dst_id, e.src_id] : [e.src_id, e.dst_id]
+      const ownership = isOwnership(e, kindById)
+      const running = isRunning(e, stateById)
       return {
         id: `${e.src_id}-${e.dst_id}-${e.rel}-${idx}`,
         source: from,
         target: to,
         type: 'smoothstep',
         pathOptions: { borderRadius: 14 },
-        // 执行中的动作带流动：图是运行时探索图，活跃工作可感知
-        animated: stateById.get(e.src_id) === 'running',
+        // 连到执行中动作的线流动：图是运行时探索图，活跃工作可感知
+        animated: running,
         style: { stroke: look.color, strokeWidth: look.width, ...(look.dash ? { strokeDasharray: look.dash } : {}) },
         markerEnd: { type: MarkerType.ArrowClosed, width: look.marker, height: look.marker, color: look.color },
         data: { rel: e.rel },
-        hidden: isOwnership(e, kindById),
+        // 归属边平时不画；动作执行中时画出来——它此时还没有产出，这是它唯一的连线
+        hidden: ownership && !running,
       }
     })
 
