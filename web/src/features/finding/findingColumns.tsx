@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/Badge'
 import { severityColorOf, severityLabel } from '@/lib/severity'
 import { cn } from '@/lib/utils'
 import { sourceColor, sourceLabel } from '@/lib/source'
+import { findingLocation } from './findingLocation'
 import { findingStatusMeta } from './findingStatus'
 
 const columnHelper = createColumnHelper<FindingRow>()
@@ -62,14 +63,13 @@ export const findingColumns = [
     header: '地址',
     size: 240,
     cell: (ctx) => {
-      const f = ctx.row.original
+      const location = findingLocation(ctx.row.original)
       return (
         <span
-          className="block truncate font-mono text-xs text-text-secondary"
-          title={`${f.target?.method || ''} ${f.host}${f.target?.path || ''}`}
+          className={cn('block truncate font-mono text-xs', location ? 'text-text-secondary' : 'text-text-tertiary')}
+          title={location}
         >
-          {f.target?.method} {f.host}
-          {f.target?.path}
+          {location || '—'}
         </span>
       )
     },

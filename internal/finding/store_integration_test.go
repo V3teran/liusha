@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -39,12 +40,12 @@ func TestFinding_SaveIdempotentPerResult(t *testing.T) {
 		`INSERT INTO task (id, assignment_id, goal, target_host) VALUES ($1, $1, 'itest', 'target.local')`, taskID)
 	require.NoError(t, err)
 
-	// Save：必填校验（坐实结果节点是交付幂等键）
+	// Save：必填校验（坐实结果节点是交付幂等键、摘要是发现的正文）
 	_, err = store.Save(ctx, finding.Finding{TaskID: taskID, Host: "target.local", Summary: "s"})
 	require.ErrorContains(t, err, "ResultNodeID 必填")
 	result := seedResult(t, pool, taskID)
-	_, err = store.Save(ctx, finding.Finding{TaskID: taskID, ResultNodeID: result, Summary: "s"})
-	require.ErrorContains(t, err, "Host 必填")
+	_, err = store.Save(ctx, finding.Finding{TaskID: taskID, ResultNodeID: result, Host: "target.local"})
+	require.ErrorContains(t, err, "Summary 必填")
 
 	// Save：正常写入，默认 severity=medium，分配 ID/Seq/Status
 	saved, err := store.Save(ctx, finding.Finding{
@@ -388,4 +389,44 @@ func TestFinding_CheckConstraintsMatchVocabulary(t *testing.T) {
 	severities := slices.Clone(finding.Severities)
 	slices.Sort(severities)
 	assert.Equal(t, severities, listed("finding_severity_check"))
+}
+
+// 坐实了的主张必须存得下：主机定位不到时如实留空，陈述不限长度与换行、一字不差地读回。
+// 此前「不超过 500 字」「主机必填」让这样的坐实结果永远交付不进台账。
+func TestFinding_HostOptionalAndSummaryVerbatim(t *testing.T) {
+	ctx := context.Background()
+	pool := dbtest.NewPgPool(t)
+	store := finding.NewStore(pool)
+	const taskID = "22222222-2222-3333-4444-555555555555"
+	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM finding WHERE task_id=$1`, taskID)
+		_, _ = pool.Exec(ctx, `DELETE FROM task WHERE id=$1`, taskID)
+		_, _ = pool.Exec(ctx, `DELETE FROM assignment WHERE id=$1`, taskID)
+	})
+	_, err := pool.Exec(ctx, `INSERT INTO assignment (id, source, title) VALUES ($1, 'direct', 'itest')`, taskID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO task (id, assignment_id, goal, target_host) VALUES ($1, $1, 'itest', '')`, taskID)
+	require.NoError(t, err)
+	result := seedResult(t, pool, taskID)
+
+	summary := strings.Repeat("参数 id 未经过滤直接拼进 SQL；", 40) + "\n复现步骤：\n1. 提交 id=1 UNION SELECT …\n2. 返回了 users 表的全部行"
+	saved, err := store.Save(ctx, finding.Finding{
+		TaskID: taskID, ResultNodeID: result, Host: "", Summary: summary, Class: "sql_injection",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, saved.Host, "定位不到主机时如实留空")
+	assert.Equal(t, summary, saved.Summary, "陈述一字不差")
+
+	// 台账查询读回同一份；按关键词照样搜得到。
+	rows, err := store.ListAll(ctx, finding.LedgerFilter{TaskID: taskID, Search: "复现步骤"})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, summary, rows[0].Summary)
+
+	// 摘要列上不再有能拒绝合法主张的约束。
+	var lingering int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM pg_constraint
+		WHERE conrelid = 'finding'::regclass AND conname IN ('finding_summary_max_500', 'finding_summary_one_line')`).Scan(&lingering))
+	assert.Zero(t, lingering)
 }

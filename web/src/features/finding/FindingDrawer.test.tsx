@@ -47,6 +47,12 @@ describe('FindingDrawer', () => {
     expect(screen.getByText(/GET evil\.example\.com\/a/)).toBeTruthy()
   })
 
+  it('定位不到地址的发现，地址一栏显示占位而不是空白', () => {
+    const finding = makeFinding({ host: '' })
+    render(<FindingDrawer open finding={finding} onOpenChange={vi.fn()} onSave={vi.fn()} />)
+    expect(screen.getByText('—')).toBeTruthy()
+  })
+
   it('跳转区排在基本信息之前：回到产出上下文是最先用到的出口', () => {
     const finding = makeFinding({ task_id: 't-1', conversation_id: 'c-1' })
     render(

@@ -12,6 +12,7 @@ import { CopyButton } from '@/components/CopyButton'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { cn } from '@/lib/utils'
 import { buildEvidenceView } from './findingEvidence'
+import { findingLocation } from './findingLocation'
 import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { sourceColor, sourceLabel } from '@/lib/source'
@@ -52,6 +53,7 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
 
   const ev = buildEvidenceView(finding.evaluation, finding.repro)
   const sevColor = severityColorOf(finding.severity)
+  const location = findingLocation(finding)
   const changed = status !== finding.status || severity !== finding.severity || note !== (finding.triage_note || '')
 
   const handleSave = () => {
@@ -120,9 +122,13 @@ export function FindingDrawer({ open, finding, onOpenChange, onSave }: FindingDr
                 <div className="space-y-2 rounded-lg border border-border bg-surface-2 p-4 text-sm">
                   <div className="flex items-start gap-3">
                     <span className="w-24 flex-shrink-0 text-text-secondary">地址</span>
-                    <span className="min-w-0 flex-1 font-mono text-xs text-text">
-                      {finding.target?.method} {finding.host}
-                      {finding.target?.path}
+                    <span
+                      className={cn(
+                        'min-w-0 flex-1 break-all font-mono text-xs',
+                        location ? 'text-text' : 'text-text-tertiary',
+                      )}
+                    >
+                      {location || '—'}
                     </span>
                   </div>
                   <div className="flex items-start gap-3">
