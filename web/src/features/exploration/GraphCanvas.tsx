@@ -20,8 +20,15 @@ import {
 import '@xyflow/react/dist/style.css'
 import './exploration.css'
 import { ExplorationNodeCard } from './nodes/ExplorationNodeCard'
-import { kindProfile } from './kindTheme'
-import { EDGE_LOOKS, EDGE_LOOK_LABELS, EDGE_LOOK_ORDER, NODE_HEIGHT, type ExplorationFlowNode } from './layout'
+import { kindProfile, nodeChips } from './kindTheme'
+import {
+  EDGE_LOOKS,
+  EDGE_LOOK_LABELS,
+  NODE_HEIGHT,
+  hasRunningEdges,
+  shownRelations,
+  type ExplorationFlowNode,
+} from './layout'
 import { CHAIN_MARGIN, anyOutside, detailReserve, frameNodes } from './viewport'
 
 const nodeTypes = { exploration: ExplorationNodeCard }
@@ -78,6 +85,14 @@ function GraphCanvasInner({
   sizeRef.current = { w: viewportWidth, h: viewportHeight }
   const prevCount = useRef(-1)
   const prevReset = useRef(resetKey)
+  // 图例只列这张图里有的：画出来的关系、有没有流动着的线、有没有待跟进的线索
+  const relations = shownRelations(edges)
+  const running = hasRunningEdges(edges)
+  const openLead = nodes.some((n) => {
+    const lead = nodeChips(n.data.node).lead
+    return Boolean(lead) && !lead?.closed
+  })
+  const legendEmpty = relations.length === 0 && !running && !openLead
   // 最新节点经 ref 读取：fitView 回调触发时取当下状态（含 running 前沿）
   const nodesRef = useRef(nodes)
   nodesRef.current = nodes
@@ -183,44 +198,60 @@ function GraphCanvasInner({
         pannable
         zoomable
       />
-      {/* 图例放左上：Controls 默认在左下，避免遮挡。样本取自画法本身（EDGE_LOOKS）；
-          关系线型与活动状态是两类语义，分组线隔开。窄屏放不下一行时折行，宽度不超过画布 */}
-      <Panel position="top-left">
-        <div className="flex max-w-[calc(100vw-3rem)] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-surface/90 px-3 py-1.5 text-2xs text-text-secondary backdrop-blur-sm">
-          {EDGE_LOOK_ORDER.map((look) => (
-            <span key={look} className="flex items-center gap-1.5">
-              <svg width="28" height="4" aria-hidden>
-                <line
-                  x1="0"
-                  y1="2"
-                  x2="28"
-                  y2="2"
-                  stroke={EDGE_LOOKS[look].color}
-                  strokeWidth={EDGE_LOOKS[look].width}
-                  strokeDasharray={EDGE_LOOKS[look].dash}
-                />
-              </svg>
-              {EDGE_LOOK_LABELS[look]}
-            </span>
-          ))}
-          <span className="mx-0.5 h-3 w-px bg-border" aria-hidden />
-          <span className="flex items-center gap-1.5">
-            <svg width="28" height="4" aria-hidden>
-              <line
-                className="exp-legend-flow"
-                x1="0"
-                y1="2"
-                x2="28"
-                y2="2"
-                stroke={EDGE_LOOKS.generates.color}
-                strokeWidth={EDGE_LOOKS.generates.width}
-                strokeDasharray="4 3"
-              />
-            </svg>
-            执行中
-          </span>
-        </div>
-      </Panel>
+      {/* 图例放左上：Controls 默认在左下，避免遮挡。只列这张图里有的——样本取自画法本身
+          （EDGE_LOOKS），一种关系在图上一条边都没有就不列：列出来只会让人去找一条不存在的线。
+          关系线型、活动状态、线索标记是三类语义，分组线隔开。窄屏放不下一行时折行，宽度不超过画布 */}
+      {!legendEmpty && (
+        <Panel position="top-left">
+          <div className="flex max-w-[calc(100vw-3rem)] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-surface/90 px-3 py-1.5 text-2xs text-text-secondary backdrop-blur-sm">
+            {relations.map((look) => (
+              <span key={look} className="flex items-center gap-1.5">
+                <svg width="28" height="4" aria-hidden>
+                  <line
+                    x1="0"
+                    y1="2"
+                    x2="28"
+                    y2="2"
+                    stroke={EDGE_LOOKS[look].color}
+                    strokeWidth={EDGE_LOOKS[look].width}
+                    strokeDasharray={EDGE_LOOKS[look].dash}
+                  />
+                </svg>
+                {EDGE_LOOK_LABELS[look]}
+              </span>
+            ))}
+            {running && (
+              <>
+                {relations.length > 0 && <span className="mx-0.5 h-3 w-px bg-border" aria-hidden />}
+                <span className="flex items-center gap-1.5">
+                  <svg width="28" height="4" aria-hidden>
+                    <line
+                      className="exp-legend-flow"
+                      x1="0"
+                      y1="2"
+                      x2="28"
+                      y2="2"
+                      stroke={EDGE_LOOKS.generates.color}
+                      strokeWidth={EDGE_LOOKS.generates.width}
+                      strokeDasharray="4 3"
+                    />
+                  </svg>
+                  执行中
+                </span>
+              </>
+            )}
+            {openLead && (
+              <>
+                {(relations.length > 0 || running) && <span className="mx-0.5 h-3 w-px bg-border" aria-hidden />}
+                <span className="flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: EDGE_LOOKS.pursues.color }} />
+                  线索
+                </span>
+              </>
+            )}
+          </div>
+        </Panel>
+      )}
     </ReactFlow>
   )
 }

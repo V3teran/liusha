@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Edge } from '@xyflow/react'
-import { applyFocus, buildFlowGraph, EDGE_LOOKS, EDGE_LOOK_LABELS, EDGE_LOOK_ORDER, owningDirection } from './layout'
+import {
+  applyFocus,
+  buildFlowGraph,
+  EDGE_LOOKS,
+  EDGE_LOOK_LABELS,
+  EDGE_LOOK_ORDER,
+  hasRunningEdges,
+  owningDirection,
+  shownRelations,
+} from './layout'
 import type { ExplorationGraph, GraphEdge, GraphNode } from '@/api/explorationgraph'
 
 function node(o: Partial<GraphNode> = {}): GraphNode {
@@ -297,5 +306,29 @@ describe('owningDirection', () => {
     expect(owningDirection(CHAIN, 'a1')).toBeUndefined()
     expect(owningDirection(CHAIN, 'l1')).toBeUndefined()
     expect(owningDirection(CHAIN, 'nope')).toBeUndefined()
+  })
+})
+
+// 图例只列这张图里有的：一种关系在图上一条边都没有，就不该在图例里占一项。
+describe('图例的内容', () => {
+  it('shownRelations：只返回画出来的关系，按图例顺序；平时不画的归属边不算', () => {
+    expect(shownRelations(buildFlowGraph(GRAPH, 'all', 'all', new Map()).edges)).toEqual(['generates', 'triggers'])
+    expect(shownRelations(buildFlowGraph(CHAIN, 'all', 'all', new Map()).edges)).toEqual([
+      'generates',
+      'triggers',
+      'supersedes',
+      'pursues',
+      'covers',
+    ])
+    expect(shownRelations([])).toEqual([])
+  })
+
+  it('hasRunningEdges：有执行中的动作带出来的线才成立', () => {
+    expect(hasRunningEdges(buildFlowGraph(GRAPH, 'all', 'all', new Map()).edges)).toBe(true)
+    const still: ExplorationGraph = {
+      ...GRAPH,
+      nodes: GRAPH.nodes.map((n) => (n.id === 'n-act-a' ? { ...n, state: 'completed' } : n)),
+    }
+    expect(hasRunningEdges(buildFlowGraph(still, 'all', 'all', new Map()).edges)).toBe(false)
   })
 })

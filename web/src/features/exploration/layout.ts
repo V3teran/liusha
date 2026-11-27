@@ -38,7 +38,7 @@ export type ExplorationNodeData = {
 export type ExplorationFlowNode = Node<ExplorationNodeData, 'exploration'>
 
 /** 边上记的关系（库里那条边的 rel）；没有的按空串。 */
-function edgeRel(e: Edge): string {
+export function edgeRel(e: Edge): string {
   const rel = (e.data as { rel?: unknown } | undefined)?.rel
   return typeof rel === 'string' ? rel : ''
 }
@@ -105,6 +105,19 @@ export const EDGE_LOOK_LABELS: Record<EdgeLook, string> = {
   supersedes: '吸收',
   pursues: '跟进',
   covers: '覆盖',
+}
+
+/**
+ * 画布上实际画着的关系，按图例顺序。图例只列这张图里有的：一种关系在图上一条边都没有，
+ * 它的线型样例就无从对照，列出来只会让人去找一条不存在的线。
+ */
+export function shownRelations(edges: Edge[]): EdgeLook[] {
+  return EDGE_LOOK_ORDER.filter((look) => edges.some((e) => !e.hidden && edgeRel(e) === look))
+}
+
+/** 画布上有没有流动着的线（执行中的动作带出来的）。 */
+export function hasRunningEdges(edges: Edge[]): boolean {
+  return edges.some((e) => !e.hidden && e.animated === true)
 }
 
 /** 滋生与吸收：结果催生方向、方向之间吸收——同是结果分析在图上留下的关系。 */
