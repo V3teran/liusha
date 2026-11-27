@@ -684,56 +684,46 @@ func (planCtx *PlanningContext) indexFollowing(ctx context.Context, graph *explo
 }
 
 // buildPlanningPrompt 构建规划 prompt
+// buildPlanningPrompt 拼装本轮规划的输入。每一段标明可不可以折叠：历史与背景（做过的
+// 动作、事实、已关闭的线索、已坐实的结果……）在摘要超出预算时留最新的、折叠更早的；这一轮
+// 要处理的事——待深挖的线索、在办与待验证的工作——以及目标、统计，不参与折叠（见
+// fitPrompt）。
 func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
-	var sb strings.Builder
-
-	// 1. 多智能体分工名册（各角色调度摘要，agent.description 前端可编辑）
-	sb.WriteString(buildTeamRosterSection(e.roster))
-
-	// 3. 任务目标与进行中的方向
-	sb.WriteString(buildObjectiveSection(ctx.Objective, ctx.Directions))
-
-	// 3.2 重规划理由（常规规划不渲染）
-	sb.WriteString(buildReplanSection(ctx.ReplanReasons))
-
-	// 4. 统计信息
-	sb.WriteString(buildStatisticsSection(ctx))
-
-	// 5. 已完成的工作
-	sb.WriteString(buildCompletedActionsSection(ctx.CompletedActions))
-
-	// 6. 进行中的工作
-	sb.WriteString(buildPendingActionsSection(ctx))
-
-	// 7. 失败的尝试
-	sb.WriteString(buildFailedActionsSection(ctx.FailedActions))
-
-	// 7.5 已否决的动作与已中止的动作
-	sb.WriteString(buildRejectedActionsSection(ctx.RejectedActions))
-	sb.WriteString(buildAbortedActionsSection(ctx.AbortedActions))
-
-	// 8. 已坐实的结果
-	sb.WriteString(buildResultsSection(ctx.Results))
-
-	// 8.5 线索：待深挖的排在事实之前——它是要处理的事，不是背景；已关闭的紧随其后，
-	// 带着原因，规划者据此不再推进它们
-	sb.WriteString(buildOpenLeadsSection(ctx))
-	sb.WriteString(buildClosedLeadsSection(ctx.ClosedLeads))
-
-	// 8.8 已确认的事实（规划基底）
-	sb.WriteString(buildFactsSection(ctx.Facts))
-
-	// 9. 待验证与已被证伪的假设
-	sb.WriteString(buildPendingHypothesesSection(ctx.PendingHypotheses))
-	sb.WriteString(buildRefutedHypothesesSection(ctx.RefutedHypotheses))
-
-	// 10. 本次运行已检索过的知识库查询
-	sb.WriteString(buildKnowledgeQueriesSection(ctx.KnowledgeQueries))
-
-	// 11. 输出提醒（格式以 system prompt 的输出契约为唯一来源）
-	sb.WriteString("按系统提示中的「输出契约」只输出一个 JSON 对象。\n")
-
-	return sb.String()
+	sections := []promptSection{
+		// 1. 多智能体分工名册（各角色调度摘要，agent.description 前端可编辑）
+		{text: buildTeamRosterSection(e.roster)},
+		// 2. 任务目标与进行中的方向
+		{text: buildObjectiveSection(ctx.Objective, ctx.Directions)},
+		// 2.1 重规划理由（常规规划不渲染）
+		{text: buildReplanSection(ctx.ReplanReasons)},
+		// 3. 统计信息
+		{text: buildStatisticsSection(ctx)},
+		// 4. 已完成的工作
+		{name: "已完成动作", text: buildCompletedActionsSection(ctx.CompletedActions)},
+		// 5. 进行中的工作（规划的直接输入）
+		{text: buildPendingActionsSection(ctx)},
+		// 6. 失败的尝试
+		{name: "失败动作", text: buildFailedActionsSection(ctx.FailedActions)},
+		// 6.1 已否决的动作与已中止的动作
+		{name: "已否决动作", text: buildRejectedActionsSection(ctx.RejectedActions)},
+		{name: "已中止动作", text: buildAbortedActionsSection(ctx.AbortedActions)},
+		// 7. 已坐实的结果
+		{name: "已坐实的结果", text: buildResultsSection(ctx.Results)},
+		// 8. 线索：待深挖的排在事实之前——它是要处理的事，不是背景，每一条都必须看得见；
+		//    已关闭的紧随其后，带着原因，规划者据此不再推进它们
+		{text: buildOpenLeadsSection(ctx)},
+		{name: "已关闭的线索", text: buildClosedLeadsSection(ctx.ClosedLeads)},
+		// 9. 已确认的事实（规划基底；桶内近者在前）
+		{name: "事实", newestFirst: true, text: buildFactsSection(ctx.Facts)},
+		// 10. 待验证与已被证伪的假设
+		{text: buildPendingHypothesesSection(ctx.PendingHypotheses)},
+		{name: "已证伪的假设", text: buildRefutedHypothesesSection(ctx.RefutedHypotheses)},
+		// 11. 本次运行已检索过的知识库查询
+		{name: "知识库查询", text: buildKnowledgeQueriesSection(ctx.KnowledgeQueries)},
+		// 12. 输出提醒（格式以 system prompt 的输出契约为唯一来源）
+		{text: "按系统提示中的「输出契约」只输出一个 JSON 对象。\n"},
+	}
+	return fitPrompt(sections, planningPromptBudget)
 }
 
 // buildPlannerSystemPrompt 组装规划 system prompt：章程（可自定义）+ 输出契约

@@ -51,6 +51,11 @@ type Agent struct {
 	roundAborted bool
 
 	stopCh chan struct{}
+
+	// 规划失败后的冷却：planFailures 是连续失败的次数（成功即清零），planRetryAt 是下一次
+	// 可以再规划的最早时刻（见 planFailure）。只在 Run 的事件循环内读写。
+	planFailures int
+	planRetryAt  time.Time
 }
 
 // AgentConfig 配置

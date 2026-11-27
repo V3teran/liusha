@@ -30,6 +30,16 @@ const pollBatchSize = 32
 // （复现配方反复执行失败意味着配方损坏，重试无意义——烧 LLM 不解决问题）。
 const maxVerifyAttempts = 3
 
+// maxVerifyTimeouts 是同一条假设连续超时的豁免次数：头几次超时不计入失败次数（可能是模型
+// 一时慢），超过之后的每一次都计入。超时的那次验证整轮作废——实测一个任务里 39 次超时，
+// 评估者约三分之二的调用花在这些被丢弃的重试上；一条假设反复跑到超时，多半是它要的取证
+// 本来就超出一次验证的时限，无限重试只是每十分钟白烧一轮。
+const maxVerifyTimeouts = 2
+
+// verifyTimeout 是一次验证（复现 + 判定）的时间上限。成功验证的耗时中位约 78 秒、p90 约
+// 360 秒；超过它的那次作废，假设保持待验证、下轮重试。
+const verifyTimeout = 10 * time.Minute
+
 // Agent 是持续运行的验证 Agent
 //
 // 职责：
@@ -59,17 +69,20 @@ type Agent struct {
 	// fatal 承接异步判定中的致命错误（模型配置错误），由 Run 返回终结任务（容量 1：只需首个）。
 	fatal chan error
 
-	// verifying 是在途假设集合（观察节点 ID → 锁定时间），事件与轮询并发触发时先到先得。
-	// 记录锁定时间，支持超时检测
+	// verifying 是在途假设集合（观察节点 ID → 这次验证开始执行的时刻），事件与轮询并发触发时
+	// 先到先得。还在排队等并发名额时值为零值：排队多久都不算过期。
 	verifyingMu sync.Mutex
 	verifying   map[string]time.Time
 
-	// lockTimeout 是验证锁的超时时间（默认10分钟）
-	// 超过此时间的锁将被强制释放，防止goroutine卡死导致永久锁定
+	// lockTimeout 是验证锁的过期时间，必须长于它守护的那次验证（verifyTimeout）：锁先到期，
+	// 轮询会把还在验证的假设当成无人处理、再派一个工人从头验一遍（实测 39 次强制释放、24 次
+	// 重复验证）。它只为卡死的验证兜底——验证 goroutine 正常会在结束时释放锁。
 	lockTimeout time.Duration
 
-	// verifyAttempts 记录各假设的验证失败次数（达上限后标记验证失败出圈）。
+	// verifyAttempts 记录各假设的验证失败次数（达上限后标记验证失败出圈）；verifyTimeouts
+	// 记录连续超时的次数（见 maxVerifyTimeouts）。
 	verifyAttemptsMu sync.Mutex
+	verifyTimeouts   map[string]int
 	verifyAttempts   map[string]int
 
 	// verdicts 是验证键（假设+配方联合哈希）→ 既有判定的进程内去重表。
@@ -134,10 +147,11 @@ func NewAgent(cfg AgentConfig) *Agent {
 		maxConcurrent: cfg.MaxConcurrent,
 		pollInterval:  cfg.PollInterval,
 
-		verifying:      map[string]time.Time{}, // 改为记录时间
+		verifying:      map[string]time.Time{},
 		verifyAttempts: map[string]int{},
+		verifyTimeouts: map[string]int{},
 		verdicts:       map[string]priorVerdict{},
-		lockTimeout:    10 * time.Minute, // 验证锁超时时间
+		lockTimeout:    2 * verifyTimeout,
 	}
 }
 
@@ -194,36 +208,53 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
-// isVerifying 报告假设是否正在验证（锁存在且未超时）。只读快照：真正的占用仍以
+// isVerifying 报告假设是否正在验证（锁存在且未过期）。只读快照：真正的占用仍以
 // tryAcquire 的原子判断为准，这里只用来让轮询跳过在途假设、省掉无谓的解析。
 func (a *Agent) isVerifying(observationID string) bool {
 	a.verifyingMu.Lock()
 	defer a.verifyingMu.Unlock()
-	lockTime, exists := a.verifying[observationID]
-	return exists && time.Since(lockTime) < a.lockTimeout
+	_, exists := a.verifying[observationID]
+	return exists && !a.lockExpired(observationID)
+}
+
+// lockExpired 报告一次验证是否卡死：开始执行已经超过 lockTimeout。调用方持有 verifyingMu。
+// 排队中的验证（时刻为零值）不过期。
+func (a *Agent) lockExpired(observationID string) bool {
+	started := a.verifying[observationID]
+	return !started.IsZero() && time.Since(started) >= a.lockTimeout
 }
 
 // tryAcquire 尝试把假设标记为"验证中"。返回 false 表示已在途，跳过。
-// 锁超时（验证 goroutine 疑似卡死）则强制释放并重新获取。
+// 锁过期（验证 goroutine 疑似卡死）则强制释放并重新获取。此刻只是排上队：验证什么时候
+// 真正开始由 markRunning 记下。
 func (a *Agent) tryAcquire(observationID string) bool {
 	a.verifyingMu.Lock()
 	defer a.verifyingMu.Unlock()
 
-	if lockTime, exists := a.verifying[observationID]; exists {
-		if time.Since(lockTime) < a.lockTimeout {
-			return false // 锁还在有效期内，拒绝重复获取
+	if _, exists := a.verifying[observationID]; exists {
+		if !a.lockExpired(observationID) {
+			return false // 还在途（排队或验证中），拒绝重复获取
 		}
 
-		// 锁已超时，强制释放
+		// 锁已过期，强制释放
 		a.logger.Warn().
 			Str("observation_id", observationID).
-			Dur("locked_for", time.Since(lockTime)).
 			Dur("timeout", a.lockTimeout).
-			Msg("验证锁超时，强制释放并重新获取")
+			Msg("验证锁过期（验证疑似卡死），强制释放并重新获取")
 	}
 
-	a.verifying[observationID] = time.Now()
+	a.verifying[observationID] = time.Time{}
 	return true
+}
+
+// markRunning 记下验证真正开始的时刻：锁的年龄从这里算，排队等并发名额的时间不算——积压
+// 时排队可以远比一次验证久，把排队算进去会让还在排队的假设被判成卡死而重复派发。
+func (a *Agent) markRunning(observationID string) {
+	a.verifyingMu.Lock()
+	defer a.verifyingMu.Unlock()
+	if _, queued := a.verifying[observationID]; queued {
+		a.verifying[observationID] = time.Now()
+	}
 }
 
 // release 解除"验证中"标记（判定落定或出错重试前调用）。
@@ -316,6 +347,7 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 			return
 		}
 
+		a.markRunning(observationID)
 		a.logger.Info().
 			Str("observation_id", observationID).
 			Msg("开始验证 observation")
@@ -326,6 +358,8 @@ func (a *Agent) dispatchVerification(ctx context.Context, observationID string, 
 				Str("observation_id", observationID).
 				Msg("验证失败（保持待验证，下轮轮询重试）")
 			a.recordVerifyFailure(ctx, observationID, claim, err)
+		} else {
+			a.clearTimeouts(observationID)
 		}
 	}()
 	return true
@@ -357,14 +391,28 @@ func (a *Agent) recordVerifyFailure(ctx context.Context, observationID string, c
 	if targetUnreachable && errors.Is(cause, context.Canceled) {
 		return
 	}
+	// timedOutPastStreak：这次是超时、且连续超时已过豁免次数——它要计入失败次数，不再走
+	// 下面「模型服务瞬时故障」的豁免（超时错误按文本也会被那一道认成瞬时故障）。
+	timedOutPastStreak := false
 	if !targetUnreachable && isContextTimeoutError(cause) {
-		a.logger.Info().
+		timeouts := a.noteTimeout(observationID)
+		if timeouts <= maxVerifyTimeouts {
+			a.logger.Info().
+				Str("observation_id", observationID).
+				Int("consecutive_timeouts", timeouts).
+				Msg("验证因超时失败（不计入失败上限，将重试）")
+			return
+		}
+		a.logger.Warn().
 			Str("observation_id", observationID).
-			Msg("验证因超时失败（不计入失败上限，将重试）")
-		return
+			Int("consecutive_timeouts", timeouts).
+			Msg("验证连续超时达上限，这次计入失败次数")
+		timedOutPastStreak = true
+	} else {
+		a.clearTimeouts(observationID)
 	}
 
-	if !targetUnreachable && isTransientProviderError(cause) {
+	if !timedOutPastStreak && !targetUnreachable && isTransientProviderError(cause) {
 		a.logger.Info().
 			Str("observation_id", observationID).
 			Msg("验证因 provider 瞬时故障失败（不计入失败上限）")
@@ -492,6 +540,21 @@ func (a *Agent) claimFromHypothesis(obs explorationgraph.Node) (Claim, error) {
 	}, nil
 }
 
+// noteTimeout 记一次连续超时，返回连续超时的次数。
+func (a *Agent) noteTimeout(observationID string) int {
+	a.verifyAttemptsMu.Lock()
+	defer a.verifyAttemptsMu.Unlock()
+	a.verifyTimeouts[observationID]++
+	return a.verifyTimeouts[observationID]
+}
+
+// clearTimeouts 清掉连续超时的计数：这次验证不是因为超时结束的。
+func (a *Agent) clearTimeouts(observationID string) {
+	a.verifyAttemptsMu.Lock()
+	defer a.verifyAttemptsMu.Unlock()
+	delete(a.verifyTimeouts, observationID)
+}
+
 // verifyObservation 验证单个 observation。
 // 判定落定（坐实/证伪）后假设节点的验证状态随之流转，轮询不再圈定；
 // 门本身出错则保持待验证，下轮轮询自然重试。
@@ -508,9 +571,7 @@ func (a *Agent) verifyObservation(ctx context.Context, observationID string, cla
 		return a.adoptPriorVerdict(ctx, observationID, prev)
 	}
 
-	// 设置验证超时时间为10分钟（从默认5分钟增加）
-	// LLM验证可能需要较长时间（复现+判定），避免过早超时
-	verifyCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	verifyCtx, cancel := context.WithTimeout(ctx, verifyTimeout)
 	defer cancel()
 
 	// 调用 PromotionGate 验证

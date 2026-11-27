@@ -2,10 +2,12 @@ package planner
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/V3teran/liusha/internal/bus"
 	"github.com/V3teran/liusha/internal/framework/llm"
+	"github.com/V3teran/liusha/internal/framework/runtime"
 	"github.com/V3teran/liusha/internal/logx"
 )
 
@@ -57,6 +59,10 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 
 		case event := <-sub.Events():
+			// 冷却期里事件触发的规划一并跳过：冷却一过，兜底轮询会接上
+			if a.coolingDown() {
+				continue
+			}
 			// 处理验证结果事件
 			if err := a.planFailure(a.handleEvent(ctx, event, plan), "事件触发规划（"+string(event.Type)+"）"); err != nil {
 				return err
@@ -64,6 +70,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 		case <-ticker.C:
 			// 定期兜底：检查是否需要新的规划
+			if a.coolingDown() {
+				continue
+			}
 			if err := a.planFailure(plan(ctx), "定期规划"); err != nil {
 				return err
 			}
@@ -71,19 +80,53 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
-// planFailure 处置一次规划失败：配置错误原样返回（致命，Run 退出）；其余失败记录后
-// 返回 nil，等下一次事件或轮询再试（瞬时故障已在 generateNewActions 内退避重试过；
-// 被目标改写取代的那一轮在 planningRound 里已经不算失败）。
+// planFailure 处置一次规划失败。
+//
+// 输入超过单条消息的上限与模型配置错误一样致命，原样返回（Run 退出）：拼装这条输入的图面
+// 没有变，重试多少次都一样。曾有一轮规划因此在两个半小时里失败了 1342 次——事件与轮询
+// 每隔几秒就再撞一次，任务空转到最后被恢复监控按重投上限终止。
+//
+// 其余失败记录后进入冷却，等下一次事件或轮询再试（瞬时故障已在 generateNewActions 内退避
+// 重试过；被目标改写取代的那一轮在 planningRound 里已经不算失败）。冷却随连续失败的次数
+// 指数增长（见 planBackoff），成功一次即清零。成功时也经由这里清零。
 func (a *Agent) planFailure(err error, phase string) error {
 	if err == nil {
+		a.planFailures = 0
+		a.planRetryAt = time.Time{}
 		return nil
 	}
 	if llm.IsConfigError(err) {
 		a.logger.Error().Err(err).Str("phase", phase).Msg("模型配置错误，规划无法继续")
 		return err
 	}
-	logx.ErrorUnlessCanceled(a.logger, err).Err(err).Str("phase", phase).Msg("规划失败（下一轮重试）")
+	if errors.Is(err, runtime.ErrMessageTooLong) {
+		a.logger.Error().Err(err).Str("phase", phase).Msg("规划输入超过单条消息的上限，重试无济于事，规划无法继续")
+		return err
+	}
+	logx.ErrorUnlessCanceled(a.logger, err).Err(err).Str("phase", phase).
+		Int("consecutive_failures", a.planFailures+1).
+		Dur("cooldown", planBackoff(a.planFailures+1)).
+		Msg("规划失败（冷却后重试）")
+	a.planFailures++
+	a.planRetryAt = time.Now().Add(planBackoff(a.planFailures))
 	return nil
+}
+
+// planBackoff 是连续失败 n 次之后的冷却时长：5 秒起每次翻倍，封顶 2 分钟。
+func planBackoff(failures int) time.Duration {
+	const base, ceiling = 5 * time.Second, 2 * time.Minute
+	if failures < 1 {
+		failures = 1
+	}
+	if failures > 5 {
+		return ceiling
+	}
+	return base << (failures - 1)
+}
+
+// coolingDown 报告是否还在上一次规划失败之后的冷却期里。
+func (a *Agent) coolingDown() bool {
+	return time.Now().Before(a.planRetryAt)
 }
 
 // handleEvent 处理事件
