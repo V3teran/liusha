@@ -11,7 +11,6 @@ import {
   inFlightToolCalls,
   pairToolResults,
   roundKey,
-  type RoundRow,
 } from './threadRows'
 import { classifyMessage } from './messageKind'
 import { useTypewriter } from '@/hooks/useTypewriter'
@@ -36,11 +35,18 @@ function cardCopyText(r: { msg: Message }): string | undefined {
 
 /**
  * 对话的执行轨迹：消息流整理成「行」后自上而下渲染。一个智能体的一轮是一张卡——身份、这一轮的
- * 工具调用（折叠）、结论——已出终稿的轮按终稿先后排列；终稿还没到的轮与同一智能体的流式思考
- * 合成一张卡，放在最后，轮出终稿后挪到前面的位置。
+ * 工具调用（折叠）、结论——已出终稿的轮按终稿先后排列。终稿还没到的轮同样一轮一张卡（卡里
+ * 只有工具组），放在最后，出终稿后挪到它在消息流里的位置：在途时就并进同一智能体的一张卡、
+ * 出了终稿再拆开，几轮并行时先合后分，对不上「一轮一张卡」。流式思考按智能体合道，分不清
+ * 属于哪一轮，单独成卡排在它们之后。
  *
  * 任务在跑的信号在顶栏（状态与逐秒走的耗时），轨迹里不另放「工作中」的指示。
  */
+
+/** 排在最后、还没有终稿的卡：在途的一轮，或一个智能体的流式思考道。 */
+type PendingCard =
+  | { kind: 'round'; key: string; agent: string; tools: Message[] }
+  | { kind: 'stream'; agent: string }
 export function TimelineThread({
   active,
   agents,
@@ -75,33 +81,22 @@ export function TimelineThread({
     return agents.filter((name) => present.has(name))
   }, [agents, activity])
 
-  // 已出终稿的行；终稿没到的轮与流式道按智能体合并成卡，排在最后
+  // 已出终稿的行
   const settled = useMemo(() => filterByAgent(rows, selected).filter((r) => r.kind !== 'round'), [rows, selected])
-  const inFlight = useMemo(() => {
-    // agent → 它在途的轮、首个事件的位置、是否正在流式输出
-    const groups = new Map<string, { agent: string; rounds: RoundRow[]; first: number; streaming: boolean }>()
-    const groupOf = (name: string) => {
-      let g = groups.get(name)
-      if (!g) {
-        g = { agent: name, rounds: [], first: Number.MAX_SAFE_INTEGER, streaming: false }
-        groups.set(name, g)
-      }
-      return g
-    }
+  // 终稿还没到的轮一轮一张卡，按首个工具事件的先后；流式思考道跟在它们后面
+  const pending = useMemo(() => {
+    const cards: PendingCard[] = []
     for (const r of rows) {
       if (r.kind === 'round' && (selected.length === 0 || selected.includes(r.agent))) {
-        const g = groupOf(r.agent)
-        g.rounds.push(r)
-        g.first = Math.min(g.first, r.tools[0]?.seq ?? g.first)
+        cards.push({ kind: 'round', key: r.key, agent: r.agent, tools: r.tools })
       }
     }
     for (const lane of liveOrder) {
-      if (selected.length === 0 || selected.includes(lane)) groupOf(lane).streaming = true
+      if (selected.length === 0 || selected.includes(lane)) cards.push({ kind: 'stream', agent: lane })
     }
-    // 只在流式输出、还没调工具的智能体排在后面（稳定排序保持它们的首现顺序）
-    return [...groups.values()].sort((a, b) => a.first - b.first)
+    return cards
   }, [rows, liveOrder, selected])
-  const activityCount = settled.filter((r) => r.kind !== 'divider').length + inFlight.length
+  const activityCount = settled.filter((r) => r.kind !== 'divider').length + pending.length
 
   const nearBottom = useCallback(() => {
     const e = elRef.current
@@ -277,26 +272,28 @@ export function TimelineThread({
 
         {/* 流式思考道是用户可见的正文（Markdown 里的 URL 是可聚焦链接），不对读屏隐藏；
             它不是 live region，逐字增量不会被播报，读屏按需浏览即可。 */}
-        {inFlight.map((g) => (
-          <div key={`live-${g.agent}`} data-live-node={g.streaming ? '' : undefined}>
-            {/* 在途卡里只有工具组、还没有文字身份：头像带名字 */}
-            <AgentCard agentName={g.agent} nameAvatar>
-              {g.rounds.map((r) => (
-                <StepTools
-                  key={r.key}
-                  tools={r.tools}
-                  foldKey={r.key}
-                  expansion={expansion}
-                  runningSeqs={runningTools}
-                  pairs={toolPairs}
-                  ended={!active}
-                  unconcluded={!active}
-                />
-              ))}
-              {g.streaming && <StreamedThought agentName={g.agent} lane={liveStreams[g.agent]} />}
+        {pending.map((c) =>
+          c.kind === 'round' ? (
+            // 在途的卡里只有工具组、还没有文字身份：头像带名字
+            <AgentCard key={c.key} agentName={c.agent} nameAvatar>
+              <StepTools
+                tools={c.tools}
+                foldKey={c.key}
+                expansion={expansion}
+                runningSeqs={runningTools}
+                pairs={toolPairs}
+                ended={!active}
+                unconcluded={!active}
+              />
             </AgentCard>
-          </div>
-        ))}
+          ) : (
+            <div key={`live-${c.agent}`} data-live-node>
+              <AgentCard agentName={c.agent} nameAvatar>
+                <StreamedThought agentName={c.agent} lane={liveStreams[c.agent]} />
+              </AgentCard>
+            </div>
+          ),
+        )}
       </div>
 
       {!atBottom && (

@@ -286,16 +286,38 @@ describe('一轮一张卡：工具调用归在它那一轮的结论名下', () =
     expect(within(inFlight!).queryByText(/动作 A 完成/)).toBeNull()
   })
 
-  it('在途的轮与同一智能体的流式道在同一张卡里', () => {
+  // 在途的轮一轮一张卡（和出了终稿的轮同一口径）；流式思考按智能体合道、分不清属于哪一轮，
+  // 单独成卡排在它后面。曾把同一智能体在途的几轮并进一张卡、出了终稿再拆开——几轮并行时先合后分。
+  it('在途的轮与同一智能体的流式道各成一张卡，流式道在后', () => {
     const s = useConversationStore.getState()
     s.ingest(toolCallMsg(1, 'executor'))
     s.appendReasoningDelta('正在探测目标…', 'executor')
     const { container } = render(<TimelineThread {...unfiltered} active />)
     const live = container.querySelectorAll('[data-live-node]')
     expect(live).toHaveLength(1)
-    const card = live[0] as HTMLElement
-    expect(within(card).getByRole('button', { name: /1 次工具调用/ })).toBeTruthy()
-    expect(card.querySelector('[data-card="reasoning"]')).toBeTruthy() // 流式思考的正文（打字机逐字出，这里只看它在同一张卡里）
+    const stream = live[0] as HTMLElement
+    expect(within(stream).queryByRole('button', { name: /1 次工具调用/ })).toBeNull()
+    expect(stream.querySelector('[data-card="reasoning"]')).toBeTruthy() // 流式思考的正文
+    const round = screen.getByRole('button', { name: /1 次工具调用/ }).closest('.animate-slide-up') as HTMLElement
+    expect(round).toBeTruthy()
+    expect(round.contains(stream)).toBe(false)
+    expect(round.compareDocumentPosition(stream) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('同一智能体并行在途的几轮各成一张卡，不并进同一张', () => {
+    const s = useConversationStore.getState()
+    const inRound = (m: Message, id: string) => {
+      m.metadata!.round_id = id
+      return m
+    }
+    s.ingest(inRound(toolCallMsg(1, 'executor'), 'a'))
+    s.ingest(inRound(toolCallMsg(2, 'executor'), 'b'))
+    s.ingest(inRound(toolCallMsg(3, 'executor'), 'b'))
+    const { container } = render(<TimelineThread {...unfiltered} active />)
+    const cards = [...container.querySelectorAll('.animate-slide-up')]
+    expect(cards).toHaveLength(2)
+    expect(within(cards[0] as HTMLElement).getByRole('button', { name: /1 次工具调用/ })).toBeTruthy()
+    expect(within(cards[1] as HTMLElement).getByRole('button', { name: /2 次工具调用/ })).toBeTruthy()
   })
 
   it('展开状态在一轮出终稿后保留（折叠组换了位置，正在读的内容不折回去）', async () => {
