@@ -187,8 +187,8 @@ func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis,
 
 // admitActions 过滤规划提案：指令级字面去重（见 admit）——空指令不可执行，与图上既有
 // 动作（已中止的除外）或本批更早提案 instruction 字面一致的是复读，两者都跳过（语义
-// 去重靠规划者看得到的已做、在途动作与待验证、已证伪的假设）。动作统一挂在根目标下、
-// 溯源边 result → action 随动作落图（见 RevisePlan）。
+// 去重靠规划者看得到的已做、在途动作与待验证、已证伪的假设）。动作挂在它所属的目标下
+// （声明的方向，没声明的根目标）、溯源边 result → action 随动作落图（见 RevisePlan）。
 func (a *Agent) admitActions(ctx context.Context, actions []explorationgraph.ActionDraft) []explorationgraph.ActionDraft {
 	if len(actions) == 0 {
 		return nil

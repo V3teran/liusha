@@ -1,7 +1,8 @@
 /**
  * 探索图画布：React Flow 只读封装。
  * 自定义节点（nodeTypes 模块级常量，避免每渲染重建）、聚焦高亮由上层
- * applyFocus 算好传入；节点数变化或任务切换时 fitView 复位视口。
+ * applyFocus 算好传入；节点数变化或任务切换时 fitView 复位视口；选着节点时
+ * 改由来路适配管视口——它的来路掉出视野才把整条来路收进来。
  */
 
 import { useEffect, useRef } from 'react'
@@ -21,6 +22,7 @@ import './exploration.css'
 import { ExplorationNodeCard } from './nodes/ExplorationNodeCard'
 import { kindProfile } from './kindTheme'
 import { EDGE_LOOKS, EDGE_LOOK_LABELS, EDGE_LOOK_ORDER, NODE_HEIGHT, type ExplorationFlowNode } from './layout'
+import { CHAIN_MARGIN, anyOutside, detailReserve, frameNodes } from './viewport'
 
 const nodeTypes = { exploration: ExplorationNodeCard }
 
@@ -69,7 +71,7 @@ function GraphCanvasInner({
   focusNodeId: string
   onNodeClick: (id: string) => void
 }) {
-  const { fitView, getNodesBounds, setViewport } = useReactFlow()
+  const { fitView, getNodesBounds, getViewport, setViewport } = useReactFlow()
   const viewportWidth = useStore((st) => st.width)
   const viewportHeight = useStore((st) => st.height)
   const sizeRef = useRef({ w: viewportWidth, h: viewportHeight })
@@ -79,7 +81,7 @@ function GraphCanvasInner({
   // 最新节点经 ref 读取：fitView 回调触发时取当下状态（含 running 前沿）
   const nodesRef = useRef(nodes)
   nodesRef.current = nodes
-  // 对准的节点同样经 ref 读取：只在复位时生效，之后点选节点不移动视口
+  // 对准的节点同样经 ref 读取：复位时若有选中的节点，视口交给下面的来路适配
   const focusRef = useRef(focusNodeId)
   focusRef.current = focusNodeId
   // 已排程守卫：React Flow 初始化会重建 viewport helpers（fitView 身份变化）导致
@@ -97,16 +99,15 @@ function GraphCanvasInner({
       fitPendingRef.current = true
       requestAnimationFrame(() => {
         fitPendingRef.current = false
-        // 智能初始视口：有打开的节点时先对准它（从发现跳来看坐实它的结果）；图在跑
-        // （存在 running 节点）时定位到活动前沿，随新节点到来持续跟进；图静止且全图在
-        // 可读缩放下装得下时适配全图。装不下的大图从根目标读起（布局自左向右，根在最左列）：
-        // 以可读缩放把它放在左侧、垂直居中——按下限缩放去「适配」只会把视口落在整张图的
-        // 几何中心，那里通常是几列之间的空白。全局鸟瞰交给右下角小地图。
+        // 智能初始视口：图在跑（存在 running 节点）时定位到活动前沿，随新节点到来持续跟进；
+        // 图静止且全图在可读缩放下装得下时适配全图。装不下的大图从根目标读起（布局自左向右，
+        // 根在最左列）：以可读缩放把它放在左侧、垂直居中——按下限缩放去「适配」只会把视口
+        // 落在整张图的几何中心，那里通常是几列之间的空白。全局鸟瞰交给右下角小地图。
+        // 选着节点时这里不动：视口属于来路适配（下一个 effect）。
         const focus = focusRef.current
+        if (focus && nodesRef.current.some((n) => n.id === focus)) return
         const running = nodesRef.current.filter((n) => n.data.node.state === 'running').map((n) => n.id)
-        if (focus && nodesRef.current.some((n) => n.id === focus)) {
-          void fitView({ nodes: [{ id: focus }], padding: 0.35, duration: 300, minZoom: LEGIBLE_MIN_ZOOM, maxZoom: 1 })
-        } else if (running.length > 0) {
+        if (running.length > 0) {
           void fitView({ nodes: running.map((id) => ({ id })), padding: 0.35, duration: 300, minZoom: 0.3, maxZoom: 1 })
         } else {
           const { w, h } = sizeRef.current
@@ -129,6 +130,36 @@ function GraphCanvasInner({
       })
     }
   }, [nodes.length, resetKey, fitView, getNodesBounds, setViewport])
+
+  // 来路适配：选中的节点变了、或选着节点时图长了（布局会挪动节点），看它的来路上有没有节点
+  // 掉出视野——有才把整条来路收进来；都在视野里就不动，用户点的正是他在看的地方。详情浮层
+  // 盖在画布右缘，不算视野：收进来的来路不能藏在它底下。取消选中不恢复视口。
+  // 是否移动只看「有没有出界」，所以这个 effect 多跑一遍（StrictMode、视口工具重建）无妨。
+  const chainKey = focusNodeId ? `${focusNodeId}#${nodes.length}` : ''
+  useEffect(() => {
+    if (!chainKey) return
+    // 画布刚挂上时还没量出尺寸（ResizeObserver 晚一两帧）：等量出来再算，至多等半秒。
+    let frames = 0
+    let cancelled = false
+    const tick = () => {
+      if (cancelled) return
+      const { w, h } = sizeRef.current
+      if (w === 0) {
+        if (++frames < 30) requestAnimationFrame(tick)
+        return
+      }
+      const chain = nodesRef.current.filter((n) => n.className !== 'exp-dimmed')
+      if (chain.length === 0) return
+      const reserve = detailReserve(w)
+      if (!anyOutside(chain, getViewport(), w, h, reserve)) return
+      const next = frameNodes(chain, w - reserve - 2 * CHAIN_MARGIN, h - 2 * CHAIN_MARGIN)
+      if (next) void setViewport(next, { duration: 300 })
+    }
+    requestAnimationFrame(tick)
+    return () => {
+      cancelled = true
+    }
+  }, [chainKey, getViewport, setViewport])
 
   return (
     <ReactFlow

@@ -3,7 +3,8 @@
 // 节点（与 DB 约束 ck_exploration_node_kind 一致）：
 //   - objective: 根目标（来源 user，代表任务本身，随任务终态收敛）与派生目标（来源 planner，
 //     结果分析提出的方向）
-//   - action: planner 生成的执行动作（有 state/complexity），统一挂在根目标下
+//   - action: 执行动作（有 state/complexity），挂在它所属的目标下：根目标，或规划者声明
+//     它所属的进行中的派生目标（RevisePlan）
 //   - observation: executor 产出的观察（假设带 repro、有验证状态，待复现门验证 / 事实写入即终态）
 //   - result: 坐实的最终结果（仅复现门产出）
 //

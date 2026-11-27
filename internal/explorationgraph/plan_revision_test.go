@@ -256,6 +256,58 @@ func TestRevisePlan_ActionsHangOnRootAndShareTheTransaction(t *testing.T) {
 	assert.Equal(t, FieldTriggeredBy, report.Rejected[0].Field)
 }
 
+// 动作挂在它所属的目标下：声明的方向是进行中的派生目标时，generates 边从它出发；没声明的
+// 与声明失效的（已收敛的派生目标、根目标、不存在的目标）挂在根目标下，失效的引用剔除并
+// 报告，动作照常排出。
+func TestRevisePlan_ActionHangsOnItsDeclaredDirection(t *testing.T) {
+	store := revisionFixture(t)
+	action := func(id, direction string) ActionDraft {
+		d := actionDraft(id, nil)
+		d.ObjectiveID = direction
+		return d
+	}
+
+	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
+		AddedActions: []ActionDraft{
+			action("a-under-d1", "d1"),
+			action("a-plain", ""),
+			action("a-done", "d-done"),
+			action("a-root", "root"),
+			action("a-ghost", "ghost-direction"),
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Len(t, report.AddedActions, 5, "方向引用失效不拦动作")
+	generates := edgesOf(t, store, RelGenerates)
+	assert.True(t, generates[[2]string{"d1", "a-under-d1"}], "声明的方向：动作挂在它下")
+	assert.False(t, generates[[2]string{"root", "a-under-d1"}], "一个动作只有一个所属目标")
+	for _, id := range []string{"a-plain", "a-done", "a-root", "a-ghost"} {
+		assert.True(t, generates[[2]string{"root", id}], "%s 挂在根目标下", id)
+	}
+	fields := make([]RevisionField, 0, len(report.Rejected))
+	for _, r := range report.Rejected {
+		fields = append(fields, r.Field)
+	}
+	assert.Equal(t, []RevisionField{FieldDirection, FieldDirection, FieldDirection}, fields)
+}
+
+// 同一修订里宣告达成的方向不能再往下面挂动作：动作改挂根目标，引用剔除并报告。
+func TestRevisePlan_DirectionSettledInTheSameRevisionCannotOwnActions(t *testing.T) {
+	store := revisionFixture(t)
+
+	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
+		CompletedObjectives: []ObjectiveCompletion{{ObjectiveID: "d2", Evidence: []string{"r1"}}},
+		AddedActions:        []ActionDraft{{Node: actionDraft("a1", nil).Node, ObjectiveID: "d2"}},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, StateCompleted, nodeState(t, store, "d2"))
+	assert.True(t, edgesOf(t, store, RelGenerates)[[2]string{"root", "a1"}])
+	require.Len(t, report.Rejected, 1)
+	assert.Equal(t, FieldDirection, report.Rejected[0].Field)
+}
+
 // 规划修订整体失败时什么都不落：重试不会重复写入已生效的一半。
 func TestRevisePlan_FailureLeavesNothingBehind(t *testing.T) {
 	store := revisionFixture(t)

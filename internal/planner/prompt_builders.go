@@ -34,8 +34,8 @@ func buildTeamRosterSection(roster []AgentBrief) string {
 }
 
 // buildObjectiveSection 构建任务目标部分：根目标即任务目标本体；进行中的派生目标（方向）
-// 逐条列出，供规划者分组与取舍。已收敛的方向不再列出：已达成的无需再投入，已吸收的
-// 范围由吸收它的新方向承接（新方向本身在列）。
+// 逐条列出，带短号——动作声明所属方向时引用它。已收敛的方向不再列出：已达成的无需再
+// 投入，已吸收的范围由吸收它的新方向承接（新方向本身在列），也不能再往下面挂新动作。
 func buildObjectiveSection(objective string, directions []explorationgraph.Node) string {
 	var sb strings.Builder
 	sb.WriteString("## 任务目标\n")
@@ -48,8 +48,8 @@ func buildObjectiveSection(objective string, directions []explorationgraph.Node)
 
 	if len(directions) > 0 {
 		sb.WriteString("### 进行中的方向\n")
-		for _, d := range directions {
-			fmt.Fprintf(&sb, "- %s\n", objectiveDescription(d))
+		for i, d := range directions {
+			fmt.Fprintf(&sb, "- [%s] %s\n", ordinal(directionPrefix, i), objectiveDescription(d))
 		}
 		sb.WriteString("\n")
 	}

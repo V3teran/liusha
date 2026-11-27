@@ -229,7 +229,7 @@ type ClosedLead struct {
 // PlanningContext 规划上下文
 type PlanningContext struct {
 	Objective         string                  // 根目标描述（任务目标）
-	Directions        []explorationgraph.Node // 进行中的派生目标（方向），创建序——只是分组与先验
+	Directions        []explorationgraph.Node // 进行中的派生目标（方向），创建序；第 i 个的短号是 D{i+1}，动作声明所属方向时引用
 	CompletedActions  []explorationgraph.Node // 已完成的 Action
 	PendingActions    []explorationgraph.Node // 在办（待执行或执行中）的 Action，创建序；第 i 个的短号是 A{i+1}
 	Results           []explorationgraph.Node // 已确认的结果（经判定坐实的主张）
@@ -257,6 +257,7 @@ type ActionProposal struct {
 	Reasoning   string   `json:"reasoning"`    // 规划理由
 	TriggeredBy []string `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
 	Pursues     []string `json:"pursues"`      // 本动作跟进的线索编号（L…）；不跟进线索就不填
+	Direction   string   `json:"direction"`    // 本动作所属的方向编号（D…）；直接为任务目标排出的不填
 }
 
 // LeadDecisionProposal LLM 对一条待深挖线索本轮的处置。
@@ -867,8 +868,9 @@ func filterKnownIDs(ids []string, known map[string]bool) []string {
 	return valid
 }
 
-// convertProposals 把 LLM 提案转成动作草稿：优先级与复杂度进节点层，因果引用随草稿交给
-// 落图（落成 triggers 边），内容只留动作本身——类型、指令与规划理由。
+// convertProposals 把 LLM 提案转成动作草稿：优先级与复杂度进节点层，所属方向与因果引用随
+// 草稿交给落图（分别落成 generates 边与 triggers 边），内容只留动作本身——类型、指令与
+// 规划理由。
 func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.Store, taskID string, planCtx *PlanningContext, proposals []ActionProposal) []explorationgraph.ActionDraft {
 	// 滋生本动作的 result 存在集（triggered_by 同样要做幻影过滤——因果边指向
 	// 不存在的节点是假溯源，比缺边更糟）。查失败退回纯格式校验。
@@ -916,7 +918,15 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 			CreatedAt:  time.Now(),
 		}
 
-		drafts = append(drafts, explorationgraph.ActionDraft{Node: node, TriggeredBy: validTriggeredBy})
+		// 所属方向只认「进行中的方向」里的编号。引用失效不拦这一步：动作照常排出，改挂在
+		// 任务目标下，只是图上的来路记不到它所属的方向。
+		objectiveID, known := planCtx.directionID(proposal.Direction)
+		if !known && strings.TrimSpace(proposal.Direction) != "" {
+			e.logger.Warn().Str("action_id", actionID).Str("direction", strings.TrimSpace(proposal.Direction)).
+				Msg("过滤掉无效的 direction（不是「进行中的方向」里的编号），动作改挂在任务目标下")
+		}
+
+		drafts = append(drafts, explorationgraph.ActionDraft{Node: node, ObjectiveID: objectiveID, TriggeredBy: validTriggeredBy})
 
 		e.logger.Debug().
 			Str("action_id", actionID).

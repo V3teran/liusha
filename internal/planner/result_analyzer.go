@@ -33,7 +33,7 @@ func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 	}
 	view := newObjectiveView(objectives)
 
-	// 1.5. 任务动作总量（多样性判断；动作统一挂在根目标下）
+	// 1.5. 任务动作总量（多样性判断；按任务计，不分方向）
 	allActions, err := graph.ListNodesByKind(ctx, taskID, core.KindAction)
 	if err != nil {
 		return nil, fmt.Errorf("无法获取 Actions: %w", err)

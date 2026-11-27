@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { useLatestTaskId, useTaskGraph, useTaskVerifications } from '@/features/exploration/useExplorationQueries'
 import { useTaskDetail } from '@/features/tasks/useTaskQueries'
-import { applyFocus, buildFlowGraph, type GraphStats } from '@/features/exploration/layout'
+import { applyFocus, buildFlowGraph, owningDirection, type GraphStats } from '@/features/exploration/layout'
 import { GraphCanvas } from '@/features/exploration/GraphCanvas'
 import { Toolbar } from '@/features/exploration/Toolbar'
 import { NodeDetailPanel } from '@/features/exploration/NodeDetailPanel'
@@ -99,6 +99,11 @@ export function ExplorationGraphPage() {
   // 进页定位最新任务却一个任务都没有：是「暂无任务」，不是「未选择」
   const noTasks = !scope && shouldResolveLatest && latestQuery.isSuccess && !latestQuery.data
   const selectedNode = selectedNodeId ? graph?.nodes.find((n) => n.id === selectedNodeId) : undefined
+  // 挂在派生目标下的动作：详情里写明它所属的方向
+  const selectedDirection = useMemo(
+    () => (graph && selectedNodeId ? owningDirection(graph, selectedNodeId) : undefined),
+    [graph, selectedNodeId],
+  )
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -156,6 +161,7 @@ export function ExplorationGraphPage() {
           <NodeDetailPanel
             node={selectedNode}
             verification={verificationsByNode.get(selectedNode.id)}
+            direction={selectedDirection}
             onClose={() => selectNode('')}
           />
         )}

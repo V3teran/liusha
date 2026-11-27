@@ -79,10 +79,13 @@ function rejectionText(node: GraphNode): string {
 export function NodeDetailPanel({
   node,
   verification,
+  direction,
   onClose,
 }: {
   node: GraphNode
   verification?: Verification
+  /** 动作所属的方向（挂在派生目标下的动作才有）：来路上紧挨着它的那一步 */
+  direction?: GraphNode
   onClose: () => void
 }) {
   const profile = kindProfile(node.kind)
@@ -154,6 +157,12 @@ export function NodeDetailPanel({
             <div className="text-status-warning">
               {node.state === 'rejected' ? rejectionText(node) : `原因：${node.state_reason}`}
             </div>
+          </section>
+        )}
+
+        {direction && (
+          <section className="rounded-lg border border-border bg-background/50 px-3 py-2 text-xs text-text-secondary">
+            <div className="break-words">所属方向：{nodeTitle(direction)}</div>
           </section>
         )}
 

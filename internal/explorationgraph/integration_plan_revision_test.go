@@ -110,6 +110,62 @@ func TestRevisePlanPostgres(t *testing.T) {
 	assert.Error(t, err, "冲突时新节点随事务回滚")
 }
 
+// 动作挂在它声明的方向下在 PG 下真实落图，过得了库里的 CHECK 约束：generates 边的源头是
+// 进行中的派生目标而不是根目标，一个动作只有一条所属边；方向引用失效的动作照旧落在根
+// 目标下。
+func TestActionHangsOnDirectionPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool := setupTestDB(t)
+	defer pool.Close()
+	store := NewStore(pool)
+
+	const (
+		taskID     = "bbbbbbb4-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+		rootID     = "4b2f6a9e-1111-4111-8111-0000000000ff"
+		liveID     = "4b2f6a9e-1111-4111-8111-000000000001"
+		underID    = "4b2f6a9e-1111-4111-8111-0000000000a1"
+		fallbackID = "4b2f6a9e-1111-4111-8111-0000000000a2"
+	)
+	dbtest.SeedTask(t, pool, taskID)
+	open := StateOpen
+	for _, n := range []Node{
+		{ID: rootID, TaskID: taskID, Kind: core.KindObjective, State: &open, SourceType: SourceUser,
+			Content: []byte(`{"description":"root"}`), CreatedAt: time.Now()},
+		{ID: liveID, TaskID: taskID, Kind: core.KindObjective, State: &open, SourceType: SourcePlanner,
+			Content: []byte(`{"description":"换一个入口"}`), CreatedAt: time.Now()},
+	} {
+		_, err := store.CreateNode(ctx, n)
+		require.NoError(t, err)
+	}
+	newAction := func(id string) Node {
+		return Node{ID: id, TaskID: taskID, Kind: core.KindAction, State: &open, SourceType: SourcePlanner,
+			Content: []byte(`{"instruction":"深挖"}`)}
+	}
+
+	report, err := store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID),
+		AddedActions: []ActionDraft{
+			{Node: newAction(underID), ObjectiveID: liveID},
+			{Node: newAction(fallbackID), ObjectiveID: "ghost-direction"},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, report.Rejected, 1, "失效的方向引用剔除，动作照常落图")
+	assert.Equal(t, FieldDirection, report.Rejected[0].Field)
+
+	edges, err := store.ListEdgesByTask(ctx, taskID)
+	require.NoError(t, err)
+	ownership := map[string]string{} // 动作 → 它的所属目标
+	for _, e := range edges {
+		if e.Rel == RelGenerates {
+			ownership[e.DstID] = e.SrcID
+		}
+	}
+	assert.Equal(t, map[string]string{underID: liveID, fallbackID: rootID}, ownership)
+}
+
 // TestTransitionStateKeepsIdentityPostgres 锁定 PG 端的元数据合并语义：带原因的
 // 否决与分析水位都只合并各自的键（state_reason / rejected_by、analyzed）：整体替换
 // metadata 会抹掉节点的来源、优先级等身份字段，而内存后端是合并语义，单测看不出来。
