@@ -271,6 +271,7 @@ func (e *Engine) completeLeadAccounting(
 		ToolOutputTailBytes:  e.toolOutputTailBytes,
 		OutputFormatPrompt:   "你是规划者（Planner），需要输出下一批要执行的Action。",
 		OutputFormatSchema:   plannercontract.Text,
+		OutputCheck:          planningOutputCheck,
 	})
 	if err != nil {
 		if ctx.Err() != nil {

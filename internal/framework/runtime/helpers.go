@@ -32,45 +32,42 @@ func (r *reactRuntime) initializeNewExecution(config *ReActConfig, result *ReAct
 	result.AddUserMessage(config.Objective)
 }
 
-// handleMaxIterationsReached 处理达到最大迭代次数的情况
+// whyIterationLimit 是迭代达到上限时请模型收尾的说法。
+const whyIterationLimit = "迭代已达上限，不能再调用工具。"
+
+// whyNoFinalAnswer 是循环在模型交出终稿之前就被终止时请模型收尾的说法。
+const whyNoFinalAnswer = "循环在交出终稿之前已被终止。请基于已经做完的事收尾。"
+
+// handleMaxIterationsReached 处理达到最大迭代次数的情况：模型没有自己停下，请它收尾。
 func (r *reactRuntime) handleMaxIterationsReached(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,
 ) {
-	// 强制要求 LLM 输出最终总结
-	if err := r.forceFinalSummary(ctx, config, result); err != nil {
-		// 强制总结失败不算致命错误，继续处理
-		result.InternalError = fmt.Errorf("force final summary failed: %w", err)
+	if err := r.forceFinalAnswer(ctx, config, result, whyIterationLimit); err != nil {
+		// 收尾失败不算致命错误，继续处理
+		result.InternalError = fmt.Errorf("force final answer failed: %w", err)
 	}
 }
 
-// handleNormalCompletion 处理正常完成（LLM停止调用工具）的情况
-// 确保输出格式符合下游解析器的期望
+// handleNormalCompletion 处理循环停下的情况。只有模型自己停下（不再调用工具，最后一条
+// 消息是它的回复）才有终稿：验收通过就原样交付，不通过就带着原因请模型再交一次。循环
+// 在模型交出终稿之前被终止的（中间件止损、外部中止——此时最后一条是工具结果或中止
+// 说明），没有终稿可交付，请模型基于已经做完的事收尾：执行者的观察、评估者的判定、
+// 规划者的动作都写在这份终稿里，少了它整段执行白做。
 func (r *reactRuntime) handleNormalCompletion(
 	ctx context.Context,
 	config *ReActConfig,
 	result *ReActResult,
 ) {
-	// 检查最后一条助手消息是否已经是结构化JSON格式
-	if len(result.MessageHistory) > 0 {
-		lastMsg := result.MessageHistory[len(result.MessageHistory)-1]
-		if lastMsg.Role == llm.RoleAssistant && isStructuredOutput(lastMsg.Content) {
-			// 已经是结构化输出，无需再次处理
-			return
-		}
+	why := whyNoFinalAnswer
+	if last := result.MessageHistory[len(result.MessageHistory)-1]; last.Role == llm.RoleAssistant {
+		why = config.checkFinalAnswer(last.Content)
 	}
-
-	// LLM自然停止但未输出结构化格式，强制要求输出JSON
-	if err := r.forceStructuredOutput(ctx, config, result); err != nil {
-		result.InternalError = fmt.Errorf("force structured output failed: %w", err)
+	if why == "" {
+		return
 	}
-}
-
-// isStructuredOutput 检查内容是否已经是结构化JSON输出
-func isStructuredOutput(content string) bool {
-	// 简单检查：包含 "observations" 字段的JSON对象
-	return len(content) > 0 &&
-		(content[0] == '{' ||
-			(len(content) > 7 && content[0:7] == "```json"))
+	if err := r.forceFinalAnswer(ctx, config, result, why); err != nil {
+		result.InternalError = fmt.Errorf("force final answer failed: %w", err)
+	}
 }

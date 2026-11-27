@@ -226,10 +226,11 @@ func (j *RouterJudge) Judge(
 		// 判定终稿的结构化输出契约（与 executor/planner 同机制）：不设防时终稿
 		// 是自由散文——验证结论写在散文里（"假设坐实 confirmed 0.99"）而
 		// parseVerdict 只认 JSON，实测真实主张因输出格式漂移连败三次被误判
-		// invalid_recipe 出圈。设此字段后 runtime 的 forceStructuredOutput
-		// 会在散文终稿上强制补一轮 JSON 输出。
+		// invalid_recipe 出圈。终稿按判定解析器验收，取不到判定 JSON 的散文终稿
+		// 由运行时带着原因请模型重述。
 		OutputFormatPrompt: "你是评估者，已完成取证，现在需要输出最终结论。",
-		OutputFormatSchema: evaluatorcontract.Text, // 强制总结时重申输出契约（唯一一份）
+		OutputFormatSchema: evaluatorcontract.Text, // 收尾时重申输出契约（唯一一份）
+		OutputCheck:        verdictOutputCheck,
 	})
 	if err != nil {
 		return Verdict{}, fmt.Errorf("judge: ReAct 失败: %w", err)
@@ -314,33 +315,41 @@ func (j *RouterJudge) systemPrompt() string {
 	return scenario.Append(sb.String(), j.scenario)
 }
 
-// parseVerdict 从 FinalAnswer 提取判定 JSON（含坐实发现的结构化指纹）。
-func parseVerdict(content string) (Verdict, error) {
-	if content == "" {
-		return Verdict{}, fmt.Errorf("judge: 判定输出为空")
-	}
-	var v struct {
-		Verdict      string          `json:"verdict"`
-		Confidence   float64         `json:"confidence"`
-		Reasoning    string          `json:"reasoning"`
-		RefuteReason string          `json:"refute_reason"`
-		Fingerprint  json.RawMessage `json:"finding"`
-	}
+// verdictJSON 是判定契约的形状：verdict 的取值合法与否见 verdictOutputCheck。
+type verdictJSON struct {
+	Verdict      string          `json:"verdict"`
+	Confidence   float64         `json:"confidence"`
+	Reasoning    string          `json:"reasoning"`
+	RefuteReason string          `json:"refute_reason"`
+	Fingerprint  json.RawMessage `json:"finding"`
+}
+
+// verdictOutputCheck 是判定终稿的验收：终稿里取得到的 JSON 必须带合法的 verdict（confirmed /
+// refuted）。模型在 JSON 前后写的说明不影响验收；运行时据它决定终稿是原样交付，还是带着
+// 原因请模型重述。它同时是解析的前置。
+func verdictOutputCheck(content string) error {
+	var v verdictJSON
 	if err := llm.ParseJSON(content, &v); err != nil {
-		return Verdict{}, fmt.Errorf("judge: 解析判定失败: %w (输出: %.200s)", err, content)
+		return fmt.Errorf("取不出判定 JSON: %w", err)
 	}
 	switch v.Verdict {
 	case VerdictConfirmed, VerdictRefuted:
-		return Verdict{
-			Verdict:      v.Verdict,
-			Confidence:   v.Confidence,
-			Reasoning:    v.Reasoning,
-			RefuteReason: v.RefuteReason,
-			Fingerprint:  v.Fingerprint,
-		}, nil
-	default:
-		return Verdict{}, fmt.Errorf("judge: 未知 verdict %q", v.Verdict)
+		return nil
 	}
+	return fmt.Errorf("verdict %q 不是 %s / %s", v.Verdict, VerdictConfirmed, VerdictRefuted)
+}
+
+// parseVerdict 从终稿提取判定（含坐实发现的结构化指纹）；验收不过时带上原文片段报错。
+func parseVerdict(content string) (Verdict, error) {
+	if err := verdictOutputCheck(content); err != nil {
+		return Verdict{}, fmt.Errorf("judge: %w (输出: %.200s)", err, content)
+	}
+	var v verdictJSON
+	if err := llm.ParseJSON(content, &v); err != nil {
+		return Verdict{}, fmt.Errorf("judge: %w (输出: %.200s)", err, content)
+	}
+	// 两个结构的字段一一对应：验收已经判过 verdict 的取值。
+	return Verdict(v), nil
 }
 
 func stringOrEmpty(b json.RawMessage) string {
