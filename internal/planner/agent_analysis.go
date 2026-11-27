@@ -107,7 +107,7 @@ func (a *Agent) planRevision(analysis *ResultAnalysis, knownObjectives map[strin
 			a.logger.Info().Str("description", obj.Description).Msg("新目标为空或与既有目标描述重复，跳过")
 			continue
 		}
-		node, err := a.derivedObjectiveNode(obj.Priority, map[string]interface{}{
+		node, err := a.derivedObjectiveNode(map[string]interface{}{
 			"description": description,
 			"reasoning":   obj.Reasoning,
 		})
@@ -124,7 +124,7 @@ func (a *Agent) planRevision(analysis *ResultAnalysis, knownObjectives map[strin
 
 // derivedObjectiveNode 构造结果分析提出的派生目标节点（open，来源 planner；目标必须有
 // 非空 state，DB 约束 ck_state_by_kind）。
-func (a *Agent) derivedObjectiveNode(priority core.Priority, content map[string]interface{}) (explorationgraph.Node, error) {
+func (a *Agent) derivedObjectiveNode(content map[string]interface{}) (explorationgraph.Node, error) {
 	contentJSON, err := json.Marshal(content)
 	if err != nil {
 		return explorationgraph.Node{}, fmt.Errorf("序列化派生目标内容: %w", err)
@@ -136,7 +136,6 @@ func (a *Agent) derivedObjectiveNode(priority core.Priority, content map[string]
 		TaskID:     a.taskID,
 		Kind:       core.KindObjective,
 		Content:    contentJSON,
-		Priority:   priority,
 		State:      &openState,
 		SourceType: explorationgraph.SourcePlanner,
 		CreatedAt:  now,

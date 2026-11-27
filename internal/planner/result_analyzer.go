@@ -54,18 +54,8 @@ func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 		return nil, fmt.Errorf("LLM 分析失败: %w", err)
 	}
 
-	// 4. 转换响应为 ResultAnalysis
-	analysis := &ResultAnalysis{Reasoning: response.Reasoning}
-	for _, obj := range response.NewObjectives {
-		analysis.NewObjectives = append(analysis.NewObjectives, NewObjective{
-			Description: obj.Description,
-			Priority:    explorationgraph.NormalizePriority(obj.Priority),
-			TriggeredBy: obj.TriggeredBy,
-			Reasoning:   obj.Reasoning,
-		})
-	}
-
-	return analysis, nil
+	// 响应里的新方向原样成为分析结论：引用是否成立由规划修订校验
+	return &ResultAnalysis{Reasoning: response.Reasoning, NewObjectives: response.NewObjectives}, nil
 }
 
 // buildAnalysisPrompt 构建结果分析的输入：只陈述数据——任务的动作总量、目标视野与本次
@@ -92,16 +82,8 @@ func (e *Engine) buildAnalysisSystemPrompt() string {
 
 // AnalysisResponse 是 LLM 的分析响应
 type AnalysisResponse struct {
-	Reasoning     string              `json:"reasoning"`
-	NewObjectives []AnalysisObjective `json:"new_objectives"`
-}
-
-// AnalysisObjective 是 AnalyzeResults 提议的新方向。
-type AnalysisObjective struct {
-	Description string   `json:"description"`
-	Priority    string   `json:"priority"`
-	TriggeredBy []string `json:"triggered_by"`
-	Reasoning   string   `json:"reasoning"`
+	Reasoning     string         `json:"reasoning"`
+	NewObjectives []NewObjective `json:"new_objectives"`
 }
 
 // callAnalysisLLM 调用 LLM 进行分析

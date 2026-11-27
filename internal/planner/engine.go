@@ -253,7 +253,6 @@ type PlanningContext struct {
 type ActionProposal struct {
 	Instruction string   `json:"instruction"`  // 执行指令
 	Complexity  string   `json:"complexity"`   // 复杂度: simple/moderate/complex
-	Priority    string   `json:"priority"`     // 优先级: critical/high/medium/low
 	Reasoning   string   `json:"reasoning"`    // 规划理由
 	TriggeredBy []string `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
 	Pursues     []string `json:"pursues"`      // 本动作跟进的线索编号（L…）；不跟进线索就不填
@@ -852,7 +851,6 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 		actionID := uuid.New().String()
 
 		complexity := explorationgraph.NormalizeComplexity(proposal.Complexity)
-		priority := explorationgraph.NormalizePriority(proposal.Priority)
 
 		validTriggeredBy := filterKnownIDs(proposal.TriggeredBy, resultIDs)
 		if len(validTriggeredBy) < len(proposal.TriggeredBy) {
@@ -873,7 +871,6 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 			Kind:       core.KindAction,
 			Content:    contentBytes,
 			State:      &openState,
-			Priority:   priority,
 			Complexity: &complexity,
 			SourceType: explorationgraph.SourcePlanner,
 			CreatedAt:  time.Now(),
@@ -891,7 +888,6 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 
 		e.logger.Debug().
 			Str("action_id", actionID).
-			Str("priority", string(priority)).
 			Msg("生成 Action 节点")
 	}
 

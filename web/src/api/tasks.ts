@@ -68,7 +68,7 @@ export async function adjustTaskGoal(taskID: string, goal: string): Promise<Task
   return patch<TaskSummary>(`/tasks/${encodeURIComponent(taskID)}`, { goal })
 }
 
-/** 指派动作：在任务目标下新建一个用户指派的动作，执行者有空位即按优先级执行。 */
+/** 指派动作：在任务目标下新建一个用户指派的动作。只有用户指派的动作带优先级：决定它与规划者排出的动作谁先占用空位。 */
 export async function assignTaskAction(taskID: string, instruction: string, priority: Priority): Promise<{ id: string }> {
   return post<{ id: string }>(`/tasks/${encodeURIComponent(taskID)}/actions`, { instruction, priority })
 }

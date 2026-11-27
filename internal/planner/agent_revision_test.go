@@ -88,7 +88,7 @@ func stateIn(t *testing.T, store *explorationgraph.Store, id string) exploration
 func TestAnalyzeAndProcessResults_AppendsDirections(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{
 		NewObjectives: []NewObjective{{
-			Description: "换一个入口", Priority: core.PriorityHigh, TriggeredBy: []string{"r1"},
+			Description: "换一个入口", TriggeredBy: []string{"r1"},
 		}},
 	})
 	ctx := context.Background()

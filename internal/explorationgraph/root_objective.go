@@ -62,8 +62,8 @@ func (s *Store) RootObjectiveOf(ctx context.Context, taskID string) (Node, bool,
 	return root, ok, nil
 }
 
-// rootMetadata 是根目标的身份元数据：来源 user（代表任务本身）、优先级 high。
-var rootMetadata = MustJSON(map[string]string{"source_type": string(SourceUser), "priority": string(PriorityHigh)})
+// rootMetadata 是根目标的身份元数据：来源 user（代表任务本身）。
+var rootMetadata = MustJSON(map[string]string{"source_type": string(SourceUser)})
 
 // CreateRootObjective 在调用方事务内为新任务建根目标（task.Store.Create 的一部分）。
 func CreateRootObjective(ctx context.Context, db Execer, taskID, goal string) error {

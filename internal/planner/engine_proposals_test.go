@@ -26,13 +26,13 @@ func TestConvertProposals_ContentHoldsOnlyTheAction(t *testing.T) {
 	e := NewEngine(nil, zerolog.Nop())
 	planCtx := &PlanningContext{}
 	drafts := e.convertProposals(ctx, store, "t1", planCtx, []ActionProposal{{
-		Instruction: "复测 /search", Complexity: "complex", Priority: "high",
+		Instruction: "复测 /search", Complexity: "complex",
 		Reasoning: "反射点已坐实", TriggeredBy: []string{resultID, "phantom"},
 	}})
 
 	require.Len(t, drafts, 1)
 	d := drafts[0]
-	assert.Equal(t, explorationgraph.PriorityHigh, d.Node.Priority)
+	assert.Empty(t, d.Node.Priority, "规划者排出的动作不带优先级")
 	require.NotNil(t, d.Node.Complexity)
 	assert.Equal(t, explorationgraph.ComplexityComplex, *d.Node.Complexity)
 	assert.Equal(t, []string{resultID}, d.TriggeredBy, "幻影引用剔除")
