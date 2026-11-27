@@ -1,6 +1,8 @@
 package planner
 
 import (
+	"time"
+
 	"github.com/V3teran/liusha/internal/evaluator"
 
 	"encoding/json"
@@ -31,10 +33,10 @@ func buildTeamRosterSection(roster []AgentBrief) string {
 	return sb.String()
 }
 
-// buildObjectiveSection 构建任务目标部分：根目标即任务目标本体，进行中的派生
-// 目标逐条列出。已收敛的派生目标不再列出——已达成的无需再投入，已吸收的范围
-// 由吸收它的新目标承接（新目标本身在列）。
-func buildObjectiveSection(objective string, objectives []explorationgraph.Node) string {
+// buildObjectiveSection 构建任务目标部分：根目标即任务目标本体；进行中的方向带短号逐条
+// 列出——动作据它声明归属，线索据它归组。已收敛的方向不再列出：已达成的无需再投入，
+// 已吸收的范围由吸收它的新方向承接（新方向本身在列）。
+func buildObjectiveSection(objective string, directions []Direction) string {
 	var sb strings.Builder
 	sb.WriteString("## 任务目标\n")
 	if objective != "" {
@@ -44,10 +46,10 @@ func buildObjectiveSection(objective string, objectives []explorationgraph.Node)
 	}
 	sb.WriteString("\n\n")
 
-	if live := newObjectiveView(objectives).live; len(live) > 0 {
-		sb.WriteString("### 进行中的派生目标\n")
-		for _, obj := range live {
-			fmt.Fprintf(&sb, "- %s\n", objectiveDescription(obj))
+	if len(directions) > 0 {
+		sb.WriteString("### 进行中的方向\n")
+		for i, d := range directions {
+			fmt.Fprintf(&sb, "- [%s] %s\n", ordinal(directionPrefix, i), d.Goal)
 		}
 		sb.WriteString("\n")
 	}
@@ -69,13 +71,38 @@ func buildReplanSection(reasons []string) string {
 	return sb.String()
 }
 
-// buildStatisticsSection 构建统计信息部分
+// buildStatisticsSection 构建统计信息部分。跟进线索的动作是深挖（利用），不追线索的动作
+// 是铺开对象面（探索）：两者各有多少、各有多少在办，如实摆出来。
 func buildStatisticsSection(ctx *PlanningContext) string {
 	var sb strings.Builder
 	sb.WriteString("## 当前探索统计\n")
 	fmt.Fprintf(&sb, "- 已完成动作: %d\n", len(ctx.CompletedActions))
 	fmt.Fprintf(&sb, "- 进行中动作: %d\n", len(ctx.PendingActions))
 	fmt.Fprintf(&sb, "- 已坐实结果: %d\n", len(ctx.Results))
+	following, exploring := 0, 0
+	followingInFlight, exploringInFlight := 0, 0
+	count := func(action explorationgraph.Node) {
+		if ctx.claiming[action.ID] {
+			following++
+		} else {
+			exploring++
+		}
+	}
+	for _, group := range [][]explorationgraph.Node{ctx.CompletedActions, ctx.FailedActions, ctx.AbortedActions, ctx.RejectedActions} {
+		for _, action := range group {
+			count(action)
+		}
+	}
+	for _, action := range ctx.PendingActions {
+		count(action)
+		if ctx.claiming[action.ID] {
+			followingInFlight++
+		} else {
+			exploringInFlight++
+		}
+	}
+	fmt.Fprintf(&sb, "- 跟进线索的动作（深挖）: %d（在办 %d）\n", following, followingInFlight)
+	fmt.Fprintf(&sb, "- 不追线索的动作（铺开对象面）: %d（在办 %d）\n", exploring, exploringInFlight)
 	sb.WriteString("\n")
 	return sb.String()
 }
@@ -83,16 +110,16 @@ func buildStatisticsSection(ctx *PlanningContext) string {
 // ── 渲染预算 ─────────────────────────────────────────────────────────
 // 规划 prompt 是 planner ReAct 的首条输入，其体量必须有界：探索图只增不减，
 // 长任务下全量渲染会无界增长直至撞上长度校验哨兵弄死整轮规划。按用途分层——
-// pending 动作、已确认发现与待深挖的线索全量（规划的直接输入），终态动作与已判定
-// 不追的线索只逐条渲染尾部、更早的折叠成计数行，事实按类别分配名额（见
+// pending 动作、已确认发现与待深挖的线索全量（规划的直接输入），终态动作与已关闭
+// 的线索只逐条渲染尾部、更早的折叠成计数行，事实按类别分配名额（见
 // buildFactsSection）。确定性渲染，无 LLM 参与、不可能失败；折叠处以显式文字留痕
 // （不静默）。
 
 const (
 	// actionFoldLimit 是终态动作（completed/failed/aborted）逐条渲染的上限。
 	actionFoldLimit = 30
-	// declinedLeadFoldLimit 是已判定不追的线索逐条渲染的上限。
-	declinedLeadFoldLimit = 30
+	// closedLeadFoldLimit 是已关闭的线索逐条渲染的上限。
+	closedLeadFoldLimit = 30
 	// inventoryRenderLimit 是对象清单类事实（entity / note）合计逐条渲染的上限，只留
 	// 最新的这些；其余三类不占这个名额，全量渲染（见 buildFactsSection）。
 	inventoryRenderLimit = 60
@@ -162,16 +189,21 @@ func buildCompletedActionsSection(actions []explorationgraph.Node) string {
 	return sb.String()
 }
 
-// buildPendingActionsSection 构建进行中工作部分（规划的直接输入，全量逐条）。
-func buildPendingActionsSection(actions []explorationgraph.Node) string {
-	if len(actions) == 0 {
+// buildPendingActionsSection 构建进行中工作部分（规划的直接输入，全量逐条）。每条带短号
+// （线索可以挂到它上）与它推进的方向。
+func buildPendingActionsSection(ctx *PlanningContext) string {
+	if len(ctx.PendingActions) == 0 {
 		return ""
 	}
 
 	var sb strings.Builder
 	sb.WriteString("## 进行中的工作\n")
-	for _, action := range actions {
-		fmt.Fprintf(&sb, "- %s [ID: %s] %s\n", actionTag("进行中", action), action.ID, actionInstruction(action))
+	for i, action := range ctx.PendingActions {
+		fmt.Fprintf(&sb, "- [%s] %s", ordinal(actionPrefix, i), actionTag("进行中", action))
+		if handle := ctx.directionHandle(ctx.actionDirection[action.ID]); handle != "" {
+			fmt.Fprintf(&sb, " [推进 %s]", handle)
+		}
+		fmt.Fprintf(&sb, " [ID: %s] %s\n", action.ID, actionInstruction(action))
 	}
 	sb.WriteString("\n")
 	return sb.String()
@@ -281,40 +313,128 @@ func buildResultsSection(results []explorationgraph.Node) string {
 }
 
 // buildOpenLeadsSection 构建待深挖的线索：执行者已探通、尚未推进到结论的路径，单列在
-// 事实之前，带 ID 供动作的 pursues_lead 认领。同一陈述只列一条——它说的是同一条路。
-func buildOpenLeadsSection(leads []OpenLead) string {
-	if len(leads) == 0 {
+// 事实之前，带短号供动作认领。同一陈述的线索并成一行、短号都列出（没有哪条线索是看不见
+// 的）；每条带它由图上推导的处境——属于哪个方向、由哪个在办动作产出、挂了多久、几次
+// 跟进而没做完、几次被否决。
+func buildOpenLeadsSection(ctx *PlanningContext) string {
+	if len(ctx.OpenLeads) == 0 {
 		return ""
 	}
+	now := ctx.now()
+
 	var sb strings.Builder
 	sb.WriteString("## 待深挖的线索（执行者已探通、尚未推进到结论）\n")
-	seen := make(map[string]bool, len(leads))
-	for _, lead := range leads {
-		st := textx.TruncateRunes(lead.Statement, factClampRunes, "…（截断）")
-		if seen[st] {
+	emitted := make(map[string]bool, len(ctx.OpenLeads))
+	for _, lead := range ctx.OpenLeads {
+		if emitted[lead.Statement] {
 			continue
 		}
-		seen[st] = true
-		fmt.Fprintf(&sb, "- [%s] %s\n", lead.ID, st)
+		emitted[lead.Statement] = true
+
+		handles := make([]string, 0, 1)
+		statuses := make([]string, 0, 1)
+		for j, sibling := range ctx.OpenLeads {
+			if sibling.Statement != lead.Statement {
+				continue
+			}
+			handles = append(handles, ordinal(leadPrefix, j))
+			statuses = append(statuses, ctx.leadStatus(sibling, now))
+		}
+		fmt.Fprintf(&sb, "- [%s] %s", strings.Join(handles, "、"), textx.TruncateRunes(lead.Statement, factClampRunes, "…（截断）"))
+		// 一行上各条线索处境相同时只写一遍，否则逐条标出短号。
+		if first := statuses[0]; slices.IndexFunc(statuses, func(s string) bool { return s != first }) < 0 {
+			writeParenthesized(&sb, first)
+		} else {
+			for k, status := range statuses {
+				if k > 0 {
+					sb.WriteString("；")
+				} else {
+					sb.WriteString("（")
+				}
+				fmt.Fprintf(&sb, "%s：%s", handles[k], status)
+			}
+			sb.WriteString("）")
+		}
+		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")
 	return sb.String()
 }
 
-// buildDeclinedLeadsSection 构建已判定不追的线索，带当初的理由：规划者据此不再推进它们。
-// 它们只增不减，尾部逐条渲染、更早的折叠成计数行（与终态动作同一口径）。
-func buildDeclinedLeadsSection(leads []DeclinedLead) string {
+// writeParenthesized 写一段括注；段为空就不写括号。
+func writeParenthesized(sb *strings.Builder, text string) {
+	if text != "" {
+		sb.WriteString("（" + text + "）")
+	}
+}
+
+// now 是读取图面的时刻；没有记下时取当前时间。
+func (c *PlanningContext) now() time.Time {
+	if c.Now.IsZero() {
+		return time.Now()
+	}
+	return c.Now
+}
+
+// leadStatus 陈述一条待深挖线索由图上推导的处境，各项之间用「；」分开；没有的不写。
+func (ctx *PlanningContext) leadStatus(lead OpenLead, now time.Time) string {
+	parts := make([]string, 0, 6)
+	if handle := ctx.actionHandle(lead.ProducerID); handle != "" {
+		parts = append(parts, "由在办的 "+handle+" 产出")
+	}
+	if handle := ctx.directionHandle(lead.DirectionID); handle != "" {
+		parts = append(parts, "属于 "+handle)
+	}
+	parts = append(parts, agePhrase(lead.CreatedAt, now))
+	if lead.Truncated > 0 {
+		parts = append(parts, fmt.Sprintf("没做完 %d 次", lead.Truncated))
+	}
+	if lead.TruncationStreak >= 2 {
+		parts = append(parts, fmt.Sprintf("连续没做完 %d 次", lead.TruncationStreak))
+	}
+	if lead.Faults > 0 {
+		parts = append(parts, fmt.Sprintf("执行故障 %d 次", lead.Faults))
+	}
+	if lead.Progressed > 0 {
+		parts = append(parts, fmt.Sprintf("跟进过 %d 次、推进了但没到结论", lead.Progressed))
+	}
+	if lead.Vetoes > 0 {
+		parts = append(parts, fmt.Sprintf("被否决 %d 次：%s", lead.Vetoes,
+			textx.TruncateRunes(lead.LastVetoReason, reasonClampRunes, "…（截断）")))
+	}
+	return strings.Join(parts, "；")
+}
+
+// agePhrase 说出一道线索自出现以来挂了多久。
+func agePhrase(from, now time.Time) string {
+	minutes := now.Sub(from).Minutes()
+	switch {
+	case minutes < 1:
+		return "已挂不到 1 分钟"
+	case minutes < 60:
+		return fmt.Sprintf("已挂 %d 分钟", int(minutes))
+	default:
+		return fmt.Sprintf("已挂 %d 小时 %d 分钟", int(minutes)/60, int(minutes)%60)
+	}
+}
+
+// buildClosedLeadsSection 构建已关闭的线索，带着关闭原因：规划者据此不再推进它们——路真的
+// 还通，会有新的线索重新出现。它们只增不减，尾部逐条渲染、更早的折叠成计数行（与终态
+// 动作同一口径）。
+func buildClosedLeadsSection(leads []ClosedLead) string {
 	if len(leads) == 0 {
 		return ""
 	}
-	shown, folded := foldTail(leads, declinedLeadFoldLimit)
+	shown, folded := foldTail(leads, closedLeadFoldLimit)
 	var sb strings.Builder
-	sb.WriteString("## 已判定不追的线索\n")
-	sb.WriteString(foldLine("已判定不追的线索", folded))
+	sb.WriteString("## 已关闭的线索\n")
+	sb.WriteString(foldLine("已关闭的线索", folded))
 	for _, lead := range shown {
-		fmt.Fprintf(&sb, "- %s（理由：%s）\n",
-			textx.TruncateRunes(lead.Statement, factClampRunes, "…（截断）"),
-			textx.TruncateRunes(lead.Reason, reasonClampRunes, "…（截断）"))
+		line := closureLabel(lead.Kind)
+		if lead.Reason != "" {
+			line += "：" + textx.TruncateRunes(lead.Reason, reasonClampRunes, "…（截断）")
+		}
+		fmt.Fprintf(&sb, "- %s（%s）\n", textx.TruncateRunes(lead.Statement, factClampRunes, "…（截断）"), line)
 	}
 	sb.WriteString("\n")
 	return sb.String()

@@ -83,8 +83,8 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		return registry.ToolResult{Error: fmt.Sprintf("list observations: %v", err)}, nil
 	}
 
-	// 待深挖的线索由图结构推导（标了 opens_deeper、没有被判不追、没有算数的动作在跟进）。
-	// 线索堆积不深挖是可直接观测的功能障碍。
+	// 待深挖的线索由图结构推导（见 explorationgraph 的 lead.go）。线索堆积着没人追、
+	// 追了总做不完，是可直接观测的功能障碍。
 	openLeads, err := t.graph.OpenLeads(ctx, t.taskID)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("list open leads: %v", err)}, nil
@@ -111,7 +111,7 @@ func (t *GetGlobalStateTool) Execute(ctx context.Context, _ json.RawMessage) (re
 		Actions:        allActions,
 		Results:        findings,
 		Hypotheses:     hypothesisViews(observations),
-		OpenLeads:      openLeadViews(openLeads),
+		OpenLeads:      openLeadViews(openLeads, time.Now()),
 		RunningActions: t.runningActionViews(allActions, time.Now()),
 		Metrics:        t.metricsCollector.Snapshot(),
 	}
@@ -153,13 +153,25 @@ func hypothesisViews(observations []explorationgraph.Node) []HypothesisView {
 }
 
 // openLeadViews 把待深挖的线索（由 Store.OpenLeads 推导）映射成监察视图，保持入参的
-// 创建先后序。入参已是筛选后的待深挖线索，这里不再判定。
-func openLeadViews(leads []explorationgraph.Node) []OpenLead {
+// 创建先后序：显式算好挂了多久，不让决策者做时间戳算术。入参已是筛选后的线索，这里
+// 不再判定处境。
+func openLeadViews(leads []explorationgraph.Lead, now time.Time) []OpenLead {
 	views := []OpenLead{}
 	for i := range leads {
-		if statement := leads[i].Statement(); statement != "" {
-			views = append(views, OpenLead{ID: leads[i].ID, Statement: statement})
+		statement := leads[i].Statement()
+		if statement == "" {
+			continue
 		}
+		mins := now.Sub(leads[i].CreatedAt).Minutes()
+		if mins < 0 {
+			mins = 0
+		}
+		views = append(views, OpenLead{
+			ID: leads[i].ID, Statement: statement, AgeMinutes: math.Round(mins*10) / 10,
+			Truncated: leads[i].Truncated, TruncationStreak: leads[i].TruncationStreak,
+			Faults: leads[i].Faults, Progressed: leads[i].Progressed,
+			Vetoes: leads[i].Vetoes, LastVetoReason: leads[i].LastVetoReason,
+		})
 	}
 	return views
 }
@@ -219,6 +231,7 @@ const (
 	ProblemStalled            = "stalled"             // 动作不少却长时间没有新结果
 	ProblemGoalSatisfied      = "goal_satisfied"      // 目标要求的成果已坐实，探索仍在继续
 	ProblemDiminishingReturns = "diminishing_returns" // 动作大量累积而结果寥寥
+	ProblemLeadsNeglected     = "leads_neglected"     // 线索挂着没人跟进，动作都去了新的对象面
 )
 
 // problemLabels 是问题类别交给规划者时的说法（写在否决原因与重规划理由的开头）。
@@ -229,12 +242,13 @@ var problemLabels = map[string]string{
 	ProblemStalled:            "探索停滞",
 	ProblemGoalSatisfied:      "目标已满足",
 	ProblemDiminishingReturns: "收益递减",
+	ProblemLeadsNeglected:     "线索被搁置",
 }
 
 // decisionProblems 是每种决策可针对的问题类别。
 var decisionProblems = map[string][]string{
 	DecisionRejectAction:  {ProblemDuplicate, ProblemDirectionRefuted, ProblemOffGoal},
-	DecisionRequestReplan: {ProblemStalled, ProblemGoalSatisfied, ProblemDiminishingReturns, ProblemOffGoal},
+	DecisionRequestReplan: {ProblemStalled, ProblemGoalSatisfied, ProblemDiminishingReturns, ProblemOffGoal, ProblemLeadsNeglected},
 }
 
 // PublishDecisionTool 是 monitor 的决策出口：否决落探索图状态，重规划请求直接交给
@@ -284,8 +298,8 @@ func (t *PublishDecisionTool) Schema() json.RawMessage {
 			},
 			"problem": {
 				"type": "string",
-				"description": "决策针对的功能障碍。reject_action 可取 duplicate（与已完成或已失败的动作做同一件事）、direction_refuted（所在方向的主张已被判定不成立，或已被新结果覆盖）、off_goal（对象不在任务目标范围内）；request_replan 可取 stalled（动作不少却长时间没有新结果）、goal_satisfied（目标要求的成果已坐实，探索仍在继续）、diminishing_returns（动作大量累积而结果寥寥）、off_goal（用户指派的动作偏离目标，只能在重规划里指出）",
-				"enum": ["duplicate", "direction_refuted", "off_goal", "stalled", "goal_satisfied", "diminishing_returns"]
+				"description": "决策针对的功能障碍。reject_action 可取 duplicate（与已完成或已失败的动作做同一件事；只否决这一步，它跟进的线索带着否决理由重新待深挖）、direction_refuted（所在方向的主张已被判定不成立，或已被新结果覆盖）、off_goal（对象不在任务目标范围内）——后两类评判的是这条线本身，被否决的动作所跟进的线索随之关闭；request_replan 可取 stalled（动作不少却长时间没有新结果）、goal_satisfied（目标要求的成果已坐实，探索仍在继续）、diminishing_returns（动作大量累积而结果寥寥）、off_goal（用户指派的动作偏离目标，只能在重规划里指出）、leads_neglected（线索挂着没人跟进，动作都去了新的对象面）",
+				"enum": ["duplicate", "direction_refuted", "off_goal", "stalled", "goal_satisfied", "diminishing_returns", "leads_neglected"]
 			},
 			"evidence_ids": {
 				"type": "array",
@@ -347,7 +361,8 @@ func (t *PublishDecisionTool) rejectAction(ctx context.Context, decision Decisio
 	if node.SourceType == explorationgraph.SourceUser {
 		return fmt.Sprintf("reject_action 拒绝：动作 %s 是用户指派的，只有用户能否决", decision.ActionID)
 	}
-	ok, err := t.graph.RejectAction(ctx, t.taskID, decision.ActionID, explorationgraph.SourceMonitor, decision.statement())
+	ok, err := t.graph.RejectAction(ctx, t.taskID, decision.ActionID, explorationgraph.SourceMonitor,
+		rejectionScope(decision.Problem), decision.statement())
 	if err != nil {
 		return fmt.Sprintf("reject_action 失败: %v", err)
 	}
@@ -355,6 +370,17 @@ func (t *PublishDecisionTool) rejectAction(ctx context.Context, decision Decisio
 		return fmt.Sprintf("reject_action 拒绝：动作 %s 已结束，只有待执行或执行中的动作可否决", decision.ActionID)
 	}
 	return ""
+}
+
+// rejectionScope 是一类问题所对应的否决范围：偏离目标与方向作废评判的是这条线本身，
+// 被否决的动作所跟进的线索随之关闭；重复只评判这一步，线索带着否决理由重新待深挖。
+func rejectionScope(problem string) explorationgraph.RejectScope {
+	switch problem {
+	case ProblemOffGoal, ProblemDirectionRefuted:
+		return explorationgraph.RejectLead
+	default:
+		return explorationgraph.RejectStep
+	}
 }
 
 // validate 校验决策有据可依，返回给模型的拒绝说明（空 = 可以生效）：本轮看过全局态势、

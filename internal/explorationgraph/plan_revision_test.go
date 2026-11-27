@@ -306,7 +306,7 @@ func TestRejectAction_KeepsNodeIdentity(t *testing.T) {
 		SourceType: SourcePlanner, Priority: PriorityHigh})
 
 	reason := "偏离目标"
-	ok, err := store.RejectAction(ctx, revTask, "a1", SourceMonitor, reason)
+	ok, err := store.RejectAction(ctx, revTask, "a1", SourceMonitor, RejectStep, reason)
 	require.NoError(t, err)
 	require.True(t, ok)
 

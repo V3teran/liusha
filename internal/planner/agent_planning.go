@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
@@ -108,8 +107,8 @@ func (a *Agent) planningBasis(ctx context.Context) (explorationgraph.GoalBasis, 
 // applyOutcome 落定一次规划结论（常规规划与强制重规划共用）：
 //   - 停止探索：收回规划者排出、还没做完的动作（以 basis 为前置），记下结论，走收敛判定——
 //     余下的只有用户指派的动作、待验证假设与待分析结果，落定后即收敛；
-//   - 图面有了变化（排了新动作，或判定不追了线索）：落图，此前的结论随之作废，下一轮按
-//     新图面重新规划；
+//   - 图面有了变化（排了新动作、安排了线索的跟进，或关闭了线索）：落图，此前的结论随之
+//     作废，下一轮按新图面重新规划；
 //   - 没有变化：记下「等待」结论，走收敛判定。
 //
 // 目标在规划期间被改写时返回 ErrGoalChanged，什么都不落。
@@ -138,17 +137,32 @@ func (a *Agent) applyOutcome(ctx context.Context, basis explorationgraph.GoalBas
 // stopReason 是规划者停止探索时收回动作所记的原因。
 const stopReason = "规划者已停止探索，收回未做完的规划动作"
 
-// applyPlan 把规划提案以 basis 为前置原子落图（与结果分析的修订同一条写入路径），返回
-// 图面是否因此有了变化——新增了动作，或判定不追了线索。动作全被过滤且没有不追处置，
-// 与「没有提案」是同一局面，由调用方走无动作处理。目标在规划期间被改写时返回
+// applyPlan 把规划结论以 basis 为前置原子落图（与结果分析的修订同一条写入路径），返回
+// 图面是否因此有了变化——新增了动作、安排了线索的跟进，或关闭了线索。什么都没有落，与
+// 「没有提案」是同一局面，由调用方走无动作处理。目标在规划期间被改写时返回
 // ErrGoalChanged，什么都不落。
 func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis, outcome PlanOutcome) (bool, error) {
 	drafts := a.admitActions(ctx, outcome.Actions)
-	if len(drafts) == 0 && len(outcome.DeclinedLeads) == 0 {
+	// 被去重拦下的动作不存在，它对线索的认领随之落空：这些线索本轮没有人跟进，下一轮仍在。
+	admitted := make(map[string]bool, len(drafts))
+	for _, draft := range drafts {
+		admitted[draft.Node.ID] = true
+	}
+	pursuits := make([]explorationgraph.Pursuit, 0, len(outcome.Claims)+len(outcome.Attachments))
+	for _, pursuit := range outcome.Claims {
+		if admitted[pursuit.ActionID] {
+			pursuits = append(pursuits, pursuit)
+		} else {
+			a.logger.Warn().Str("lead_id", pursuit.LeadID).Msg("认领线索的动作与既有动作重复被拦下，这条线索本轮无人跟进")
+		}
+	}
+	pursuits = append(pursuits, outcome.Attachments...)
+
+	if len(drafts) == 0 && len(pursuits) == 0 && len(outcome.Closings) == 0 {
 		return false, nil
 	}
 	report, err := a.graph.RevisePlan(ctx, a.taskID, explorationgraph.PlanRevision{
-		Basis: basis, AddedActions: drafts, DeclinedLeads: outcome.DeclinedLeads,
+		Basis: basis, AddedActions: drafts, Pursuits: pursuits, ClosedLeads: outcome.Closings,
 	})
 	for _, r := range report.Rejected {
 		a.logger.Warn().Str("field", string(r.Field)).Str("ref", r.ID).Str("reason", r.Reason).Msg("规划提案剔除无效引用")
@@ -162,18 +176,13 @@ func (a *Agent) applyPlan(ctx context.Context, basis explorationgraph.GoalBasis,
 	if len(report.AddedActions) > 0 {
 		a.logger.Info().Strs("action_ids", report.AddedActions).Msg("新 Action 已落图")
 	}
-	if len(report.DeclinedLeads) > 0 {
-		a.logger.Info().Strs("lead_ids", report.DeclinedLeads).Msg("线索已判定不追")
+	if len(report.AttachedLeads) > 0 {
+		a.logger.Info().Strs("lead_ids", report.AttachedLeads).Msg("线索已挂到在办动作上")
 	}
-
-	pursued := slices.ContainsFunc(drafts, func(d explorationgraph.ActionDraft) bool { return d.PursuesLead != "" })
-	if outcome.OpenLeadCount > 0 && !pursued && len(report.DeclinedLeads) == 0 {
-		// 章程要求待深挖的线索非空时本轮至少处理一条。这里只留证据，不替规划者补动作：
-		// 是否已构成功能障碍由监察者据 open_leads 判断。
-		a.logger.Warn().Int("open_leads", outcome.OpenLeadCount).
-			Msg("本轮有待深挖的线索，规划者既未认领也未判定不追")
+	if len(report.ClosedLeads) > 0 {
+		a.logger.Info().Strs("lead_ids", report.ClosedLeads).Msg("线索已关闭")
 	}
-	return len(report.AddedActions) > 0 || len(report.DeclinedLeads) > 0, nil
+	return len(report.AddedActions) > 0 || len(report.AttachedLeads) > 0 || len(report.ClosedLeads) > 0, nil
 }
 
 // admitActions 过滤规划提案：指令级字面去重（见 admit）——空指令不可执行，与图上既有

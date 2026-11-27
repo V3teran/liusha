@@ -82,7 +82,7 @@ describe('探索图 Toolbar · 只看方向关系', () => {
 
   it('有滋生或吸收的边时出现开关，点它交出取舍', async () => {
     const { user, onDirectionOnly } = setup()
-    await user.click(screen.getByRole('button', { name: '滋生 · 吸收' }))
+    await user.click(screen.getByRole('button', { name: '方向关系' }))
     expect(onDirectionOnly).toHaveBeenCalledWith(true)
   })
 
@@ -90,7 +90,7 @@ describe('探索图 Toolbar · 只看方向关系', () => {
     const onFilterKind = vi.fn()
     const onFilterState = vi.fn()
     const { user, onDirectionOnly } = setup({ directionOnly: true, onFilterKind, onFilterState })
-    expect(screen.getByRole('button', { name: '滋生 · 吸收' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: '方向关系' }).getAttribute('aria-pressed')).toBe('true')
     await user.click(screen.getByRole('button', { name: '清空筛选' }))
     expect(onDirectionOnly).toHaveBeenCalledWith(false)
     expect(onFilterKind).toHaveBeenCalledWith('all')
@@ -99,6 +99,6 @@ describe('探索图 Toolbar · 只看方向关系', () => {
 
   it('图上没有这两种边时不出现开关', () => {
     setup({ directionEdgeCount: 0, stats: { total: 1, edgeCount: 0, byKind: {}, directionEdgeCount: 0 } })
-    expect(screen.queryByRole('button', { name: '滋生 · 吸收' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '方向关系' })).toBeNull()
   })
 })

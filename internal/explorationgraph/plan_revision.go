@@ -11,8 +11,8 @@ import (
 )
 
 // PlanRevision 是规划层对探索图的一次修订：结果分析提出新方向、宣告方向达成、
-// 让新方向吸收旧方向，并把被分析的结果标记为已分析；常规规划新增动作。一次修订
-// 是同一个规划决策的不同侧面，整体原子落图——不会出现「新目标
+// 让新方向吸收旧方向，并把被分析的结果标记为已分析；常规规划新增动作、安排线索的
+// 跟进与关闭。一次修订是同一个规划决策的不同侧面，整体原子落图——不会出现「新目标
 // 已建、被它吸收的旧目标仍 open」「旧目标已 superseded、却查不到吸收者」，
 // 也不会出现决策只落了一半、或结论已落而结果仍待分析，从而在重试或下一个 run
 // 里被重复写入。
@@ -28,7 +28,8 @@ type PlanRevision struct {
 	AddedObjectives     []ObjectiveDraft      // 新提出的派生目标
 	CompletedObjectives []ObjectiveCompletion // 宣告达成的派生目标
 	AddedActions        []ActionDraft         // 常规规划新增的动作
-	DeclinedLeads       []LeadDecline         // 常规规划判定不追的线索
+	Pursuits            []Pursuit             // 线索的跟进：新动作认领，或在办动作挂接
+	ClosedLeads         []LeadClosing         // 规划层关闭的线索
 }
 
 // ObjectiveDraft 是一个待落图的新派生目标。
@@ -48,29 +49,41 @@ type ObjectiveCompletion struct {
 type ActionDraft struct {
 	Node        Node     // 动作节点：kind=action、state=open、source=planner、属本任务
 	TriggeredBy []string // 催生它的 result（落 triggers 边）
-	// PursuesLead 是本动作跟进的待深挖线索（事实观察 ID，可空）。落图时建一条 pursues
-	// 边（action → 线索）：线索在动作在办期间退出待深挖清单，执行者据这条边知道自己
-	// 认领了什么。引用的不是修订开始时仍待深挖的线索时剔除该引用（不拖垮修订）。
-	PursuesLead string
+	// Serves 是本动作推进的方向（进行中的派生目标 ID，可空），落一条 serves 边
+	// （action → 方向）。动作只有一个归属：它认领线索（见 Pursuit）时挂在线索下，Serves
+	// 改为写在线索上——规划者据此改写这条线索的方向归属，一条线索只改一次。
+	// 引用的不是可修订的派生目标时剔除该引用（不拖垮修订）。
+	Serves string
 }
 
-// LeadDecline 是规划层对一条线索的处置：不再跟进，并记下理由。
-type LeadDecline struct {
+// Pursuit 是一条跟进关系：动作的结局结算这条线索。动作为跟进它而排出（同在本次修订里
+// 新增）落 pursues 边，执行者据它知道自己接手的是哪条线索；图上在办的动作落 attaches
+// 边——线索出现得比动作晚，把在办动作挂到它上只记账，不改这个动作的范围。只能挂到
+// 在办（open / running）的动作上：想说明之前已完成的动作已经覆盖了它，走关闭。
+type Pursuit struct {
+	ActionID string
+	LeadID   string
+}
+
+// LeadClosing 是规划层关闭一条线索的决定：类别须是规划者可判定的（LeadClosureKind.Declared）。
+type LeadClosing struct {
 	LeadID string
+	Kind   LeadClosureKind
 	Reason string
 }
 
-// RevisionField 标识修订中的引用位置（与分析输出契约的字段同名）。
+// RevisionField 标识修订中的引用位置（与规划输出契约的字段同名）。
 type RevisionField string
 
 // 修订中的引用位置。
 const (
-	FieldCompleted     RevisionField = "completed_objectives"
-	FieldEvidence      RevisionField = "evidence_ids"
-	FieldTriggeredBy   RevisionField = "triggered_by"
-	FieldSupersedes    RevisionField = "supersedes"
-	FieldPursuesLead   RevisionField = "pursues_lead"
-	FieldDeclinedLeads RevisionField = "declined_leads"
+	FieldCompleted   RevisionField = "completed_objectives"
+	FieldEvidence    RevisionField = "evidence_ids"
+	FieldTriggeredBy RevisionField = "triggered_by"
+	FieldSupersedes  RevisionField = "supersedes"
+	FieldServes      RevisionField = "serves"
+	FieldPursues     RevisionField = "pursues"
+	FieldLeads       RevisionField = "leads"
 )
 
 // RejectedReference 是修订中被剔除的无效引用。修订内容来自 LLM 提案：引用
@@ -85,7 +98,8 @@ type RejectedReference struct {
 type RevisionReport struct {
 	AddedObjectives      []string            // 新建的派生目标
 	AddedActions         []string            // 新建的动作
-	DeclinedLeads        []string            // 被判定不追的线索
+	AttachedLeads        []string            // 挂到在办动作上的线索
+	ClosedLeads          []string            // 被规划层关闭的线索
 	CompletedObjectives  []string            // 转 completed 的派生目标
 	SupersededObjectives []string            // 转 superseded 的派生目标
 	Rejected             []RejectedReference // 被剔除的无效引用
@@ -94,7 +108,8 @@ type RevisionReport struct {
 // IsEmpty 判断修订是否没有任何内容。
 func (r PlanRevision) IsEmpty() bool {
 	return len(r.Analyzed) == 0 && len(r.AddedObjectives) == 0 &&
-		len(r.CompletedObjectives) == 0 && len(r.AddedActions) == 0 && len(r.DeclinedLeads) == 0
+		len(r.CompletedObjectives) == 0 && len(r.AddedActions) == 0 &&
+		len(r.Pursuits) == 0 && len(r.ClosedLeads) == 0
 }
 
 // RevisePlan 校验并原子应用一次规划修订。
@@ -125,7 +140,7 @@ func (s *Store) RevisePlan(ctx context.Context, taskID string, rev PlanRevision)
 	if err != nil {
 		return RevisionReport{}, fmt.Errorf("读取结果快照: %w", err)
 	}
-	leads, err := s.openLeadIndex(ctx, taskID, rev)
+	snapshot, err := s.readLeadSnapshot(ctx, taskID, rev)
 	if err != nil {
 		return RevisionReport{}, err
 	}
@@ -135,18 +150,22 @@ func (s *Store) RevisePlan(ctx context.Context, taskID string, rev PlanRevision)
 		return RevisionReport{}, fmt.Errorf("修订依据 %s 不是任务 %s 的根目标", rev.Basis.ObjectiveID, taskID)
 	}
 
-	b := newRevisionBuilder(s, taskID, objectives, results, leads)
+	b := newRevisionBuilder(s, taskID, objectives, results, snapshot)
 	b.changes.Preconditions = []core.GraphNodeVersion{{TaskID: taskID, NodeID: root.ID, Version: rev.Basis.Version}}
 	if err := b.markAnalyzed(rev.Analyzed); err != nil {
 		return RevisionReport{}, err
 	}
 	b.complete(rev.CompletedObjectives)
 	b.addObjectives(rev.AddedObjectives)
-	// 不追先于动作：同一条线索既被判不追又被认领时，认领落空（见 pursueLead）。
-	b.declineLeads(rev.DeclinedLeads)
+	// 关闭先于跟进：同一条线索既被关闭又有动作跟进时，跟进落空（见 pursue）。
+	b.closeLeads(rev.ClosedLeads)
 	if err := b.addActions(rev.AddedActions); err != nil {
 		return RevisionReport{Rejected: b.report.Rejected}, err
 	}
+	for _, pursuit := range rev.Pursuits {
+		b.pursue(pursuit)
+	}
+	b.settleDirections(rev.AddedActions)
 
 	if err := s.graphStore.ApplyChangeSet(ctx, b.changes); err != nil {
 		if errors.Is(err, core.ErrVersionMismatch) {
@@ -157,6 +176,70 @@ func (s *Store) RevisePlan(ctx context.Context, taskID string, rev PlanRevision)
 	return b.report, nil
 }
 
+// leadSnapshot 是修订开始时与线索有关的图快照：待深挖的线索、可被挂接的在办动作，
+// 以及已经改写过方向归属的线索。
+type leadSnapshot struct {
+	leads      map[string]Node // 待深挖的线索（供 pursues 与 leads 校验）
+	inFlight   map[string]Node // 在办（open / running）的动作（供挂接校验）
+	redirected map[string]bool // 已改写过方向归属的线索
+}
+
+// readLeadSnapshot 读取线索快照。本次修订不碰线索时跳过加载——纯结果分析修订与不碰
+// 线索的常规规划不为此多查；在办动作与既有归属只在修订确实用到时读。
+func (s *Store) readLeadSnapshot(ctx context.Context, taskID string, rev PlanRevision) (leadSnapshot, error) {
+	snap := leadSnapshot{}
+	if len(rev.ClosedLeads) == 0 && len(rev.Pursuits) == 0 {
+		return snap, nil
+	}
+	open, err := s.OpenLeads(ctx, taskID)
+	if err != nil {
+		return snap, err
+	}
+	snap.leads = make(map[string]Node, len(open))
+	for _, lead := range open {
+		snap.leads[lead.ID] = lead.Node
+	}
+	newActions := make(map[string]string, len(rev.AddedActions))
+	for _, d := range rev.AddedActions {
+		newActions[d.Node.ID] = d.Serves
+	}
+	needInFlight, needRedirected := false, false
+	for _, p := range rev.Pursuits {
+		serves, isNew := newActions[p.ActionID]
+		if !isNew {
+			needInFlight = true
+		}
+		if isNew && serves != "" {
+			needRedirected = true
+		}
+	}
+	if needInFlight {
+		actions, err := s.ListNodesByKind(ctx, taskID, core.KindAction)
+		if err != nil {
+			return snap, fmt.Errorf("读取动作快照: %w", err)
+		}
+		snap.inFlight = make(map[string]Node, len(actions))
+		for _, a := range actions {
+			if a.State != nil && (*a.State == StateOpen || *a.State == StateRunning) {
+				snap.inFlight[a.ID] = a
+			}
+		}
+	}
+	if needRedirected {
+		edges, err := s.graphStore.ListEdges(ctx, core.GraphEdgeQuery{TaskID: taskID, Relation: string(RelServes)})
+		if err != nil {
+			return snap, fmt.Errorf("读取 serves 边: %w", err)
+		}
+		snap.redirected = make(map[string]bool)
+		for _, e := range edges {
+			if _, isLead := snap.leads[e.From]; isLead {
+				snap.redirected[e.From] = true
+			}
+		}
+	}
+	return snap, nil
+}
+
 // revisionBuilder 基于图快照把一次修订翻译为变更集，并记录落图结果与被剔除的引用。
 type revisionBuilder struct {
 	store      *Store
@@ -164,25 +247,37 @@ type revisionBuilder struct {
 	objectives []Node
 	objective  map[string]Node
 	results    map[string]Node
-	leads      map[string]Node // 修订开始时仍待深挖的线索（供 pursues_lead / declined_leads 校验）
+	leads      map[string]Node // 修订开始时待深挖的线索
+	inFlight   map[string]Node // 修订开始时在办的动作
+	redirected map[string]bool // 已改写过方向归属的线索
 	now        time.Time
 
-	completed  map[string]bool // 本次宣告达成的目标
-	superseded map[string]bool // 本次被吸收的目标
-	declined   map[string]bool // 本次判定不追的线索
+	newActions map[string]string // 本次修订的新动作 → 它声明的方向（可空）
+	completed  map[string]bool   // 本次宣告达成的目标
+	superseded map[string]bool   // 本次被吸收的目标
+	closed     map[string]bool   // 本次关闭的线索
+	pursued    map[string]bool   // 本次修订里已被跟进的线索
+	following  map[string]bool   // 本次修订里认领了线索的新动作
 
 	changes core.GraphChangeSet
 	report  RevisionReport
 }
 
-func newRevisionBuilder(s *Store, taskID string, objectives []Node, results, leads map[string]Node) *revisionBuilder {
+func newRevisionBuilder(s *Store, taskID string, objectives []Node, results map[string]Node, snap leadSnapshot) *revisionBuilder {
 	byID := make(map[string]Node, len(objectives))
 	for _, n := range objectives {
 		byID[n.ID] = n
 	}
 	return &revisionBuilder{
-		store: s, taskID: taskID, objectives: objectives, objective: byID, results: results, leads: leads,
-		now: time.Now(), completed: map[string]bool{}, superseded: map[string]bool{}, declined: map[string]bool{},
+		store: s, taskID: taskID, objectives: objectives, objective: byID, results: results,
+		leads: snap.leads, inFlight: snap.inFlight, redirected: snap.redirected,
+		now:        time.Now(),
+		newActions: make(map[string]string),
+		completed:  map[string]bool{},
+		superseded: map[string]bool{},
+		closed:     map[string]bool{},
+		pursued:    map[string]bool{},
+		following:  map[string]bool{},
 	}
 }
 
@@ -264,7 +359,8 @@ func (b *revisionBuilder) absorb(oldID string) bool {
 	return true
 }
 
-// addActions 新动作：归属根目标 + 溯源边。
+// addActions 新动作：归属根目标 + 溯源边。动作声明的方向先记下，认领了线索的动作由
+// pursue 把它写在线索上，其余的由 settleDirections 写在动作上。
 func (b *revisionBuilder) addActions(drafts []ActionDraft) error {
 	if len(drafts) == 0 {
 		return nil
@@ -280,52 +376,109 @@ func (b *revisionBuilder) addActions(drafts []ActionDraft) error {
 		for _, resultID := range b.validResults(FieldTriggeredBy, d.TriggeredBy) {
 			b.edge(resultID, RelTriggers, d.Node.ID)
 		}
-		b.pursueLead(d.Node.ID, d.PursuesLead)
+		b.newActions[d.Node.ID] = d.Serves
 	}
 	return nil
 }
 
-// pursueLead 为本动作落一条 pursues 边（action → 线索）：跟进关系在图上可查、可回溯，
-// 线索随之退出待深挖清单（见 lead.go）。引用的不是修订开始时仍待深挖的线索（幻觉
-// ID、已被在办动作跟进、同一修订里刚被判不追）即剔除，不拖垮修订——与 result 引用的
-// 剔除同口径。
-func (b *revisionBuilder) pursueLead(actionID, leadID string) {
-	if leadID == "" {
-		return
+// settleDirections 给没有认领线索的新动作落方向归属（serves 边，action → 方向）。
+func (b *revisionBuilder) settleDirections(drafts []ActionDraft) {
+	for _, d := range drafts {
+		if d.Serves != "" && !b.following[d.Node.ID] {
+			b.serve(d.Node.ID, d.Serves)
+		}
 	}
-	if b.declined[leadID] {
-		b.reject(FieldPursuesLead, leadID, "同一修订已判定不追这条线索")
-		return
-	}
-	if _, ok := b.leads[leadID]; !ok {
-		b.reject(FieldPursuesLead, leadID, "不是本任务仍待深挖的线索")
-		return
-	}
-	b.edge(actionID, RelPursues, leadID)
 }
 
-// declineLeads 判定线索不追：在线索上批注理由，它从此退出待深挖清单。引用的不是修订
-// 开始时仍待深挖的线索、或没给理由的，剔除该条并如实报告，不拖垮修订。批注是一次性的：
-// 并发的两次修订判定同一条线索时只有一次能提交，理由不会落两遍。
-func (b *revisionBuilder) declineLeads(declines []LeadDecline) {
-	for _, d := range declines {
-		if b.declined[d.LeadID] {
+// serve 为节点落一条 serves 边（node → 方向）。引用的不是可修订的派生目标（幻觉 ID、
+// 已收敛的方向、根目标）即剔除并如实报告，不拖垮修订——与 result 引用的剔除同口径。
+func (b *revisionBuilder) serve(nodeID, directionID string) {
+	if ok, reason := b.revisable(directionID); !ok {
+		b.reject(FieldServes, directionID, reason)
+		return
+	}
+	b.edge(nodeID, RelServes, directionID)
+}
+
+// pursue 落一条跟进关系。新动作认领线索落 pursues 边；图上在办的动作落 attaches 边
+// （只记账）。引用失效（不是本任务待深挖的线索、同一修订里已被关闭或已有动作跟进、
+// 挂接的对象不是在办动作）即剔除并报告，不拖垮修订。
+func (b *revisionBuilder) pursue(p Pursuit) {
+	switch {
+	case b.closed[p.LeadID]:
+		b.reject(FieldPursues, p.LeadID, "同一修订已关闭这条线索")
+		return
+	case b.pursued[p.LeadID]:
+		b.reject(FieldPursues, p.LeadID, "同一修订里已有动作跟进这条线索")
+		return
+	}
+	if _, ok := b.leads[p.LeadID]; !ok {
+		b.reject(FieldPursues, p.LeadID, "不是本任务待深挖的线索")
+		return
+	}
+	serves, isNew := b.newActions[p.ActionID]
+	if isNew {
+		b.following[p.ActionID] = true
+		b.edge(p.ActionID, RelPursues, p.LeadID)
+	} else {
+		if _, ok := b.inFlight[p.ActionID]; !ok {
+			b.reject(FieldPursues, p.ActionID, "只能挂到本任务在办的动作上")
+			return
+		}
+		b.edge(p.ActionID, RelAttaches, p.LeadID)
+		b.report.AttachedLeads = append(b.report.AttachedLeads, p.LeadID)
+	}
+	b.pursued[p.LeadID] = true
+	// 认领线索的动作挂在线索下：它声明的方向是这条线索的方向归属。
+	if serves != "" {
+		b.redirect(p.LeadID, serves)
+	}
+}
+
+// redirect 把一条线索的方向归属改写到另一个方向（serves 边，线索 → 方向）。一条线索
+// 只改一次：此前改写过（图上已有，或同一修订里刚改过）即剔除并报告——归属来回改，
+// 按方向分组就失去了意义。
+func (b *revisionBuilder) redirect(leadID, directionID string) {
+	if b.redirected[leadID] {
+		b.reject(FieldServes, leadID, "这条线索的方向归属已改过")
+		return
+	}
+	if ok, reason := b.revisable(directionID); !ok {
+		b.reject(FieldServes, directionID, reason)
+		return
+	}
+	b.redirected[leadID] = true
+	b.edge(leadID, RelServes, directionID)
+}
+
+// closeLeads 关闭线索：类别与理由批注在线索上，它从此退出待跟进清单。引用的不是修订
+// 开始时待深挖的线索、类别不是规划者可判定的、或没给理由的，剔除该条并如实报告，
+// 不拖垮修订。批注是一次性的：并发的两次修订关闭同一条线索时只有一次能提交。
+func (b *revisionBuilder) closeLeads(closings []LeadClosing) {
+	for _, c := range closings {
+		if b.closed[c.LeadID] {
 			continue
 		}
-		if _, ok := b.leads[d.LeadID]; !ok {
-			b.reject(FieldDeclinedLeads, d.LeadID, "不是本任务仍待深挖的线索")
+		if _, ok := b.leads[c.LeadID]; !ok {
+			b.reject(FieldLeads, c.LeadID, "不是本任务待深挖的线索")
 			continue
 		}
-		if strings.TrimSpace(d.Reason) == "" {
-			b.reject(FieldDeclinedLeads, d.LeadID, "缺少不追的理由")
+		if !c.Kind.Declared() {
+			b.reject(FieldLeads, c.LeadID, "不是规划者可判定的关闭类别")
 			continue
 		}
-		b.declined[d.LeadID] = true
+		if strings.TrimSpace(c.Reason) == "" {
+			b.reject(FieldLeads, c.LeadID, "缺少关闭的理由")
+			continue
+		}
+		b.closed[c.LeadID] = true
 		b.changes.Annotations = append(b.changes.Annotations, core.GraphNodeAnnotation{
-			TaskID: b.taskID, NodeID: d.LeadID, Once: true,
-			Metadata: map[string]interface{}{metaLeadDeclined: map[string]interface{}{"reason": strings.TrimSpace(d.Reason)}},
+			TaskID: b.taskID, NodeID: c.LeadID, Once: true,
+			Metadata: map[string]interface{}{metaLeadClosed: map[string]interface{}{
+				"kind": string(c.Kind), "reason": strings.TrimSpace(c.Reason),
+			}},
 		})
-		b.report.DeclinedLeads = append(b.report.DeclinedLeads, d.LeadID)
+		b.report.ClosedLeads = append(b.report.ClosedLeads, c.LeadID)
 	}
 }
 
@@ -420,31 +573,6 @@ func (s *Store) nodesByID(ctx context.Context, taskID string, kind core.NodeKind
 		index[n.ID] = n
 	}
 	return index, nil
-}
-
-// openLeadIndex 收集修订开始时仍待深挖的线索（按 ID 索引，供 pursues_lead 与
-// declined_leads 校验）。本次修订既不认领也不判定线索时跳过加载——纯结果分析修订与
-// 不碰线索的常规规划不为此多查。
-func (s *Store) openLeadIndex(ctx context.Context, taskID string, rev PlanRevision) (map[string]Node, error) {
-	wanted := len(rev.DeclinedLeads) > 0
-	for _, a := range rev.AddedActions {
-		if a.PursuesLead != "" {
-			wanted = true
-			break
-		}
-	}
-	if !wanted {
-		return nil, nil
-	}
-	leads, err := s.OpenLeads(ctx, taskID)
-	if err != nil {
-		return nil, err
-	}
-	byID := make(map[string]Node, len(leads))
-	for _, n := range leads {
-		byID[n.ID] = n
-	}
-	return byID, nil
 }
 
 func stateLabel(state *State) string {

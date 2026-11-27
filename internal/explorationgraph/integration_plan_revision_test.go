@@ -141,13 +141,14 @@ func TestRejectAndWatermarkKeepIdentityPostgres(t *testing.T) {
 	require.NoError(t, err)
 
 	reason := "偏离目标"
-	ok, err := store.RejectAction(ctx, taskID, actionID, SourceMonitor, reason)
+	ok, err := store.RejectAction(ctx, taskID, actionID, SourceMonitor, RejectLead, reason)
 	require.NoError(t, err)
 	require.True(t, ok)
 	action, err := store.GetNode(ctx, actionID)
 	require.NoError(t, err)
 	assert.Equal(t, StateRejected, *action.State)
 	assert.Equal(t, SourceMonitor, action.RejectedBy())
+	assert.Equal(t, RejectLead, action.RejectionScope(), "否决范围随否决落库并可读回")
 	assert.Equal(t, reason, *action.StateReason)
 	assert.Equal(t, SourcePlanner, action.SourceType)
 	assert.Equal(t, PriorityHigh, action.Priority)
@@ -161,10 +162,11 @@ func TestRejectAndWatermarkKeepIdentityPostgres(t *testing.T) {
 	assert.Equal(t, SourceEvaluator, result.SourceType, "水位批注不触碰其余元数据")
 }
 
-// 线索的两种处置在 PG 下真实落图：动作认领一条线索，RevisePlan 落一条 pursues 边
-// （action → 线索），线索因被在办动作跟进而退出待深挖清单；另一条线索被判定不追，理由
-// 批注在它身上（metadata 浅合并），进入已不追。opens_deeper 标志与节点来源都不受影响。
-func TestLeadPursuitAndDeclinePostgres(t *testing.T) {
+// 线索的整套处置在 PG 下真实落图，三种新关系都过得了库里的 CHECK 约束：新动作认领一条
+// 线索（pursues 边）并改写它的方向归属（serves 边，线索 → 方向）；不追线索的动作推进方向
+// （serves 边，动作 → 方向）；在办的动作挂到另一条线索上（attaches 边）；第三条线索被
+// 规划层按类别关闭，批注在它身上（metadata 浅合并）。opens_deeper 标志与节点来源都不受影响。
+func TestLeadAccountingPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
 	}
@@ -174,71 +176,101 @@ func TestLeadPursuitAndDeclinePostgres(t *testing.T) {
 	store := NewStore(pool)
 
 	const (
-		taskID    = "bbbbbbb3-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-		rootID    = "3b2f6a9e-1111-4111-8111-0000000000ff"
-		pursuedID = "3b2f6a9e-1111-4111-8111-000000000001"
-		actionID  = "3b2f6a9e-1111-4111-8111-000000000002"
-		declined  = "3b2f6a9e-1111-4111-8111-000000000003"
+		taskID      = "bbbbbbb3-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+		rootID      = "3b2f6a9e-1111-4111-8111-0000000000ff"
+		claimedID   = "3b2f6a9e-1111-4111-8111-000000000001"
+		actionID    = "3b2f6a9e-1111-4111-8111-000000000002"
+		closedID    = "3b2f6a9e-1111-4111-8111-000000000003"
+		directionID = "3b2f6a9e-1111-4111-8111-000000000004"
+		runningID   = "3b2f6a9e-1111-4111-8111-000000000005"
+		attachedID  = "3b2f6a9e-1111-4111-8111-000000000006"
+		plainID     = "3b2f6a9e-1111-4111-8111-000000000007"
 	)
 	dbtest.SeedTask(t, pool, taskID)
-	open := StateOpen
+	open, running := StateOpen, StateRunning
 	_, err := store.CreateNode(ctx, Node{ID: rootID, TaskID: taskID, Kind: core.KindObjective,
 		State: &open, SourceType: SourceUser, Content: []byte(`{"description":"root"}`)})
 	require.NoError(t, err)
-	for _, id := range []string{pursuedID, declined} {
+	_, err = store.CreateNode(ctx, Node{ID: directionID, TaskID: taskID, Kind: core.KindObjective,
+		State: &open, SourceType: SourcePlanner, Content: []byte(`{"description":"方向"}`)})
+	require.NoError(t, err)
+	for _, id := range []string{claimedID, closedID, attachedID} {
 		_, err = store.CreateNode(ctx, Node{ID: id, TaskID: taskID, Kind: core.KindObservation,
 			SourceType: SourceExecutor, Content: []byte(`{"category":"access","statement":"探通一条路"}`),
 			Metadata: OpensDeeperMetadata()})
 		require.NoError(t, err)
 	}
-
-	openLeads, err := store.OpenLeads(ctx, taskID)
+	_, err = store.CreateNode(ctx, Node{ID: runningID, TaskID: taskID, Kind: core.KindAction, State: &running,
+		SourceType: SourcePlanner, Content: []byte(`{"instruction":"在办"}`)})
 	require.NoError(t, err)
-	require.Len(t, openLeads, 2, "落库后两条都是待深挖线索")
 
-	action := Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open,
-		SourceType: SourcePlanner, Content: []byte(`{"instruction":"深挖"}`)}
+	pending, err := store.OpenLeads(ctx, taskID)
+	require.NoError(t, err)
+	require.Len(t, pending, 3, "落库后三条都待深挖")
+
 	report, err := store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID),
-		AddedActions:  []ActionDraft{{Node: action, PursuesLead: pursuedID}},
-		DeclinedLeads: []LeadDecline{{LeadID: declined, Reason: "超出任务目标"}},
+		AddedActions: []ActionDraft{
+			{Node: Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open, SourceType: SourcePlanner,
+				Content: []byte(`{"instruction":"深挖"}`)}, Serves: directionID},
+			{Node: Node{ID: plainID, TaskID: taskID, Kind: core.KindAction, State: &open, SourceType: SourcePlanner,
+				Content: []byte(`{"instruction":"铺开对象面"}`)}, Serves: directionID},
+		},
+		Pursuits: []Pursuit{
+			{ActionID: actionID, LeadID: claimedID},
+			{ActionID: runningID, LeadID: attachedID},
+		},
+		ClosedLeads: []LeadClosing{{LeadID: closedID, Kind: ClosureOutOfScope, Reason: "超出任务目标"}},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, report.Rejected)
-	assert.Equal(t, []string{declined}, report.DeclinedLeads)
+	assert.Equal(t, []string{attachedID}, report.AttachedLeads)
+	assert.Equal(t, []string{closedID}, report.ClosedLeads)
 
 	edges, err := store.ListEdgesByTask(ctx, taskID)
 	require.NoError(t, err)
-	var pursues *Edge
-	for i := range edges {
-		if edges[i].Rel == RelPursues {
-			pursues = &edges[i]
-		}
+	have := map[[3]string]bool{}
+	for _, e := range edges {
+		have[[3]string{e.SrcID, string(e.Rel), e.DstID}] = true
 	}
-	require.NotNil(t, pursues, "落一条 pursues 边")
-	assert.Equal(t, actionID, pursues.SrcID, "边起点是动作")
-	assert.Equal(t, pursuedID, pursues.DstID, "边终点是线索")
+	for _, want := range [][3]string{
+		{actionID, string(RelPursues), claimedID},
+		{claimedID, string(RelServes), directionID},
+		{plainID, string(RelServes), directionID},
+		{runningID, string(RelAttaches), attachedID},
+	} {
+		assert.True(t, have[want], "落边 %s →(%s)→ %s", want[0], want[1], want[2])
+	}
 
 	pursued, err := store.PursuedLeads(ctx, taskID, actionID)
 	require.NoError(t, err)
 	require.Len(t, pursued, 1, "按动作查得到它认领的线索")
-	assert.Equal(t, pursuedID, pursued[0].ID)
-
-	openLeads, err = store.OpenLeads(ctx, taskID)
+	assert.Equal(t, claimedID, pursued[0].ID)
+	attached, err := store.PursuedLeads(ctx, taskID, runningID)
 	require.NoError(t, err)
-	assert.Empty(t, openLeads, "一条被在办动作跟进、一条已不追，都不再待深挖")
+	assert.Empty(t, attached, "挂接只记账，不进这个动作的执行输入")
 
-	declinedLeads, err := store.DeclinedLeads(ctx, taskID)
+	pending, err = store.OpenLeads(ctx, taskID)
 	require.NoError(t, err)
-	require.Len(t, declinedLeads, 1)
-	assert.Equal(t, declined, declinedLeads[0].ID)
-	assert.Equal(t, "超出任务目标", declinedLeads[0].LeadDeclineReason(), "理由经批注落库并可读回")
+	assert.Empty(t, pending, "两条有在办动作跟进、一条已关闭，都不再待深挖")
 
-	for id, wantReason := range map[string]string{pursuedID: "", declined: "超出任务目标"} {
+	closedLeads, err := store.ClosedLeads(ctx, taskID)
+	require.NoError(t, err)
+	require.Len(t, closedLeads, 1)
+	assert.Equal(t, closedID, closedLeads[0].ID)
+	assert.Equal(t, LeadClosure{Kind: ClosureOutOfScope, Reason: "超出任务目标"}, *closedLeads[0].Closure, "类别与理由经批注落库并可读回")
+
+	leads, err := store.Leads(ctx, taskID)
+	require.NoError(t, err)
+	require.Len(t, leads, 3)
+	assert.Equal(t, directionID, leads[0].DirectionID, "认领线索的动作声明的方向写在线索上")
+	assert.True(t, leads[1].Closed())
+	assert.True(t, leads[2].InFlight)
+
+	for _, id := range []string{claimedID, closedID, attachedID} {
 		lead, err := store.GetNode(ctx, id)
 		require.NoError(t, err)
 		assert.True(t, lead.OpensDeeper(), "处置不抹掉 opens_deeper 标志")
 		assert.Equal(t, SourceExecutor, lead.SourceType, "处置不触碰节点来源")
-		assert.Equal(t, wantReason, lead.LeadDeclineReason())
 	}
 }
 

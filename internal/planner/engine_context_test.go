@@ -140,9 +140,8 @@ func TestGatherContext_FactsGroupedByCategory(t *testing.T) {
 	assert.NotContains(t, section, "怎么连接", "没有该类别的事实就不出现该类别标题")
 }
 
-// 线索进规划视野：标了 opens_deeper、没被算数的动作跟进、也没被判不追的事实是待深挖线索
-// （带 ID 供动作认领）；被在办动作跟进的不在其列；被判不追的带着理由单列。线索仍是事实，
-// 照常进 Facts。
+// 线索进规划视野：开着、没有在办动作跟进的线索待深挖（带短号排在前）；已关闭的带着原因
+// 单列。线索仍是事实，照常进 Facts。
 func TestGatherContext_Leads(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
 	ctx := context.Background()
@@ -150,15 +149,15 @@ func TestGatherContext_Leads(t *testing.T) {
 	openLead.Metadata = explorationgraph.OpensDeeperMetadata()
 	held := contextObservation("lead-held", "behavior", "参数回显了输入", nil, "", 2*time.Second)
 	held.Metadata = explorationgraph.OpensDeeperMetadata()
-	declined := contextObservation("lead-declined", "entity", "旧版本提示", nil, "", 3*time.Second)
-	declined.Metadata, _ = json.Marshal(map[string]interface{}{
-		"opens_deeper": true, "lead_declined": map[string]interface{}{"reason": "超出任务目标"},
+	shut := contextObservation("lead-shut", "entity", "旧版本提示", nil, "", 3*time.Second)
+	shut.Metadata, _ = json.Marshal(map[string]interface{}{
+		"opens_deeper": true, "lead_closed": map[string]interface{}{"kind": "out_of_scope", "reason": "超出任务目标"},
 	})
 	plain := contextObservation("plain", "entity", "目标为 nginx", nil, "", 4*time.Second)
 
 	for _, n := range []explorationgraph.Node{
 		revisionNode("root", core.KindObjective, explorationgraph.SourceUser, openState(), 0),
-		openLead, held, declined, plain,
+		openLead, held, shut, plain,
 	} {
 		_, err := store.CreateNode(ctx, n)
 		require.NoError(t, err)
@@ -171,14 +170,10 @@ func TestGatherContext_Leads(t *testing.T) {
 	planCtx, err := (&Engine{}).gatherContext(ctx, store, revisionTask)
 	require.NoError(t, err)
 
-	require.Len(t, planCtx.OpenLeads, 1, "只有没被跟进、没被判不追的线索待深挖")
-	assert.Equal(t, "lead-open", planCtx.OpenLeads[0].ID)
-	assert.Equal(t, "管理入口未鉴权可达", planCtx.OpenLeads[0].Statement)
+	require.Len(t, planCtx.OpenLeads, 1, "只有没被跟进、没被关闭的线索待深挖")
+	assert.Equal(t, OpenLead{ID: "lead-open", Statement: "管理入口未鉴权可达", CreatedAt: openLead.CreatedAt}, planCtx.OpenLeads[0])
 
-	require.Len(t, planCtx.DeclinedLeads, 1)
-	assert.Equal(t, "lead-declined", planCtx.DeclinedLeads[0].ID)
-	assert.Equal(t, "旧版本提示", planCtx.DeclinedLeads[0].Statement)
-	assert.Equal(t, "超出任务目标", planCtx.DeclinedLeads[0].Reason)
+	require.Equal(t, []ClosedLead{{Statement: "旧版本提示", Kind: explorationgraph.ClosureOutOfScope, Reason: "超出任务目标"}}, planCtx.ClosedLeads)
 
 	// 线索仍是事实，四条都进 Facts（线索是事实的一个侧面，不替代事实基底）
 	statements := map[string]bool{}
@@ -189,3 +184,52 @@ func TestGatherContext_Leads(t *testing.T) {
 		assert.True(t, statements[want], "事实 %q 应仍在 Facts 里", want)
 	}
 }
+
+// 线索的处境与归属都从图上带进规划视野：所属方向沿来源链推导、产出它的动作是否在办、几次
+// 跟进而没做完；进行中的方向带短号列出，在办动作记下它推进的方向与是否在跟进线索。
+func TestGatherContext_LeadStandingAndAttribution(t *testing.T) {
+	store := explorationgraph.NewMemoryStore()
+	ctx := context.Background()
+	chained := planFactLead("chained", time.Second)
+	cut := planFactLead("cut", 2*time.Second)
+	for _, n := range []explorationgraph.Node{
+		revisionNode("root", core.KindObjective, explorationgraph.SourceUser, openState(), 0),
+		revisionNode("d1", core.KindObjective, explorationgraph.SourcePlanner, openState(), time.Second),
+		revisionNode("d-done", core.KindObjective, explorationgraph.SourcePlanner, statePointer(explorationgraph.StateCompleted), time.Second),
+		chained, cut,
+	} {
+		_, err := store.CreateNode(ctx, n)
+		require.NoError(t, err)
+	}
+	running, exhausted := explorationgraph.StateRunning, explorationgraph.StateExhausted
+	// producer 在办、推进 d1，产出了线索 chained。
+	require.NoError(t, store.CreateNodeWithEdges(ctx, revisionNode("producer", core.KindAction, explorationgraph.SourcePlanner, &running, 3*time.Second),
+		[]explorationgraph.Edge{
+			{TaskID: revisionTask, SrcID: "producer", Rel: explorationgraph.RelGenerates, DstID: "chained"},
+			{TaskID: revisionTask, SrcID: "producer", Rel: explorationgraph.RelServes, DstID: "d1"},
+		}))
+	// cutter 跟进线索 cut，迭代预算耗尽而没做完。
+	require.NoError(t, store.CreateNodeWithEdges(ctx, revisionNode("cutter", core.KindAction, explorationgraph.SourcePlanner, &exhausted, 4*time.Second),
+		[]explorationgraph.Edge{{TaskID: revisionTask, SrcID: "cutter", Rel: explorationgraph.RelPursues, DstID: "cut"}}))
+
+	planCtx, err := (&Engine{}).gatherContext(ctx, store, revisionTask)
+	require.NoError(t, err)
+
+	assert.Equal(t, []Direction{{ID: "d1", Goal: "d1"}}, planCtx.Directions, "只列进行中的方向")
+	require.Len(t, planCtx.OpenLeads, 2)
+	byID := map[string]OpenLead{}
+	for _, lead := range planCtx.OpenLeads {
+		byID[lead.ID] = lead
+	}
+	assert.Equal(t, "d1", byID["chained"].DirectionID, "线索的方向取产出它的动作的方向")
+	assert.Equal(t, "producer", byID["chained"].ProducerID)
+	assert.Equal(t, 1, byID["cut"].Truncated, "没做完的次数带进规划视野")
+	assert.Equal(t, 1, byID["cut"].TruncationStreak)
+	assert.Empty(t, byID["cut"].DirectionID)
+
+	assert.Equal(t, "d1", planCtx.actionDirection["producer"])
+	assert.False(t, planCtx.claiming["producer"], "产出线索不等于跟进线索")
+	assert.True(t, planCtx.claiming["cutter"])
+}
+
+func statePointer(s explorationgraph.State) *explorationgraph.State { return &s }

@@ -377,8 +377,9 @@ type GlobalState struct {
 	// 验证是否接连落空、是否还有待验证的假设。
 	Hypotheses []HypothesisView `json:"hypotheses"`
 
-	// OpenLeads 是待深挖的线索（执行者已探通、当前没有动作在跟进）：堆积不深挖是一种
-	// 可直接观测的功能障碍——规划者本应优先深挖它们而去铺广度。
+	// OpenLeads 是待深挖的线索（执行者已探通、当前没有动作在跟进），带着挂了多久、几次
+	// 跟进而没做完、几次被否决：线索堆积着没人追是规划偏向广度、把到手的深度线索搁置的
+	// 信号；追了总做不完则说明线索对一个动作太大。
 	OpenLeads []OpenLead `json:"open_leads"`
 
 	// RunningActions 是在途动作的指令与已运行时长（显式算好分钟数，不让决策者做
@@ -405,10 +406,22 @@ type HypothesisView struct {
 	CreatedAt          time.Time                           `json:"created_at"`
 }
 
-// OpenLead 是一条待深挖线索的监察视图。
+// OpenLead 是一条待深挖的线索的监察视图。
 type OpenLead struct {
 	ID        string `json:"id"`
 	Statement string `json:"statement"`
+	// AgeMinutes 是线索自出现以来挂了多久。
+	AgeMinutes float64 `json:"age_minutes"`
+	// Truncated 是跟进而没做完（迭代预算耗尽）的次数，TruncationStreak 是其中连续的次数。
+	Truncated        int `json:"truncated"`
+	TruncationStreak int `json:"truncation_streak"`
+	// Faults 是跟进它的动作执行出错的次数（与线索的好坏无关）。
+	Faults int `json:"faults"`
+	// Progressed 是跟进过、推进了但没到结论的次数。
+	Progressed int `json:"progressed"`
+	// Vetoes 是跟进它的动作被否决（只否决这一步）的次数，LastVetoReason 是最近一次的理由。
+	Vetoes         int    `json:"vetoes"`
+	LastVetoReason string `json:"last_veto_reason,omitempty"`
 }
 
 // RunningActionView 是 running 动作的监察视图。

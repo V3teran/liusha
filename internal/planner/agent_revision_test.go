@@ -164,8 +164,18 @@ func TestObjectiveView_SeparatesRootLiveAndSettled(t *testing.T) {
 	assert.Contains(t, section, "- [已吸收] absorbed")
 	assert.NotContains(t, section, "`done`", "已收敛目标不带 ID")
 
-	planning := buildObjectiveSection("任务", objectives)
-	assert.Contains(t, planning, "### 进行中的派生目标\n- live")
+	// 常规规划一侧：进行中的方向带短号列出（动作据它声明归属），已收敛的不列。
+	store := explorationgraph.NewMemoryStore()
+	for _, n := range objectives {
+		n := n
+		n.TaskID = revisionTask
+		_, err := store.CreateNode(context.Background(), n)
+		require.NoError(t, err)
+	}
+	planCtx, err := (&Engine{}).gatherContext(context.Background(), store, revisionTask)
+	require.NoError(t, err)
+	planning := buildObjectiveSection("任务", planCtx.Directions)
+	assert.Contains(t, planning, "### 进行中的方向\n- [D1] live")
 	assert.False(t, strings.Contains(planning, "done") || strings.Contains(planning, "absorbed"),
 		"规划只看进行中的方向：%s", planning)
 }

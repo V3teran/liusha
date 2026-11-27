@@ -26,8 +26,23 @@ const metaClaimedBy = "claimed_by"
 // metaRejectedBy 是否决方（SourceMonitor / SourceUser）在 action metadata 中的键。
 const metaRejectedBy = "rejected_by"
 
+// metaRejectedScope 是否决范围（RejectScope）在 action metadata 中的键。
+const metaRejectedScope = "rejected_scope"
+
 // ErrActionNotFound 表示本任务下没有这个动作（节点不存在、属于别的任务或不是动作）。
 var ErrActionNotFound = errors.New("动作不存在")
+
+// RejectScope 是一次否决评判的范围。否决评判的是一个动作，但不一定是它在跟进的线索：
+// 范围随否决落图，线索的处境据此推导（见 lead.go）。
+type RejectScope string
+
+const (
+	// RejectStep：这一步不该这么做（重复、手法不当）。它跟进的线索带着否决理由重新待深挖
+	// 跟进——下一次跟进不得与被否决的这一次等效。
+	RejectStep RejectScope = "step"
+	// RejectLead：这条线本身离题或越界。被否决的动作所跟进的线索随之关闭。
+	RejectLead RejectScope = "lead"
+)
 
 // RejectedBy 返回否决该动作的一方（未被否决为空）。
 func (n *Node) RejectedBy() SourceType {
@@ -41,6 +56,20 @@ func (n *Node) RejectedBy() SourceType {
 		return ""
 	}
 	return m.RejectedBy
+}
+
+// RejectionScope 返回否决该动作的范围（没记时按只否决这一步）。
+func (n *Node) RejectionScope() RejectScope {
+	if len(n.Metadata) == 0 {
+		return RejectStep
+	}
+	var m struct {
+		Scope RejectScope `json:"rejected_scope"`
+	}
+	if json.Unmarshal(n.Metadata, &m) != nil || m.Scope != RejectLead {
+		return RejectStep
+	}
+	return RejectLead
 }
 
 // ClaimedBy 返回认领该动作的 run（未被认领过为空）。
@@ -98,10 +127,10 @@ func (s *Store) ReleaseAction(ctx context.Context, taskID, actionID, runID strin
 	})
 }
 
-// RejectAction 否决一个待执行或执行中的动作（→ rejected），记下否决方与原因。执行中的
-// 动作由执行方的取消开关感知后中断，其迟到的结束因认领前置不成立而落空。动作已结束
-// 返回 false；不是本任务的动作返回 ErrActionNotFound。
-func (s *Store) RejectAction(ctx context.Context, taskID, actionID string, by SourceType, reason string) (bool, error) {
+// RejectAction 否决一个待执行或执行中的动作（→ rejected），记下否决方、范围与原因。
+// 范围为空按只否决这一步。执行中的动作由执行方的取消开关感知后中断，其迟到的结束因
+// 认领前置不成立而落空。动作已结束返回 false；不是本任务的动作返回 ErrActionNotFound。
+func (s *Store) RejectAction(ctx context.Context, taskID, actionID string, by SourceType, scope RejectScope, reason string) (bool, error) {
 	node, err := s.GetNode(ctx, actionID)
 	if err != nil {
 		return false, fmt.Errorf("%w: %s（%w）", ErrActionNotFound, actionID, err)
@@ -109,9 +138,14 @@ func (s *Store) RejectAction(ctx context.Context, taskID, actionID string, by So
 	if node.TaskID != taskID || node.Kind != core.KindAction {
 		return false, fmt.Errorf("%w: %s", ErrActionNotFound, actionID)
 	}
+	if scope == "" {
+		scope = RejectStep
+	}
 	annotation := core.GraphNodeAnnotation{
 		TaskID: taskID, NodeID: actionID,
-		Metadata: map[string]interface{}{"state_reason": reason, metaRejectedBy: string(by)},
+		Metadata: map[string]interface{}{
+			"state_reason": reason, metaRejectedBy: string(by), metaRejectedScope: string(scope),
+		},
 	}
 	// 两次 CAS 覆盖并发认领：open 在两次尝试之间被认领，第二次按 running 命中；
 	// 两次都落空即动作已结束。

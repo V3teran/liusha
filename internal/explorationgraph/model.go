@@ -14,8 +14,16 @@
 // 关系（与 DB 约束 ck_exploration_edge_rel 一致，见 Relation）：
 //   - generates: objective → action、action → observation、observation → result（推导链）
 //   - triggers: result → objective/action（结果催生新目标 / 新动作）
-//   - supersedes: objective → objective（新派生目标吸收旧派生目标的范围，src=新、dst=旧；
+//   - supersedes: objective → objective（新派生目标吸收旧派生目标，src=新、dst=旧；
 //     与旧目标的 superseded 状态同一事务落定，见 RevisePlan）
+//   - pursues: action → observation（动作为跟进这条线索而排出：指令为它而写）
+//   - attaches: action → observation（在办动作挂到线索上：只记账，不改动作的范围）
+//   - serves: action → objective（不追线索的动作推进某个派生目标）；
+//     observation → objective（规划者改写一条线索的方向归属）
+//
+// 每个动作只有一个归属：追线索的挂在线索下，不追线索的挂在方向下，两者都不声明的
+// 留在根目标下（铺开对象面的探索）。线索的方向沿来源链推导（线索 → 产出它的动作 →
+// 它的方向），规划者显式改写过时以 serves 边为准（见 lead.go）。
 //
 // 动作之间没有执行依赖：open 即可执行，先后关系由增量规划表达——需要前一步结果的
 // 动作在前一步的观察落图后才被提出，指令因此基于真实结果。
@@ -105,7 +113,7 @@ const (
 	PriorityLow      = core.PriorityLow
 )
 
-// Relation 是边的关系类型（3 种，小写字面量即存储值）
+// Relation 是边的关系类型（6 种，小写字面量即存储值）
 type Relation string
 
 // 探索图关系（与 DB 约束 ck_exploration_edge_rel 严格一致）：
@@ -117,7 +125,9 @@ const (
 	RelGenerates  Relation = "generates"  // 上游产出下游（推导链）
 	RelTriggers   Relation = "triggers"   // result → objective/action（发现滋生动作/新方向）
 	RelSupersedes Relation = "supersedes" // objective → objective（吸收：新目标接管旧目标范围）
-	RelPursues    Relation = "pursues"    // action → observation（动作跟进某条待深挖线索）
+	RelPursues    Relation = "pursues"    // action → observation（动作为跟进这条线索而排出）
+	RelAttaches   Relation = "attaches"   // action → observation（在办动作挂到线索上，只记账）
+	RelServes     Relation = "serves"     // action → objective / observation → objective（推进某个方向）
 )
 
 // SourceType 是节点的来源类型
@@ -159,7 +169,7 @@ type Node struct {
 	Version int64 `json:"version"`
 }
 
-// Edge 是探索图的关系边（5 种关系）
+// Edge 是探索图的关系边（见 Relation）
 type Edge struct {
 	TaskID    string    `json:"task_id"`
 	SrcID     string    `json:"src_id"`
@@ -238,16 +248,44 @@ func (n *Node) OpensDeeper() bool {
 	return n.IsFact() && flag
 }
 
-// metaLeadDeclined 是线索上的不追批注键：规划层判定不再跟进这条线索，值是
-// {"reason": …}。随认定它的那次规划修订同事务写入（RevisePlan）；批注是一次性的，
-// 同一条线索不会被判两次。
-const metaLeadDeclined = "lead_declined"
+// metaLeadClosed 是线索上规划层关闭决定的批注键：规划层判定这条线索不再跟进，值是
+// {"kind": …, "reason": …}（类别见 LeadClosureKind）。随关闭它的那次规划修订同事务写入
+// （RevisePlan）；批注是一次性的，同一条线索不会被规划层关闭两遍。
+const metaLeadClosed = "lead_closed"
 
-// LeadDeclineReason 返回线索被判定不追的理由；空串表示没有被判不追。
-func (n *Node) LeadDeclineReason() string {
-	mark, _ := n.meta()[metaLeadDeclined].(map[string]interface{})
-	reason, _ := mark["reason"].(string)
-	return reason
+// LeadClosure 是一条线索因何关闭：类别与理由。
+type LeadClosure struct {
+	Kind   LeadClosureKind
+	Reason string
+}
+
+// LeadClosure 返回规划层关闭这条线索时记下的类别与理由；第二个返回值为假表示线索上
+// 没有这条批注（它仍开着，或由跟进的结局推导关闭，见 lead.go）。
+func (n *Node) LeadClosure() (LeadClosure, bool) {
+	var m struct {
+		Closed *struct {
+			Kind   LeadClosureKind `json:"kind"`
+			Reason string          `json:"reason"`
+		} `json:"lead_closed"`
+	}
+	if len(n.Metadata) == 0 || json.Unmarshal(n.Metadata, &m) != nil || m.Closed == nil {
+		return LeadClosure{}, false
+	}
+	return LeadClosure{Kind: m.Closed.Kind, Reason: m.Closed.Reason}, true
+}
+
+// Category 返回观察的类别（非观察或内容缺失时为空）。
+func (n *Node) Category() ObservationCategory {
+	if !n.IsObservation() || len(n.Content) == 0 {
+		return ""
+	}
+	var c struct {
+		Category ObservationCategory `json:"category"`
+	}
+	if json.Unmarshal(n.Content, &c) != nil {
+		return ""
+	}
+	return c.Category
 }
 
 // Statement 返回事实观察的陈述（非事实观察或内容缺失时为空）。线索是事实观察，它的

@@ -92,8 +92,8 @@ func (e *Engine) buildReActConfigWithMonitoring(
 	tools []registry.Tool,
 	own *ownership,
 ) (*runtime.ReActConfig, error) {
-	// 读不到认领的线索时照常执行，只是不带这一节：把读失败上抛会让动作落 failed，而失败的
-	// 跟进算数（线索随之算作已办结）——一次读失败就丢一条线索。run 被打断的情形原样交还。
+	// 读不到认领的线索时照常执行，只是不带这一节：把读失败上抛会让这个动作按执行故障收场，
+	// 白跑一趟——线索虽然会重新回到待深挖，这一轮的执行却浪费了。run 被打断的情形原样交还。
 	leads, err := e.pursuedLeadStatements(ctx, action)
 	if err != nil {
 		if ctx.Err() != nil {
