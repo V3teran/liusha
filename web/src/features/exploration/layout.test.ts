@@ -82,7 +82,7 @@ describe('layout（LR 布局 + 边关系 + 来路高亮）', () => {
 
     expect(stats).toEqual({
       total: 5,
-      edgeCount: 3,
+      edgeCount: 4, // 三条关系边，加执行中的 n-act-a 从目标出发的那一段
       byKind: { objective: 1, action: 2, observation: 1, result: 1 },
       directionEdgeCount: 1,
     })
@@ -239,7 +239,7 @@ describe('来路高亮', () => {
     // 平时不画的两段归属边在来路上显形
     expect(byId(view.edges, 'n-obj-a1-generates-0').hidden).toBe(false)
     expect(byId(view.edges, 'n-obj-a2-generates-1').hidden).toBe(false)
-    // 不在来路上的归属边照旧不画
+    // 不在来路上的归属边照旧不画（a3 待执行；a4 在执行，它那一段本来就画着）
     expect(byId(view.edges, 'd1-a3-generates-7').hidden).toBe(true)
     // 其余的线淡出（透明色后缀）
     expect(byId(view.edges, 'r-d1-triggers-5').style?.stroke).toMatch(/22$/)
@@ -289,8 +289,8 @@ describe('来路高亮', () => {
     const flow = buildFlowGraph(CHAIN, 'all', 'all', new Map())
     const cleared = applyFocus(flow, '')
     expect(cleared.nodes.every((n) => !n.className)).toBe(true)
-    // 四段归属边（根目标下的三个动作、方向下的一个）照旧不画
-    expect(cleared.edges.filter((e) => e.hidden)).toHaveLength(4)
+    // 归属边里不在执行中的三段照旧不画（根目标下两个已完成的动作、方向下待执行的动作）
+    expect(cleared.edges.filter((e) => e.hidden)).toHaveLength(3)
     expect(cleared.edges.every((e) => e.style?.strokeWidth !== 2.4)).toBe(true)
   })
 })
@@ -304,3 +304,23 @@ describe('owningDirection', () => {
   })
 })
 
+// 执行中不是一种关系，是一种活动状态：连到执行中动作的线流动。动作在跑的时候还没有产出，
+// 它唯一的连线是从目标出发的那一段，所以那一段此刻画出来。
+describe('执行中', () => {
+  it('动作执行中时，它从目标出发的那一段画出来并流动；待执行的不画', () => {
+    const { edges } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
+    expect(byId(edges, 'n-obj-n-act-a-generates-0')).toMatchObject({ hidden: false, animated: true })
+    expect(byId(edges, 'n-obj-n-act-b-generates-1')).toMatchObject({ hidden: true, animated: false })
+  })
+
+  it('动作结束后它那一段收起，线不再流动', () => {
+    const done: ExplorationGraph = {
+      ...GRAPH,
+      nodes: GRAPH.nodes.map((n) => (n.id === 'n-act-a' ? { ...n, state: 'completed' } : n)),
+    }
+    const { edges, stats } = buildFlowGraph(done, 'all', 'all', new Map())
+    expect(byId(edges, 'n-obj-n-act-a-generates-0').hidden).toBe(true)
+    expect(edges.some((e) => e.animated)).toBe(false)
+    expect(stats.edgeCount).toBe(3)
+  })
+})

@@ -25,6 +25,9 @@
  * 每种关系一个线型，不靠颜色也分得开（实线 / 短虚线 / 长虚线 / 点划线 / 点线）。颜色按
  * 语义分族：推导是中性的骨架，滋生是结果催生的，吸收是目标之间的，跟进与覆盖都是线索
  * 与动作之间的。
+ *
+ * 执行中不是一个关系，是一种活动状态：连到执行中动作的线流动。动作在跑的时候还没有
+ * 产出（观察是结束时才写的），它唯一的连线是从目标出发的那一段——所以那一段此刻画出来。
  */
 
 import dagre from '@dagrejs/dagre'
@@ -49,7 +52,7 @@ function edgeRel(e: Edge): string {
 
 export interface GraphStats {
   total: number
-  /** 画出来的连线数：目标 → 动作的归属边平时不画，不计 */
+  /** 画出来的连线数：目标 → 动作的归属边只在动作执行中时画，平时不计 */
   edgeCount: number
   byKind: Record<string, number>
   /** 滋生与吸收两种边的条数（全量）：没有就不给「只看方向关系」的入口 */
@@ -126,6 +129,10 @@ function isOwnership(e: GraphEdge, kindById: Map<string, string>): boolean {
   return e.rel === 'generates' && kindById.get(e.src_id) === 'objective'
 }
 
+/** 这条边连着的动作里有没有正在执行的：连到执行中动作的线流动。 */
+function isRunning(e: GraphEdge, stateById: Map<string, string>): boolean {
+  return stateById.get(e.src_id) === 'running' || stateById.get(e.dst_id) === 'running'
+}
 
 /**
  * 动作所属的方向：挂在派生目标下的动作返回那个目标；直接挂在根目标下的动作、不是动作的
@@ -161,7 +168,7 @@ export function buildFlowGraph(
   for (const n of graph.nodes) byKind[n.kind] = (byKind[n.kind] ?? 0) + 1
   const stats: GraphStats = {
     total: graph.nodes.length,
-    edgeCount: graph.edges.filter((e) => !isOwnership(e, kindById)).length,
+    edgeCount: graph.edges.filter((e) => !isOwnership(e, kindById) || isRunning(e, stateById)).length,
     byKind,
     directionEdgeCount: graph.edges.filter(isDirectionEdge).length,
   }
@@ -198,18 +205,21 @@ export function buildFlowGraph(
     .map((e, idx) => {
       const look = EDGE_LOOKS[edgeLook(e)]
       const [from, to] = UPSTREAM[edgeLook(e)] === 'dst' ? [e.dst_id, e.src_id] : [e.src_id, e.dst_id]
+      const ownership = isOwnership(e, kindById)
+      const running = isRunning(e, stateById)
       return {
         id: `${e.src_id}-${e.dst_id}-${e.rel}-${idx}`,
         source: from,
         target: to,
         type: 'smoothstep',
         pathOptions: { borderRadius: 14 },
-        // 执行中动作的出边流动：图是运行时探索图，活跃工作可感知
-        animated: stateById.get(e.src_id) === 'running',
+        // 连到执行中动作的线流动：图是运行时探索图，活跃工作可感知
+        animated: running,
         style: { stroke: look.color, strokeWidth: look.width, ...(look.dash ? { strokeDasharray: look.dash } : {}) },
         markerEnd: { type: MarkerType.ArrowClosed, width: look.marker, height: look.marker, color: look.color },
         data: { rel: e.rel },
-        hidden: isOwnership(e, kindById),
+        // 归属边平时不画；动作执行中时画出来——它此时还没有产出，这是它唯一的连线
+        hidden: ownership && !running,
       }
     })
 
