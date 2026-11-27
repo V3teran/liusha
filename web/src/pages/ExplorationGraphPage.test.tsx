@@ -157,6 +157,21 @@ describe('ExplorationGraphPage（探索图）', () => {
     expect(await screen.findByRole('region', { name: '节点详情' })).toBeTruthy()
   })
 
+  // 挂在方向下的动作：打开它的详情时写明所属的方向（图上它挂在那个派生目标下）。
+  it('挂在方向下的动作，详情里写明它所属的方向', async () => {
+    mGraph.mockResolvedValue({
+      nodes: [
+        node(),
+        node({ id: 'n-dir', source_type: 'planner', state: 'open', content: { description: '换一个登录入口' } }),
+        node({ id: 'n-act', kind: 'action', source_type: 'planner', state: 'open', content: { instruction: '试另一个入口' } }),
+      ],
+      edges: [{ src_id: 'n-dir', dst_id: 'n-act', rel: 'generates', created_at: '2026-06-10T00:00:00Z' }],
+    })
+    renderPage(`/exploration-graph?task=${TASK_ID}&selected=n-act`)
+    const detail = await screen.findByRole('region', { name: '节点详情' })
+    expect(within(detail).getByText('所属方向：换一个登录入口')).toBeTruthy()
+  })
+
   it('换选任务清掉原来打开的节点', async () => {
     mListTasks.mockResolvedValue({ items: [taskRow({ id: 't-other', goal: '另一个任务' })], total: 1, page: 1, size: 20 })
     mGraph.mockResolvedValue({ nodes: [], edges: [] })

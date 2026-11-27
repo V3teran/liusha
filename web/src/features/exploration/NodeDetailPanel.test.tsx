@@ -26,6 +26,22 @@ describe('NodeDetailPanel', () => {
     expect(body.getAttribute('tabindex')).toBe('0')
   })
 
+  // 挂在派生目标下的动作：详情里写明它所属的方向；直接挂在根目标下的动作不写这一行。
+  it('动作有所属方向时写明，没有时不写', () => {
+    const direction: GraphNode = {
+      ...node,
+      id: 'd1',
+      kind: 'objective',
+      state: undefined,
+      content: { description: '换一个登录入口' },
+    }
+    const { rerender } = render(<NodeDetailPanel node={node} direction={direction} onClose={vi.fn()} />)
+    expect(screen.getByText('所属方向：换一个登录入口')).toBeTruthy()
+
+    rerender(<NodeDetailPanel node={node} onClose={vi.fn()} />)
+    expect(screen.queryByText(/所属方向/)).toBeNull()
+  })
+
   it('关闭按钮有可访问名称', () => {
     const onClose = vi.fn()
     render(<NodeDetailPanel node={node} onClose={onClose} />)
