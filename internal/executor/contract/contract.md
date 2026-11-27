@@ -24,8 +24,8 @@
       "repro": {"kind": "steps", "recipe": {"steps": "..."}, "assert": {"description": "..."}}
     },
     {
-      "category": "entity",
-      "statement": "环境里存在什么、它有什么属性",
+      "category": "behavior",
+      "statement": "环境对某个输入怎么反应",
       "reasoning": "依据来自哪个实测输出",
       "opens_deeper": true
     }
