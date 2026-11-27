@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyFocus, buildFlowGraph, EDGE_LOOKS, EDGE_LOOK_LABELS } from './layout'
+import { applyFocus, buildFlowGraph, EDGE_LOOKS, EDGE_LOOK_LABELS, EDGE_LOOK_ORDER } from './layout'
 import type { ExplorationGraph, GraphNode } from '@/api/explorationgraph'
 
 function node(o: Partial<GraphNode> = {}): GraphNode {
@@ -38,7 +38,7 @@ describe('layout（LR 布局 + 边关系 + 聚焦高亮）', () => {
 
     expect(stats).toEqual({
       total: 5,
-      edgeCount: 5,
+      edgeCount: 3,
       byKind: { objective: 1, action: 2, observation: 1, result: 1 },
       directionEdgeCount: 1,
     })
@@ -51,15 +51,15 @@ describe('layout（LR 布局 + 边关系 + 聚焦高亮）', () => {
     expect(pos['n-act-a'].x).toBeGreaterThan(pos['n-obj'].x)
     expect(pos['n-obs'].x).toBeGreaterThan(pos['n-act-a'].x)
 
-    // 推导链上的 generates 是实线；目标 → 动作的 generates 是归属（点线）
+    // 推导链上的 generates 是实线；目标 → 动作的 generates 不画——仍留在边的列表里，标成 hidden
     expect(edges.find((e) => e.id.startsWith('n-act-a-n-obs'))?.style?.strokeDasharray).toBeUndefined()
-    expect(edges.find((e) => e.id.startsWith('n-obj-n-act-a'))?.style?.strokeDasharray).toBe(EDGE_LOOKS.ownership.dash)
+    expect(edges).toHaveLength(5)
+    expect(edges.filter((e) => e.source === 'n-obj' && e.id.includes('-generates-')).map((e) => e.hidden)).toEqual([true, true])
     // triggers 琥珀虚线
     const trig = edges.find((e) => e.source === 'n-res')
     expect(trig?.style?.strokeDasharray).toBe('6 4')
     // running action 的出边带流动动画
     expect(edges.find((e) => e.source === 'n-act-a')?.animated).toBe(true)
-    expect(edges.find((e) => e.source === 'n-obj')?.animated).not.toBe(true)
   })
 
   it('buildFlowGraph：kind 筛选后剔除悬空边', () => {
@@ -77,36 +77,49 @@ describe('layout（LR 布局 + 边关系 + 聚焦高亮）', () => {
     const cls = Object.fromEntries(view.nodes.map((n) => [n.id, n.className]))
     expect(cls['n-act-b']).toBe('exp-selected')
     expect(cls['n-act-a']).toBe('exp-dimmed') // 与选中节点无直连边
-    expect(cls['n-obj']).toBeUndefined() // generates 直连邻居
+    // 归属线不画，但仍在边的列表里：根目标是动作的直连邻居，照常常亮
+    expect(cls['n-obj']).toBeUndefined()
     expect(cls['n-obs']).toBe('exp-dimmed')
 
     const trig = view.edges.find((e) => e.source === 'n-res')
     expect(trig?.style?.stroke).toMatch(/22$/) // 非相关边淡出（透明色后缀）
+    // 不画的边不因聚焦而显形
+    expect(view.edges.find((e) => e.source === 'n-obj' && e.id.includes('-generates-'))?.hidden).toBe(true)
 
     const cleared = applyFocus(flow, '')
     expect(cleared.nodes.every((n) => !n.className)).toBe(true)
   })
+
+  it('applyFocus：选中根目标，名下的动作常亮（它们之间的线不画，关系仍在）', () => {
+    const view = applyFocus(buildFlowGraph(GRAPH, 'all', 'all', new Map()), 'n-obj')
+    const cls = Object.fromEntries(view.nodes.map((n) => [n.id, n.className]))
+    expect(cls['n-obj']).toBe('exp-selected')
+    expect(cls['n-act-a']).toBeUndefined()
+    expect(cls['n-act-b']).toBeUndefined()
+    expect(cls['n-obs']).toBe('exp-dimmed')
+  })
 })
 
-// 归属（目标 → 它名下的动作）每个动作都有，大图上是从根目标铺开的扇形：画成细点线，
-// 与推导链（动作 → 观测 → 结果）的实线区分主次。
+// 图例与线型同源：一种关系一种线，图例里列出的每一种都画得出来。
 describe('边的画法', () => {
-  it('目标指向动作的 generates 是归属（细点线），其余 generates 是推导（实线）', () => {
-    const { edges } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
-    const ownership = edges.find((e) => e.id.startsWith('n-obj-n-act-a'))!
-    const derive = edges.find((e) => e.id.startsWith('n-act-a-n-obs'))!
-    expect(ownership.style?.strokeWidth).toBeLessThan(derive.style?.strokeWidth as number)
-    expect(ownership.style?.strokeDasharray).toBe(EDGE_LOOKS.ownership.dash)
-    expect(derive.style?.strokeDasharray).toBeUndefined()
-    // 样本与画法同源：图例画出来的就是画布上的线
-    expect(EDGE_LOOK_LABELS).toMatchObject({
-      ownership: '归属',
+  it('目标指向动作的 generates 平时不画：每个动作都挂在根目标下，这条线不带信息', () => {
+    const { edges, nodes } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
+    // 仍在列表里（布局与聚焦靠它），只是不画
+    const ownership = edges.filter((e) => e.source === 'n-obj' && e.id.includes('-generates-'))
+    expect(ownership).toHaveLength(2)
+    expect(ownership.every((e) => e.hidden)).toBe(true)
+    // 图例与线型同源：列出的每一种都是画得出来的关系
+    expect(Object.keys(EDGE_LOOKS).sort()).toEqual([...EDGE_LOOK_ORDER].sort())
+    expect(EDGE_LOOK_LABELS).toEqual({
       generates: '推导',
       triggers: '滋生',
       supersedes: '吸收',
       pursues: '跟进',
       covers: '覆盖',
     })
+    // 它仍参与布局：根目标排在动作左侧
+    const pos = Object.fromEntries(nodes.map((n) => [n.id, n.position]))
+    expect(pos['n-act-a'].x).toBeGreaterThan(pos['n-obj'].x)
   })
 
   it('跟进、覆盖各按自己的线型画；两者同色，靠线型分主次', () => {
@@ -123,7 +136,7 @@ describe('边的画法', () => {
     expect(byRel('pursues').style?.strokeDasharray).toBeUndefined()
     expect(byRel('covers').style).toMatchObject({ stroke: EDGE_LOOKS.covers.color, strokeDasharray: EDGE_LOOKS.covers.dash })
     expect(EDGE_LOOKS.covers.width).toBeLessThan(EDGE_LOOKS.pursues.width)
-    expect(EDGE_LOOKS.covers.color).not.toBe(EDGE_LOOKS.ownership.color)
+    expect(EDGE_LOOKS.covers.color).not.toBe(EDGE_LOOKS.generates.color)
   })
 
   it('只看方向关系：收缩到滋生与吸收两种边及它们两端的节点；跟进不入内', () => {

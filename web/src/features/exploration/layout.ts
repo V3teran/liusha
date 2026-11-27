@@ -7,10 +7,11 @@
  * 卡片尺寸固定（与 ExplorationNodeCard 严格一致），dagre 估算即精确，
  * 连线不会错位。
  *
- * 图上有五种关系，画成六种线：
- *  - 归属：目标 → 它名下的动作（generates）。动作都挂在根目标下，这条边每个动作都有，
- *    大图上是从根目标铺开的一片扇形——画成细点线，不压过携带信息的边
+ * 图上有五种关系，画成五种线：
  *  - 推导：动作 → 观测 → 结果（generates），中性实线（颜色留给节点，避免满屏彩虹）
+ *    目标 → 动作的 generates 不画：动作都挂在根目标下，这条边每个动作都有、不带信息，
+ *    画出来只是从根目标铺开的一片扇形。它仍留在边的列表里（hidden）——布局靠它把
+ *    根目标排在动作的左侧，聚焦靠它认得动作挂在根目标下
  *  - 滋生：结果 → 目标 / 动作（triggers），琥珀虚线——坐实的结果催生了新方向或新动作
  *  - 吸收：新派生目标 → 被它接管的旧目标（supersedes），紫色长虚线
  *  - 跟进：动作 → 线索（pursues），青色实线——动作为追这条线索而排出
@@ -33,6 +34,7 @@ export type ExplorationFlowNode = Node<ExplorationNodeData, 'exploration'>
 
 export interface GraphStats {
   total: number
+  /** 画出来的连线数：目标 → 动作的归属边不画，不计 */
   edgeCount: number
   byKind: Record<string, number>
   /** 滋生与吸收两种边的条数（全量）：没有就不给「只看方向关系」的入口 */
@@ -42,8 +44,8 @@ export interface GraphStats {
 /** 图上的五种关系（库里的 rel）。 */
 export type Relation = 'generates' | 'triggers' | 'supersedes' | 'pursues' | 'covers'
 
-/** 边的画法：归属是 generates 里目标指向动作的那一种。 */
-export type EdgeLook = Relation | 'ownership'
+/** 边的画法，一种关系一种。 */
+export type EdgeLook = Relation
 
 export interface EdgeLookStyle {
   color: string
@@ -57,8 +59,7 @@ export interface EdgeLookStyle {
 // 边色是亮暗双主题通用的固定中间调（节点/连线墨水的既定用色口径），
 // 取值以「两主题背景上均 ≥3:1 图形对比度」为硬约束（浅色背景 oklch(98.5% 0 0)、深色
 // oklch(14% 0.004 285) 上实测）：
-//  - 归属与推导共用 slate-500：slate-400 在浅色主题仅 2.4:1 会没入背景；两者靠线型
-//    （细点线 / 实线）分主次，色相保持克制
+//  - 推导用 slate-500：slate-400 在浅色主题仅 2.4:1 会没入背景
 //  - 滋生用 amber-600：它是全图里少见的彩色关系边，amber-500 浅色下仅 2:1
 //  - 吸收回目标家族色（violet-500，与目标节点的 accent 同谱）：只出现在
 //    目标 ↔ 目标之间，长虚线与滋生的短虚线区分
@@ -69,11 +70,10 @@ export const EDGE_LOOKS: Record<EdgeLook, EdgeLookStyle> = {
   supersedes: { color: '#8b5cf6', width: 1.4, dash: '10 6', marker: 14 },
   pursues: { color: '#0d9488', width: 1.8, marker: 14 },
   covers: { color: '#0d9488', width: 1.2, dash: '2 4', marker: 11 },
-  ownership: { color: '#64748b', width: 1.1, dash: '2 5', marker: 11 },
 }
 
-/** 图例的顺序：先携带信息的关系，归属（每个动作都有）在最后。 */
-export const EDGE_LOOK_ORDER: readonly EdgeLook[] = ['generates', 'triggers', 'supersedes', 'pursues', 'covers', 'ownership']
+/** 图例的顺序。 */
+export const EDGE_LOOK_ORDER: readonly EdgeLook[] = ['generates', 'triggers', 'supersedes', 'pursues', 'covers']
 
 export const EDGE_LOOK_LABELS: Record<EdgeLook, string> = {
   generates: '推导',
@@ -81,7 +81,6 @@ export const EDGE_LOOK_LABELS: Record<EdgeLook, string> = {
   supersedes: '吸收',
   pursues: '跟进',
   covers: '覆盖',
-  ownership: '归属',
 }
 
 /** 滋生与吸收：结果催生方向、方向之间吸收——同是结果分析在图上留下的关系。 */
@@ -89,20 +88,21 @@ function isDirectionEdge(e: GraphEdge): boolean {
   return e.rel === 'triggers' || e.rel === 'supersedes'
 }
 
-/**
- * 一条边该用哪种画法：目标指向动作的 generates 是归属；其余认识的关系各按自己的线型，
- * 不认识的按推导画（照常显示）。
- */
-export function edgeLook(e: GraphEdge, kindById: Map<string, string>): EdgeLook {
-  if (e.rel === 'generates' && kindById.get(e.src_id) === 'objective') return 'ownership'
-  return e.rel in EDGE_LOOKS && e.rel !== 'generates' && e.rel !== 'ownership' ? (e.rel as Relation) : 'generates'
+/** 一条边该用哪种画法：认识的关系各按自己的线型，不认识的按推导画（照常显示）。 */
+export function edgeLook(e: GraphEdge): EdgeLook {
+  return e.rel in EDGE_LOOKS ? (e.rel as Relation) : 'generates'
+}
+
+/** 归属边：目标 → 它名下的动作。不画；布局与聚焦仍认它。 */
+function isOwnership(e: GraphEdge, kindById: Map<string, string>): boolean {
+  return e.rel === 'generates' && kindById.get(e.src_id) === 'objective'
 }
 
 /**
  * 把任务的探索图变成画布上的节点与边。
  *
  * directionOnly（只看方向关系）把图收缩到滋生与吸收两种边及它们两端的节点：这两种边一次
- * 结果分析才添几条，在整图里淹没在推导链与归属的扇形里；收缩后重排布局，一张图看得全。
+ * 结果分析才添几条，在整图里淹没在推导链里；收缩后重排布局，一张图看得全。
  */
 export function buildFlowGraph(
   graph: ExplorationGraph,
@@ -112,11 +112,12 @@ export function buildFlowGraph(
   directionOnly = false,
 ): { nodes: ExplorationFlowNode[]; edges: Edge[]; stats: GraphStats } {
   // 统计始终基于全量数据（筛选只影响画布可见性）
+  const kindById = new Map(graph.nodes.map((n) => [n.id, n.kind]))
   const byKind: Record<string, number> = {}
   for (const n of graph.nodes) byKind[n.kind] = (byKind[n.kind] ?? 0) + 1
   const stats: GraphStats = {
     total: graph.nodes.length,
-    edgeCount: graph.edges.length,
+    edgeCount: graph.edges.filter((e) => !isOwnership(e, kindById)).length,
     byKind,
     directionEdgeCount: graph.edges.filter(isDirectionEdge).length,
   }
@@ -148,13 +149,12 @@ export function buildFlowGraph(
     }))
 
   const stateById = new Map(graph.nodes.map((n) => [n.id, n.state ?? '']))
-  const kindById = new Map(graph.nodes.map((n) => [n.id, n.kind]))
 
   // BuiltInEdge：smoothstep 的 pathOptions 只在联合类型的对应分支上（基础 Edge 无此字段）
   const edges: BuiltInEdge[] = shownEdges
     .filter((e) => visible.has(e.src_id) && visible.has(e.dst_id))
     .map((e, idx) => {
-      const look = EDGE_LOOKS[edgeLook(e, kindById)]
+      const look = EDGE_LOOKS[edgeLook(e)]
       return {
         id: `${e.src_id}-${e.dst_id}-${e.rel}-${idx}`,
         source: e.src_id,
@@ -165,6 +165,7 @@ export function buildFlowGraph(
         animated: stateById.get(e.src_id) === 'running',
         style: { stroke: look.color, strokeWidth: look.width, ...(look.dash ? { strokeDasharray: look.dash } : {}) },
         markerEnd: { type: MarkerType.ArrowClosed, width: look.marker, height: look.marker, color: look.color },
+        hidden: isOwnership(e, kindById),
       }
     })
 

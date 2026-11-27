@@ -219,7 +219,8 @@ describe('ExplorationGraphPage（探索图）', () => {
     // 工具栏：kind 计数 chips（统计+图例+筛选一体）与总量
     expect(await screen.findByText('1 目标')).toBeTruthy()
     expect(screen.getByText('1 动作')).toBeTruthy()
-    expect(screen.getByText('2 节点 · 1 边')).toBeTruthy()
+    // 这张图里唯一的一条边是「目标 → 动作」的归属边，页面上不画，也就不计
+    expect(screen.getByText('2 节点 · 0 边')).toBeTruthy()
 
     // 点击 chip 切换筛选（aria-pressed 标记激活态）
     const actionChip = screen.getByRole('button', { name: '1 动作' })
