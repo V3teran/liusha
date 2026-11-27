@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/V3teran/liusha/internal/evaluator"
@@ -25,7 +26,7 @@ type ClaimSink struct {
 	store      findingStore
 	agentRunID string // 归属 agent_run.id；空 = 无归属 run（补交付），落 NULL
 	// taskHost 是主机线索全部落空时的最终兜底（任务锚定的目标主机——task 行
-	// 的 target_host）。nil = 无兜底，主机缺失的交付按原样被存储校验拒绝。
+	// 的 target_host）。nil = 无兜底，定位不到主机的发现以空主机入账。
 	taskHost func(ctx context.Context, taskID string) (string, error)
 	// onSaved 是落库成功后的观察者（会话时间线的漏洞卡事件源）；
 	// nil=无观察者。观察者失败不影响交付本体。
@@ -37,9 +38,9 @@ func NewClaimSink(store findingStore, agentRunID string) *ClaimSink {
 	return &ClaimSink{store: store, agentRunID: agentRunID}
 }
 
-// WithTaskHostFallback 注入任务级主机兜底（链式）。坐实材料抽不出主机时查
-// 任务锚定的目标主机——它是任务的权威指向；缺这层兜底，复现配方文本化后
-// URL 抽取全部落空的交付会被存储校验以「finding.Host 必填」整批拒绝。
+// WithTaskHostFallback 注入任务级主机兜底（链式）。坐实材料抽不出主机时查任务锚定的
+// 目标主机——它是任务的权威指向；缺这层兜底，复现配方文本化后 URL 抽取全部落空的交付
+// 会整批记成无主机（线上曾因此丢弃）。
 func (s *ClaimSink) WithTaskHostFallback(fn func(ctx context.Context, taskID string) (string, error)) *ClaimSink {
 	s.taskHost = fn
 	return s
@@ -51,8 +52,9 @@ func (s *ClaimSink) WithObserver(fn func(ctx context.Context, f Finding)) *Claim
 	return s
 }
 
-// Record 落一条交付物。host 优先取主张载荷自带值，缺省从复现证据的
-// URL 抽真实主机；severity 缺省 medium（领域评级默认值归交付层）。
+// Record 落一条交付物。坐实了的主张必须存得下：每一列都收进它的取值域——评级与类型
+// 归进各自的词表，主机定位不到时如实留空，陈述原样入账。唯一不落账的情形是任务行读失败
+// （见 resolveHost），错误原样交还，留给补交付。
 func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) error {
 	if s == nil || s.store == nil {
 		return nil
@@ -62,21 +64,16 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 	if summary == "" {
 		summary = fmt.Sprintf("Confirmed claim (node %s)", c.ResultNodeID)
 	}
-	// 中立→安全域词汇翻译发生在交付边界：priority→severity（缺省
-	// medium 归域侧）、suggestion→remediation；impact 同名直传。
-	severity := c.Priority
-	if severity == "" {
-		severity = "medium"
+	// 中立→安全域词汇翻译发生在交付边界：priority→severity、suggestion→remediation；
+	// impact 同名直传。
+	severity := NormalizeSeverity(c.Priority)
+	if rating := strings.ToLower(strings.TrimSpace(c.Priority)); rating != "" && !slices.Contains(Severities, rating) {
+		findingLog.Info().Str("task_id", c.TaskID).Str("result_node_id", c.ResultNodeID).
+			Str("severity", c.Priority).Msg("发现严重度不在词表内，按缺省档入账")
 	}
-	host := c.HostHint
-	if host == "" || host == "unknown" {
-		host = deriveHost(c.Evidence, c.Repro, c.Target)
-	}
-	if host == "" && s.taskHost != nil {
-		// 兜底失败按无主机继续——存储校验的拒绝日志即观测点
-		if h, err := s.taskHost(ctx, c.TaskID); err == nil && h != "" && h != "unknown" {
-			host = h
-		}
+	host, err := s.resolveHost(ctx, c)
+	if err != nil {
+		return err
 	}
 
 	// evaluation 列的证据链形态：验证结论/成色/理由提为第一层键（前端按
@@ -148,6 +145,27 @@ func (s *ClaimSink) Record(ctx context.Context, c evaluator.ConfirmedClaim) erro
 		s.onSaved(ctx, saved)
 	}
 	return nil
+}
+
+// resolveHost 定位发现所在的主机：坐实材料里抽得到就用抽到的，抽不到回任务锚定的目标主机。
+// 任务行读失败时返回错误——此刻按空主机落账，幂等会让空主机永久留在这条记录上；不落账
+// 则由补交付带着主机收账。查到了就是空的（任务目标里没有可识别的主机），主机如实留空。
+func (s *ClaimSink) resolveHost(ctx context.Context, c evaluator.ConfirmedClaim) (string, error) {
+	host := c.HostHint
+	if host == "" || host == "unknown" {
+		host = deriveHost(c.Evidence, c.Repro, c.Target)
+	}
+	if host != "" || s.taskHost == nil {
+		return host, nil
+	}
+	taskHost, err := s.taskHost(ctx, c.TaskID)
+	if err != nil {
+		return "", fmt.Errorf("读取任务目标主机: %w", err)
+	}
+	if taskHost == "unknown" {
+		return "", nil
+	}
+	return taskHost, nil
 }
 
 // deriveTarget 从复现配方的 request 派生定位四元组 {method,url,path}。

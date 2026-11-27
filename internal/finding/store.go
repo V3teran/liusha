@@ -22,8 +22,10 @@ var findingLog = logx.New("finding")
 // Store 封装 finding 表的所有持久化操作。
 //
 // 设计要点：
-//   - severity、class 取各自的封闭词表（DB CHECK 约束兜底）
+//   - severity、class 取各自的封闭词表（DB CHECK 约束兜底），交付时由 ClaimSink 收进词表
 //   - 交付按结果节点幂等：同一坐实结果重放交付返回既有记录
+//   - 坐实了的主张必须存得下：这里的内容校验只拦编程错误（缺幂等键、缺摘要），不拦主张的
+//     合法取值——摘要不限长度与换行，主机抽不到时如实留空
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -43,14 +45,11 @@ func (s *Store) Save(ctx context.Context, f Finding) (Finding, error) {
 	if f.ResultNodeID == "" {
 		return Finding{}, fmt.Errorf("finding.ResultNodeID 必填")
 	}
-	if f.Host == "" {
-		return Finding{}, fmt.Errorf("finding.Host 必填")
-	}
 	if f.Summary == "" {
 		return Finding{}, fmt.Errorf("finding.Summary 必填")
 	}
 	if f.Severity == "" {
-		f.Severity = "medium"
+		f.Severity = SeverityMedium
 	}
 	if f.Class == "" {
 		f.Class = ClassOther
@@ -419,9 +418,6 @@ func (s *Store) UpdateTriage(ctx context.Context, id, status, severity, note str
 	findingLog.Info().Str("finding_id", id).Str("status", status).Str("severity", updated.Severity).Msg("finding triaged ✓")
 	return updated, nil
 }
-
-// Severities 是发现严重度的五档（由重到轻）：人工处置只能取这几档，统计与概览按它计数。
-var Severities = []string{"critical", "high", "medium", "low", "info"}
 
 // ErrInvalidTriage 表示处置请求不合法（状态或严重度取值不对），是调用方可修复的输入错误。
 var ErrInvalidTriage = errors.New("处置不合法")

@@ -1,10 +1,11 @@
-// Package finding 实现 finding 表持久化层：
-// 自由文本 summary 主体 + 自由文本 severity（前端按前缀配色）+ 可选 evidence jsonb。
-// LLM 自决全部表达（无 kind / confidence 等强结构化约束）。
+// Package finding 实现 finding 表持久化层：漏洞台账。
 //
-// 一条漏洞对应一个坐实结果节点（ResultNodeID）：交付按结果节点幂等。
-// 主张的语义去重不在这里——复现门按主张指纹在探索图里把同一主张的再次确认折叠进同一
-// 结果节点，台账与结果一一对应。
+// 一条漏洞对应一个坐实结果节点（ResultNodeID）：交付按结果节点幂等。主张的语义去重不在
+// 这里——复现门按主张指纹在探索图里把同一主张的再次确认折叠进同一结果节点，台账与结果
+// 一一对应。
+//
+// 台账是坐实主张的投影，由 ClaimSink 唯一写入：主张坐实了就必须存得下，行里各列的取值域
+// 覆盖主张的全部合法取值（词表类的列在交付处收进词表，自由文本的列不加约束）。
 package finding
 
 import (
@@ -14,18 +15,19 @@ import (
 
 // Finding 是 finding 表行的 Go 表示。
 //
-// Host 必填；Save 内空字符串校验防漏填。
 // Target / Evaluation 为 nil 时 Save 自动落空对象 '{}'。
 type Finding struct {
 	ID           string
 	TaskID       string // 所属 task.id
 	ResultNodeID string // 坐实这条漏洞的探索图结果节点（必填；交付幂等键）
 	AgentRunID   *string
-	Host         string
+	// Host 是发现所在的主机（host[:port]）。坐实材料与任务目标里都定位不到主机时为空——
+	// 空是如实的「未知」，不是漏填。
+	Host string
 	// Severity 是 Severities 五档之一（DB CHECK 约束 finding_severity_check）；交付缺省 medium。
 	Severity string
-	// Summary 是漏洞描述的核心载体：自由文本写发现是什么 / 怎么验证 / 推理依据。
-	// Store.Save 强制非空。
+	// Summary 是坐实主张的陈述原文：发现是什么、怎么验证。不限长度与换行，评估理由另在
+	// Evaluation 里。Store.Save 强制非空。
 	Summary    string
 	Target     json.RawMessage
 	Evaluation json.RawMessage

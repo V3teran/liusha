@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/V3teran/liusha/internal/evaluator"
 )
+
+// errLookup 是任务行读取失败的替身错误。
+var errLookup = errors.New("db down")
 
 // fakeFindingStore 记录落库的交付物。
 type fakeFindingStore struct {
@@ -88,18 +92,99 @@ func TestClaimSink_TaskHostFallback(t *testing.T) {
 	}
 }
 
-// 兜底解析失败按无主机继续——交付交由存储校验拒绝（可观测），不报错不 panic。
-func TestClaimSink_TaskHostFallbackErrorKeepsHostEmpty(t *testing.T) {
+// 任务行读失败时不落账，错误原样交还：此刻按空主机写入，幂等会让空主机永久留在这条
+// 记录上；留给补交付，下一次读到了主机再落账。
+func TestClaimSink_TaskHostLookupFailureDefersDelivery(t *testing.T) {
 	store := &fakeFindingStore{}
 	sink := NewClaimSink(store, "run-1").WithTaskHostFallback(
-		func(_ context.Context, _ string) (string, error) { return "", errors.New("db down") },
+		func(_ context.Context, _ string) (string, error) { return "", errLookup },
 	)
-	claim := evaluator.ConfirmedClaim{TaskID: "task-1", ResultNodeID: "n-1"}
-	if err := sink.Record(context.Background(), claim); err != nil {
-		t.Fatalf("Record 不应因兜底失败报错: %v", err)
+	claim := evaluator.ConfirmedClaim{TaskID: "task-1", ResultNodeID: "n-1", Statement: "坐实"}
+	err := sink.Record(context.Background(), claim)
+	if err == nil || !strings.Contains(err.Error(), "读取任务目标主机") || !errors.Is(err, errLookup) {
+		t.Fatalf("应交还读取失败的原因, got %v", err)
 	}
-	if len(store.saved) != 1 || store.saved[0].Host != "" {
-		t.Fatalf("Host 应保持空: %+v", store.saved)
+	if len(store.saved) != 0 {
+		t.Fatalf("读不到任务行时不该落账: %+v", store.saved)
+	}
+}
+
+// 主机确实定位不到（坐实材料里没有地址，任务目标里也没有可识别的主机）：如实以空主机
+// 入账——坐实了的发现不能因为定位不到主机而从台账里消失。
+func TestClaimSink_DeliversWhenNoHostIsKnown(t *testing.T) {
+	for name, fallback := range map[string]func(context.Context, string) (string, error){
+		"没有兜底":   nil,
+		"任务也没有":  func(context.Context, string) (string, error) { return "", nil },
+		"任务标着未知": func(context.Context, string) (string, error) { return "unknown", nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			store := &fakeFindingStore{}
+			sink := NewClaimSink(store, "run-1")
+			if fallback != nil {
+				sink = sink.WithTaskHostFallback(fallback)
+			}
+			if err := sink.Record(context.Background(), evaluator.ConfirmedClaim{
+				TaskID: "task-1", ResultNodeID: "n-1", Statement: "SSH 可用弱口令登录", HostHint: "unknown",
+			}); err != nil {
+				t.Fatalf("Record: %v", err)
+			}
+			if len(store.saved) != 1 || store.saved[0].Host != "" {
+				t.Fatalf("应以空主机落账: %+v", store.saved)
+			}
+		})
+	}
+}
+
+// 坐实材料里带地址时照旧抽得到主机，不依赖兜底。
+func TestClaimSink_HostFromEvidenceBeforeFallback(t *testing.T) {
+	store := &fakeFindingStore{}
+	called := false
+	sink := NewClaimSink(store, "run-1").WithTaskHostFallback(
+		func(context.Context, string) (string, error) { called = true; return "fallback:80", nil },
+	)
+	claim := evaluator.ConfirmedClaim{
+		TaskID: "task-1", ResultNodeID: "n-1", Statement: "坐实",
+		Evidence: json.RawMessage(`{"url":"http://10.0.0.5:8080/login"}`),
+	}
+	if err := sink.Record(context.Background(), claim); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if called || store.saved[0].Host != "10.0.0.5:8080" {
+		t.Fatalf("主机应取自证据里的地址: called=%v saved=%+v", called, store.saved)
+	}
+}
+
+// 主张的陈述原样入账，不限长度与换行：曾有一条 562 字的 SQL 注入因为台账摘要的 500 字
+// 上限永远交付不进去。
+func TestClaimSink_StatementDeliveredVerbatim(t *testing.T) {
+	store := &fakeFindingStore{}
+	long := strings.Repeat("参数 id 未经过滤直接拼进 SQL；", 40) + "\n复现步骤：\n1. 提交 id=1 UNION SELECT …\n2. 返回了 users 表的全部行"
+	if len([]rune(long)) <= 500 {
+		t.Fatalf("测试陈述应超过 500 字, got %d", len([]rune(long)))
+	}
+	if err := NewClaimSink(store, "run-1").Record(context.Background(), evaluator.ConfirmedClaim{
+		TaskID: "task-1", ResultNodeID: "n-1", Statement: long, HostHint: "example.com",
+	}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if got := store.saved[0].Summary; got != long {
+		t.Fatalf("陈述应一字不差入账:\n got %q\nwant %q", got, long)
+	}
+}
+
+// 评级收进词表：词表内的大小写从宽，空值与词表之外的归缺省档——评级写得不对不能让
+// 坐实了的主张进不了台账。
+func TestClaimSink_SeverityNormalized(t *testing.T) {
+	for in, want := range map[string]string{"critical": "critical", " HIGH ": "high", "info": "info", "": "medium", "P1": "medium"} {
+		store := &fakeFindingStore{}
+		if err := NewClaimSink(store, "run-1").Record(context.Background(), evaluator.ConfirmedClaim{
+			TaskID: "task-1", ResultNodeID: "n-1", Statement: "坐实", Priority: in, HostHint: "example.com",
+		}); err != nil {
+			t.Fatalf("Record(%q): %v", in, err)
+		}
+		if got := store.saved[0].Severity; got != want {
+			t.Fatalf("评级 %q 应归 %q, got %q", in, want, got)
+		}
 	}
 }
 
