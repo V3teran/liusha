@@ -138,7 +138,8 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		MiddlewareChain:            middlewareChain,
 		// Executor 的结构化输出格式
 		OutputFormatPrompt: "你刚才完成了动作的执行，现在需要按输出契约输出终稿。",
-		OutputFormatSchema: executorcontract.Text, // 强制总结时重申输出契约（唯一一份）
+		OutputFormatSchema: executorcontract.Text, // 收尾时重申输出契约（唯一一份）
+		OutputCheck:        outputCheck,           // 终稿按执行输出解析器验收：说明文字 + JSON 照常交付
 		// 收回止血：在途步骤由 action 级 context 取消即刻中断；以下两道闸门让
 		// 已排队的后续步骤（下一轮迭代 / 同一轮剩余工具）不再启动。
 		EarlyStopCondition: func(string) bool { return own.Lost() },
@@ -220,10 +221,10 @@ func (e *Engine) executeReActRuntime(
 	}
 	if e.thoughts != nil {
 		// 终态叙述在解析边界完成：执行协议转人读摘要（谁解析谁叙述，原文由
-		// 审计面保存）。仅当终稿确为 JSON 且解析成功才叙述——ParseOutput 的
-		// 兜底策略永不报错，散文终稿若被兜底摘要覆盖反而是信息损失。
+		// 审计面保存）。终稿里取得到输出 JSON 就按协议叙述——模型在 JSON 前写的
+		// 说明留在原文里；取不到的散文终稿原样留着，不被兜底摘要覆盖。
 		round := reasoning.RoundOf(result)
-		if output, perr := ParseOutput(result); perr == nil && terminalIsJSON(result.FinalAnswer) {
+		if output, ok := outputInText(result.FinalAnswer); ok {
 			round.Summary = outputNarrative(output)
 		}
 		e.thoughts.Done(ctx, round)
@@ -245,21 +246,7 @@ func (e *Engine) processOutput(
 	action explorationgraph.Node,
 	result *runtime.ReActResult,
 ) error {
-	// 解析输出
-	output, err := ParseOutput(result)
-	if err != nil {
-		e.logger.Warn().
-			Err(err).
-			Str("action_id", action.ID).
-			Msg("解析 Executor 输出失败，使用空输出")
-
-		output = &Output{
-			Status:       "completed",
-			Summary:      "执行完成，但输出格式解析失败",
-			Observations: []Observation{},
-		}
-	}
-
+	output := ParseOutput(result)
 	e.logger.Info().
 		Str("action_id", action.ID).
 		Str("status", output.Status).
@@ -376,20 +363,6 @@ func (e *Engine) harvestObservation(
 		Str("category", string(obs.Category)).
 		Msg("创建 observation 节点成功")
 	return node
-}
-
-// terminalIsJSON 判断 ReAct 终稿是否 JSON 形态（对象/数组起收）——执行协议
-// 叙述的守卫：散文终稿不经协议摘要覆盖。模型常把协议包在 markdown 围栏里
-// （```json … ```），剥除后再判定。
-func terminalIsJSON(text string) bool {
-	t := strings.TrimSpace(text)
-	if strings.HasPrefix(t, "```") {
-		if _, rest, ok := strings.Cut(t, "\n"); ok {
-			t = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(rest), "```"))
-		}
-	}
-	return (strings.HasPrefix(t, "{") && strings.HasSuffix(t, "}")) ||
-		(strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]"))
 }
 
 // outputNarrative 把执行协议转成时间线人读叙述：状态 + 观察数 + 总结。

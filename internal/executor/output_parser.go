@@ -1,7 +1,7 @@
 package executor
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
@@ -17,95 +17,47 @@ type Output struct {
 
 // Observation 载荷与本文件同包（observation.go）
 
-// ParseOutput 从 ReAct 结果中解析 Executor 的输出
-func ParseOutput(result *runtime.ReActResult) (*Output, error) {
-	// 策略 1：尝试从最后一条 assistant 消息中解析 JSON
-	output, err := parseFromLastMessage(result)
-	if err == nil && output != nil {
-		return output, nil
+// ParseOutput 从 ReAct 结果中解析 Executor 的终稿：先看终稿正文，再往前看对话——模型把输出
+// JSON 写在中间、最后却以散文收尾时，观察不至于丢。都没有时返回空输出（没有观察结果），
+// 不报错：终稿合不合格由 outputCheck 在运行时把关，走到这里的是重述也没交出 JSON 的。
+func ParseOutput(result *runtime.ReActResult) *Output {
+	if output, ok := outputInText(result.FinalAnswer); ok {
+		return output
 	}
-
-	// 策略 2：尝试从 FinalAnswer 中解析
-	if result.FinalAnswer != "" {
-		output, err = parseFromText(result.FinalAnswer)
-		if err == nil && output != nil {
-			return output, nil
-		}
-	}
-
-	// 策略 3：扫描整个对话历史，查找 JSON 块
-	output, err = parseFromHistory(result.MessageHistory)
-	if err == nil && output != nil {
-		return output, nil
-	}
-
-	// 策略 4：返回空输出（没有观察结果）
-	return &Output{
-		Status:       "completed",
-		Summary:      "执行完成，无观察结果",
-		Observations: []Observation{},
-	}, nil
-}
-
-// parseFromLastMessage 从最后一条 assistant 消息中解析
-func parseFromLastMessage(result *runtime.ReActResult) (*Output, error) {
-	if len(result.MessageHistory) == 0 {
-		return nil, fmt.Errorf("no history")
-	}
-
-	// 从后往前找最后一条 assistant 消息
 	for i := len(result.MessageHistory) - 1; i >= 0; i-- {
-		msg := result.MessageHistory[i]
-		if msg.Role == "assistant" {
-			return parseFromText(msg.Content)
+		message := result.MessageHistory[i]
+		if message.Role != llm.RoleAssistant || !strings.Contains(strings.ToLower(message.Content), "observations") {
+			continue
+		}
+		if output, ok := outputInText(message.Content); ok {
+			return output
 		}
 	}
-
-	return nil, fmt.Errorf("no assistant message")
+	return &Output{Status: "completed", Summary: "执行完成，无观察结果", Observations: []Observation{}}
 }
 
-// parseFromText 从文本中提取 JSON 块并解析
-func parseFromText(text string) (*Output, error) {
-	// 查找 JSON 代码块
-	jsonBlocks := extractJSONBlocks(text)
+// outputCheck 是执行终稿的验收：终稿里必须取得到带 status 的输出 JSON（观察写在它的
+// observations 里）。模型在 JSON 前后写的说明不影响验收——解析器本来就取得出 JSON。
+// 运行时据它决定终稿是原样交付，还是带着原因请模型重述：观察不至于丢在一段散文里。
+func outputCheck(answer string) error {
+	if _, ok := outputInText(answer); ok {
+		return nil
+	}
+	return errors.New("取不到带 status 的输出 JSON")
+}
 
-	for _, block := range jsonBlocks {
+// outputInText 从一段正文里找输出 JSON：先找 ```json 围栏块，没有再找首个 { 到末个 }
+// 之间的裸 JSON；取到且带 status 才算。
+func outputInText(text string) (*Output, bool) {
+	for _, block := range extractJSONBlocks(text) {
 		var output Output
-		// 修复式解析：模型在 JSON 字符串里写裸反斜杠（Windows 路径等）是
-		// 高频噪声，坏块值得修复后再判一次，而不是直接跳过
-		if err := llm.UnmarshalLoose([]byte(block), &output); err == nil {
-			// 验证是否是有效的 Output
-			if output.Status != "" {
-				return &output, nil
-			}
+		// 修复式解析：模型在 JSON 字符串里写裸反斜杠（Windows 路径等）是高频噪声，
+		// 坏块值得修复后再判一次，而不是直接跳过
+		if err := llm.UnmarshalLoose([]byte(block), &output); err == nil && output.Status != "" {
+			return &output, true
 		}
 	}
-
-	// 尝试直接解析整个文本
-	var output Output
-	if err := llm.UnmarshalLoose([]byte(text), &output); err == nil {
-		if output.Status != "" {
-			return &output, nil
-		}
-	}
-
-	return nil, fmt.Errorf("no valid JSON found")
-}
-
-// parseFromHistory 从对话历史中查找并解析输出
-func parseFromHistory(history []llm.Message) (*Output, error) {
-	// 从后往前扫描，查找包含 "observations" 关键字的 assistant 消息
-	for i := len(history) - 1; i >= 0; i-- {
-		msg := history[i]
-		if msg.Role == "assistant" && strings.Contains(strings.ToLower(msg.Content), "observations") {
-			output, err := parseFromText(msg.Content)
-			if err == nil {
-				return output, nil
-			}
-		}
-	}
-
-	return nil, fmt.Errorf("no observations in history")
+	return nil, false
 }
 
 // extractJSONBlocks 从文本中提取所有 JSON 代码块

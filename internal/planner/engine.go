@@ -435,7 +435,8 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		MiddlewareChain:            middlewareChain,
 		// Planner 的结构化输出格式
 		OutputFormatPrompt: "你是规划者（Planner），需要输出下一批要执行的Action。",
-		OutputFormatSchema: plannercontract.Text, // 强制总结时重申输出契约（唯一一份）
+		OutputFormatSchema: plannercontract.Text, // 收尾时重申输出契约（唯一一份）
+		OutputCheck:        planningOutputCheck,  // 终稿按规划解析器验收：说明文字 + JSON 照常交付
 	})
 	if err != nil {
 		e.adaptBudget(err)
@@ -808,21 +809,42 @@ func (e *Engine) buildPlannerSystemPrompt() string {
 	return scenario.Append(charter+"\n\n"+plannercontract.Text, e.scenario)
 }
 
+// planningOutputCheck 是规划终稿的验收：终稿里取得到的 JSON 必须是带 should_continue 的规划
+// 对象。模型在 JSON 前后写的说明不影响验收——解析器本来就取得出 JSON。它同时是运行时的
+// 验收（ReActConfig.OutputCheck：不通过就带着原因请模型重述）与解析的前置：少了
+// should_continue 的对象不再被读成「停止探索」。
+func planningOutputCheck(answer string) error {
+	var shape map[string]json.RawMessage
+	if err := llm.ParseJSON(answer, &shape); err != nil {
+		return fmt.Errorf("取不出 JSON 对象: %w", err)
+	}
+	if _, ok := shape["should_continue"]; !ok {
+		return errors.New("JSON 里没有 should_continue")
+	}
+	return nil
+}
+
 // parsePlanningResponse 从 ReAct 最终答案解析规划 JSON。
 func (e *Engine) parsePlanningResponse(content string) (*PlanningResponse, error) {
-	if content == "" {
-		return nil, fmt.Errorf("规划输出为空")
-	}
-
-	var response PlanningResponse
-	if err := llm.ParseJSON(content, &response); err != nil {
+	response, err := parsePlanningOutput(content)
+	if err != nil {
 		e.logger.Error().
 			Err(err).
 			Str("llm_response", content).
 			Msg("解析规划输出失败")
 		return nil, fmt.Errorf("%w: %w", ErrPlanOutputParse, err)
 	}
+	return response, nil
+}
 
+func parsePlanningOutput(content string) (*PlanningResponse, error) {
+	if err := planningOutputCheck(content); err != nil {
+		return nil, err
+	}
+	var response PlanningResponse
+	if err := llm.ParseJSON(content, &response); err != nil {
+		return nil, err
+	}
 	return &response, nil
 }
 

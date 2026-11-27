@@ -96,11 +96,36 @@ type ReActConfig struct {
 	// 中间件链（在每次迭代前后执行，用于检测循环、目标偏离等异常）
 	MiddlewareChain *MiddlewareChain
 
-	// 结构化输出格式（可选）
-	// 当 LLM 自然停止但输出格式不符合预期时，用于强制要求输出特定格式
-	// 如果为空，使用通用的文本总结格式
+	// 结构化输出格式（可选）。终稿没通过验收、或迭代达到上限时，运行时请模型收尾：配了
+	// 输出格式就按它要（重申契约），没配就只要一份总结。
 	OutputFormatPrompt string // 输出格式的 prompt 模板
 	OutputFormatSchema string // JSON Schema 示例（嵌入到 prompt 中）
+
+	// OutputCheck 是终稿的验收：模型自然停止时，运行时把它写下的终稿交给它判——返回 nil
+	// 即满足输出契约，原样交付；返回错误即不合格，错误说明随收尾请求交还模型，重述一次。
+	// 验收应当就是调用方的解析器本身：各调用方都能从「说明文字 + JSON」里取出 JSON，
+	// 模型在 JSON 前后写的说明不是不合格。只看终稿是否以 JSON 开头会把这类终稿打成
+	// 不合格、白花一次重述（实测评估者 13%、执行者 7% 的模型调用是这样多出来的）。
+	// 配了输出格式就必须给出（Validate）：收尾时按契约重申，就得能按契约验收。
+	OutputCheck func(finalAnswer string) error
+}
+
+// wantsOutputFormat 判断这次运行是否配了输出格式。
+func (c *ReActConfig) wantsOutputFormat() bool {
+	return c.OutputFormatPrompt != "" || c.OutputFormatSchema != ""
+}
+
+// checkFinalAnswer 判定模型自然停止时写下的终稿能不能原样交付：能返回空串，不能返回原因
+// （一句话，随收尾请求交还模型）。没有输出契约的运行（结论经工具发出，终稿只是叙述）
+// 写下就算。
+func (c *ReActConfig) checkFinalAnswer(answer string) string {
+	if c.OutputCheck == nil {
+		return ""
+	}
+	if err := c.OutputCheck(answer); err != nil {
+		return fmt.Sprintf("上一版终稿没通过验收（%v）。", err)
+	}
+	return ""
 }
 
 // ReActResult 是 ReAct 循环的执行结果
@@ -212,6 +237,11 @@ func (c *ReActConfig) Validate() error {
 
 	if c.LLMProvider == nil {
 		return fmt.Errorf("LLM 提供者不能为空")
+	}
+
+	// 配了输出格式就必须给出验收：没有验收方，运行时无从判断终稿合不合格。
+	if c.wantsOutputFormat() && c.OutputCheck == nil {
+		return fmt.Errorf("配了输出格式（OutputFormatPrompt / OutputFormatSchema）就必须给出终稿验收（OutputCheck）")
 	}
 
 	// MaxIterations<=0 合法：= 不设限（上限完全由调用方配置决定，运行时不二次封顶）。
