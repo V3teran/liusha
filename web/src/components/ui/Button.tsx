@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from 'react'
+import type { ComponentProps } from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@/lib/utils'
 
@@ -36,7 +36,8 @@ export const buttonVariants = cva(
 
 export type ButtonVariantProps = VariantProps<typeof buttonVariants>
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & ButtonVariantProps
+// ComponentProps 含 ref：调用方可直接拿到按钮元素（React 19 起 ref 是普通 prop）。
+type ButtonProps = ComponentProps<'button'> & ButtonVariantProps
 
 export function Button({ variant, size, className, type = 'button', ...rest }: ButtonProps) {
   return <button type={type} className={cn(buttonVariants({ variant, size }), className)} {...rest} />

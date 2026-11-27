@@ -1,6 +1,7 @@
-// Package llmprobe 实现 provider 连接诊断：满足 httpapi.ProviderDiagnoser 窄接口。
+// Package llmprobe 实现 provider 实测：满足 httpapi.ProviderProber 窄接口——测试连接
+// （Diagnose）与拉取模型列表（ListModels）。
 //
-// 诊断只认两种协议的规范，不认任何具体服务：所有请求都经运行期同一套构造路径
+// 实测只认两种协议的规范，不认任何具体服务：所有请求都经运行期同一套构造路径
 // （framework/llm 的 ClientPool + Generator）发出，Base URL 归一、鉴权方式、输出上限
 // 字段的语义与真实调用完全一致；服务之间的差异靠实测协商得出，而不是查名单。
 //
@@ -29,85 +30,80 @@ import (
 	"github.com/V3teran/liusha/internal/llmconfig"
 )
 
-// Store 是诊断对 llmstore 的窄依赖：据 code 取已存 provider（多级缓存）。
+// Store 是实测对 llmstore 的窄依赖：据 code 取已存 provider（多级缓存）。
 type Store interface {
 	ProviderByCode(ctx context.Context, code string) (llmconfig.Provider, error)
 }
 
-// Diagnoser 实现 httpapi.ProviderDiagnoser。
-type Diagnoser struct {
+// Prober 实现 httpapi.ProviderProber。
+type Prober struct {
 	store Store
 	dec   llmconfig.KeyDecrypter // 解密已存 provider 的密文密钥
 }
 
-// New 装配诊断器。
-func New(store Store, dec llmconfig.KeyDecrypter) *Diagnoser {
-	return &Diagnoser{store: store, dec: dec}
+// New 装配实测器。
+func New(store Store, dec llmconfig.KeyDecrypter) *Prober {
+	return &Prober{store: store, dec: dec}
 }
 
-// diagnosisRun 是一次诊断的执行上下文：自带一个生命周期仅限本次诊断的连接池——池以明文
-// 密钥为复用键，诊断处理的是用户临时输入（可能是错的）的凭据，用完即释放，既不在
-// 进程里留存这些密钥，也不随诊断次数增长。请求构造路径与运行期完全相同。
-type diagnosisRun struct {
-	*Diagnoser
+// probeRun 是一次实测的执行上下文：自带一个生命周期仅限本次实测的连接池——池以明文
+// 密钥为复用键，实测处理的是用户临时输入（可能是错的）的凭据，用完即释放，既不在
+// 进程里留存这些密钥，也不随实测次数增长。请求构造路径与运行期完全相同。
+type probeRun struct {
 	pool *fwllm.ClientPool
 }
 
 const (
 	callTimeout     = 20 * time.Second // 单次实测请求的超时
-	diagnoseTimeout = 90 * time.Second // 整次诊断的超时（最坏情况多次协商）
+	diagnoseTimeout = 90 * time.Second // 整次测试连接的超时（最坏情况多次协商、换协议）
+	listTimeout     = 60 * time.Second // 整次拉取模型列表的超时（两种鉴权方式 + 旁路来源）
 	pingMaxTokens   = 16               // 对话实测的输出上限：足够任何服务正常应答，又不浪费额度
 	toolsMaxTokens  = 64               // 工具实测的输出上限：容得下一次工具调用
-
-	modelsListedFmt = "可选 %d 个模型"
 )
 
 // versionSegment 匹配路径中的版本段（v1、v4、v1beta…）：OpenAI 兼容 Base URL 通常以它结尾。
 var versionSegment = regexp.MustCompile(`(?i)^v\d+[a-z0-9.]*$`)
 
-// Diagnose 诊断一个 provider 规格。见 httpapi.ProviderDiagnoser。
-func (d *Diagnoser) Diagnose(ctx context.Context, spec httpapi.ProviderProbeSpec) (httpapi.Diagnosis, error) {
-	key, err := d.resolveKey(ctx, spec)
+// start 解析密钥并开启一次带整体超时的实测。
+func (p *Prober) start(ctx context.Context, spec httpapi.ProviderProbeSpec, timeout time.Duration) (context.Context, func(), *probeRun, string, error) {
+	key, err := p.resolveKey(ctx, spec)
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	run := &probeRun{pool: fwllm.NewClientPool()}
+	return ctx, func() { run.pool.Close(); cancel() }, run, key, nil
+}
+
+// Diagnose 测试连接：以 spec.DefaultModel（调用方保证非空）发对话请求。见 httpapi.ProviderProber。
+func (p *Prober) Diagnose(ctx context.Context, spec httpapi.ProviderProbeSpec) (httpapi.Diagnosis, error) {
+	ctx, done, run, key, err := p.start(ctx, spec, diagnoseTimeout)
 	if err != nil {
 		return httpapi.Diagnosis{}, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, diagnoseTimeout)
-	defer cancel()
-	run := &diagnosisRun{Diagnoser: d, pool: fwllm.NewClientPool()}
-	defer run.pool.Close()
-	report := run.diagnose(ctx, spec, key)
-	if spec.DefaultModel != "" || len(report.Models) == 0 {
-		return report, nil
-	}
-	// 未填模型而拿到了可选模型：自动选用列表第一个，按它再做一次完整实测——一次诊断就给出
-	// 配置是否可用的结论，不必先选模型再诊断。
-	spec.DefaultModel = report.Models[0]
-	report = run.diagnose(ctx, spec, key)
-	report.AutoModel = spec.DefaultModel
-	report.Steps = withAutoModel(report.Steps, spec.DefaultModel)
-	return report, nil
+	defer done()
+	return run.diagnose(ctx, spec, key), nil
 }
 
-// withAutoModel 在模型项注明模型是自动选用的：可用时提示可改选，不可用时引导从列表另选。
-func withAutoModel(steps []httpapi.DiagnosisStep, model string) []httpapi.DiagnosisStep {
-	out := slices.Clone(steps)
-	for i := range out {
-		if out[i].Key != httpapi.StepModel {
-			continue
-		}
-		switch out[i].Status {
-		case httpapi.StepOK:
-			out[i].Detail = model + "（未填写模型，已自动选用列表第一个，可改选）"
-		case httpapi.StepFail:
-			out[i].Detail = fmt.Sprintf("自动选用的 %s 不可用：%s——请从模型列表另选", model, out[i].Detail)
-		}
+// ListModels 拉取上游的模型列表（供选择默认模型）。见 httpapi.ProviderProber。
+//
+// 只发模型列表请求：记录的鉴权方式优先，被拒（401/403）换另一种。地址按所填（归一后）
+// 请求，不像测试连接那样补版本段——两种协议的模型列表响应形状相近（补出的 …/v1/models
+// 可能恰好是另一种协议的列表端点），列表证明不了地址讲的是所选协议，地址对不对只由
+// 对话请求判定。端点不提供列表时尝试同主机的旁路来源（见 siblingModels）。
+func (p *Prober) ListModels(ctx context.Context, spec httpapi.ProviderProbeSpec) (httpapi.ModelList, error) {
+	ctx, done, run, key, err := p.start(ctx, spec, listTimeout)
+	if err != nil {
+		return httpapi.ModelList{}, err
 	}
-	return out
+	defer done()
+	t := profileTarget{protocol: spec.Type, baseURL: llmconfig.NormalizeBaseURL(spec.Type, spec.BaseURL), key: key}
+	return run.modelList(ctx, t, schemeCandidates(spec.Type, spec.AuthScheme)), nil
 }
 
-// diagnose 是一次诊断的主流程（见 Diagnose）。
-func (d *diagnosisRun) diagnose(ctx context.Context, spec httpapi.ProviderProbeSpec, key string) httpapi.Diagnosis {
-
+// diagnose 是测试连接的主流程：协商「候选地址 × 鉴权方式」，打通后测工具调用；未打通时
+// 按失败性质落到检查清单，并在根因是「地址不讲这个协议」时换协议实测给建议。
+func (d *probeRun) diagnose(ctx context.Context, spec httpapi.ProviderProbeSpec, key string) httpapi.Diagnosis {
 	target := profileTarget{
 		protocol: spec.Type,
 		baseURL:  llmconfig.NormalizeBaseURL(spec.Type, spec.BaseURL),
@@ -115,13 +111,15 @@ func (d *diagnosisRun) diagnose(ctx context.Context, spec httpapi.ProviderProbeS
 		model:    spec.DefaultModel,
 		limit:    fwllm.OutputLimitParam(spec.OutputLimitParam),
 	}
-	report := &httpapi.Diagnosis{BaseURL: target.baseURL, Models: []string{}}
-
-	// 1. 所选协议下协商「候选地址 × 鉴权方式」
+	report := httpapi.Diagnosis{BaseURL: target.baseURL}
 	reach, attempts := d.negotiate(ctx, target, baseCandidates(target), schemeCandidates(spec.Type, spec.AuthScheme))
 	if reach == nil {
-		d.reportFailure(ctx, report, target, spec.BaseURL, attempts)
-		return *report
+		last := attempts[len(attempts)-1]
+		if last.offProtocol() {
+			report.Suggestion = d.otherProtocol(ctx, target, spec.BaseURL)
+		}
+		report.Steps = failureSteps(attempts)
+		return report
 	}
 	if reach.baseURL != target.baseURL {
 		report.Suggestion = &httpapi.DiagnosisSuggestion{
@@ -129,63 +127,16 @@ func (d *diagnosisRun) diagnose(ctx context.Context, spec httpapi.ProviderProbeS
 			Reason: "当前地址请求 404，补上版本段后可用",
 		}
 	}
-	// 2. 打通之后：模型列表、工具调用
-	d.reportReach(ctx, report, reach)
-	return *report
-}
-
-// reportReach 把打通结果展开为检查清单并补齐画像。清单顺序即依赖顺序：端点 → 鉴权 →
-// 模型列表 → 模型 → 工具调用——选模型依赖列表，工具调用依赖选定的模型。
-func (d *diagnosisRun) reportReach(ctx context.Context, report *httpapi.Diagnosis, r *reachResult) {
-	report.Profile = &httpapi.DiagnosisProfile{AuthScheme: string(r.scheme)}
-	endpoint := httpapi.DiagnosisStep{Key: httpapi.StepEndpoint, Status: httpapi.StepOK, Request: r.request, LatencyMS: r.latency}
-	auth := httpapi.DiagnosisStep{Key: httpapi.StepAuth, Status: httpapi.StepOK, Detail: schemeLabel(r.scheme)}
-	if !r.chat {
-		// 以模型列表打通：列表就是这次实测的结果，不再重复请求
-		report.Models, report.ModelsSupported = r.models, true
-		report.Steps = []httpapi.DiagnosisStep{
-			endpoint, auth,
-			{Key: httpapi.StepModels, Status: httpapi.StepOK, Detail: fmt.Sprintf(modelsListedFmt, len(r.models)), Request: r.request, LatencyMS: r.latency},
-			{Key: httpapi.StepModel, Status: httpapi.StepSkip, Detail: "未填写模型——从模型列表选择或手填后再诊断"},
-			{Key: httpapi.StepTools, Status: httpapi.StepSkip, Detail: "需先填写模型并通过对话实测"},
-		}
-		return
-	}
-	modelsStep, models, supported := d.checkModels(ctx, r.profileTarget, r.scheme)
-	report.Models, report.ModelsSupported = models, supported
+	toolStep, supports := d.checkTools(ctx, reach)
 	report.OK = true
-	report.Profile.OutputLimitParam = string(r.limit)
-	toolStep, supports := d.checkTools(ctx, r)
-	report.Profile.SupportsTools = supports
-	model := httpapi.DiagnosisStep{Key: httpapi.StepModel, Status: httpapi.StepOK, Detail: r.model}
-	report.Steps = []httpapi.DiagnosisStep{endpoint, auth, modelsStep, model, toolStep}
-}
-
-// reportFailure 把未打通的协商展开为检查清单（见 failureSteps），并补上仍能给出的信息：
-// 根因是「地址不讲这个协议」时换协议实测给建议；鉴权已通过时照常拉模型列表——模型名
-// 填错时用户能直接从列表改选；未填模型而端点不提供列表时，尝试同主机的旁路来源。
-func (d *diagnosisRun) reportFailure(ctx context.Context, report *httpapi.Diagnosis, t profileTarget, rawBase string, attempts []attempt) {
-	last := attempts[len(attempts)-1]
-	if last.offProtocol() {
-		report.Suggestion = d.otherProtocol(ctx, t, rawBase)
+	report.Profile = &httpapi.DiagnosisProfile{AuthScheme: string(reach.scheme), OutputLimitParam: string(reach.limit), SupportsTools: supports}
+	report.Steps = []httpapi.DiagnosisStep{
+		{Key: httpapi.StepEndpoint, Status: httpapi.StepOK, Request: reach.request, LatencyMS: reach.latency},
+		{Key: httpapi.StepAuth, Status: httpapi.StepOK, Detail: schemeLabel(reach.scheme)},
+		{Key: httpapi.StepModel, Status: httpapi.StepOK, Detail: reach.model},
+		toolStep,
 	}
-	report.Steps = failureSteps(t, attempts)
-	switch classifyFailure(t, last) {
-	case failInconclusive:
-		if ids, step, ok := d.siblingModels(ctx, t); ok {
-			report.Models = ids
-			report.Steps = withStep(report.Steps, step)
-		}
-	case failAfterAuth:
-		if t.model == "" {
-			return // 未填模型时实测的就是模型列表，它的失败已在清单里
-		}
-		at := t
-		at.baseURL = last.baseURL
-		step, models, supported := d.checkModels(ctx, at, last.scheme)
-		report.Steps = withStep(report.Steps, step)
-		report.Models, report.ModelsSupported = models, supported
-	}
+	return report
 }
 
 // profileTarget 是一次实测的目标配置。
@@ -197,12 +148,10 @@ type profileTarget struct {
 	limit    fwllm.OutputLimitParam
 }
 
-// reachResult 是打通时的配置与证据。
+// reachResult 是对话请求打通时的配置与证据。
 type reachResult struct {
 	profileTarget
 	scheme  fwllm.AuthScheme
-	chat    bool     // 以对话请求打通（填了模型）；否则以模型列表打通
-	models  []string // 以模型列表打通时拉到的模型
 	request string
 	latency int64
 }
@@ -221,6 +170,10 @@ func isPathMissing(status int) bool {
 	return status == http.StatusNotFound || status == http.StatusMethodNotAllowed
 }
 
+func isAuthRejected(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden
+}
+
 // offProtocol 判定实测失败是否属于「这个地址不讲这个协议」：路径不存在（404/405），或
 // 2xx 但响应不符合协议（网关常把错误页包成 200 返回）。这类失败值得换地址、换协议再试。
 func (a attempt) offProtocol() bool {
@@ -229,13 +182,9 @@ func (a attempt) offProtocol() bool {
 
 // baseCandidates 返回所选协议下的候选地址：原地址；OpenAI 兼容且路径没有版本段时
 // 追加补 /v1 的候选（多数网关的 OpenAI 兼容接口挂在 /v1 下）。
-//
-// 地址发现只在有对话实测时进行：两种协议的模型列表响应形状相近（补出的 …/v1/models
-// 可能恰好是另一种协议的列表端点），模型列表证明不了地址讲的是所选协议，只有对话
-// 请求才是可靠证据。
 func baseCandidates(t profileTarget) []string {
 	out := []string{t.baseURL}
-	if t.protocol != llmconfig.ProviderTypeOpenAICompat || t.model == "" {
+	if t.protocol != llmconfig.ProviderTypeOpenAICompat {
 		return out
 	}
 	u, err := url.Parse(t.baseURL)
@@ -262,9 +211,10 @@ func schemeCandidates(protocol, current string) []fwllm.AuthScheme {
 	return []fwllm.AuthScheme{fwllm.AuthXAPIKey, fwllm.AuthBearer}
 }
 
-// negotiate 逐个候选实测：401/403 换鉴权方式，地址不讲这个协议（404/405、响应不符合
-// 协议）换地址，其余错误（模型不可用、限流、网络等）已能定性，停止协商。返回打通结果（nil = 未打通）与全部实测记录。
-func (d *diagnosisRun) negotiate(ctx context.Context, t profileTarget, bases []string, schemes []fwllm.AuthScheme) (*reachResult, []attempt) {
+// negotiate 逐个候选发对话请求：401/403 换鉴权方式，地址不讲这个协议（404/405、响应不符合
+// 协议）换地址，其余错误（模型不可用、限流、网络等）已能定性，停止协商。返回打通结果
+// （nil = 未打通）与全部实测记录。
+func (d *probeRun) negotiate(ctx context.Context, t profileTarget, bases []string, schemes []fwllm.AuthScheme) (*reachResult, []attempt) {
 	var attempts []attempt
 	for _, base := range bases {
 		candidate := t
@@ -275,7 +225,7 @@ func (d *diagnosisRun) negotiate(ctx context.Context, t profileTarget, bases []s
 			if res != nil {
 				return res, attempts
 			}
-			if a.status == http.StatusUnauthorized || a.status == http.StatusForbidden {
+			if isAuthRejected(a.status) {
 				continue // 换鉴权方式
 			}
 			if !a.offProtocol() {
@@ -287,40 +237,27 @@ func (d *diagnosisRun) negotiate(ctx context.Context, t profileTarget, bases []s
 	return nil, attempts
 }
 
-// reach 以一种鉴权方式实测：填了模型发最小对话请求，否则拉模型列表。
-func (d *diagnosisRun) reach(ctx context.Context, t profileTarget, scheme fwllm.AuthScheme) (*reachResult, attempt) {
+// reach 以一种鉴权方式发最小对话请求。
+func (d *probeRun) reach(ctx context.Context, t profileTarget, scheme fwllm.AuthScheme) (*reachResult, attempt) {
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	start := time.Now()
-	if t.model != "" {
-		a := attempt{baseURL: t.baseURL, scheme: scheme, request: "POST " + fwllm.OperationURL(t.protocol, t.baseURL, fwllm.OpChat)}
-		gen, err := d.generator(cctx, t, scheme, pingMaxTokens)
-		if err == nil {
-			_, err = gen.Generate(cctx, []fwllm.Message{{Role: fwllm.RoleUser, Content: "ping"}}, nil)
-		}
-		a.latency, a.err, a.status = time.Since(start).Milliseconds(), err, httpStatus(err)
-		if err != nil {
-			return nil, a
-		}
-		res := &reachResult{profileTarget: t, scheme: scheme, chat: true, request: a.request, latency: a.latency}
-		res.limit = outputLimitOf(gen, t.limit)
-		return res, a
-	}
-	a := attempt{baseURL: t.baseURL, scheme: scheme, request: "GET " + fwllm.OperationURL(t.protocol, t.baseURL, fwllm.OpModels)}
-	ids, err := d.listModels(cctx, t, scheme)
-	if err == nil && len(ids) == 0 {
-		// 空列表证明不了端点讲这个协议（网关错误页按协议解码同样是空列表）
-		err = fmt.Errorf("模型列表为空，无法确认端点: %w", fwllm.ErrUnexpectedResponse)
+	a := attempt{baseURL: t.baseURL, scheme: scheme, request: "POST " + fwllm.OperationURL(t.protocol, t.baseURL, fwllm.OpChat)}
+	gen, err := d.generator(cctx, t, scheme, pingMaxTokens)
+	if err == nil {
+		_, err = gen.Generate(cctx, []fwllm.Message{{Role: fwllm.RoleUser, Content: "ping"}}, nil)
 	}
 	a.latency, a.err, a.status = time.Since(start).Milliseconds(), err, httpStatus(err)
 	if err != nil {
 		return nil, a
 	}
-	return &reachResult{profileTarget: t, scheme: scheme, models: ids, request: a.request, latency: a.latency}, a
+	res := &reachResult{profileTarget: t, scheme: scheme, request: a.request, latency: a.latency}
+	res.limit = outputLimitOf(gen, t.limit)
+	return res, a
 }
 
 // otherProtocol 用另一种协议实测同一地址（按该协议的规则归一），能通则返回建议。
-func (d *diagnosisRun) otherProtocol(ctx context.Context, t profileTarget, rawBase string) *httpapi.DiagnosisSuggestion {
+func (d *probeRun) otherProtocol(ctx context.Context, t profileTarget, rawBase string) *httpapi.DiagnosisSuggestion {
 	other := llmconfig.ProviderTypeAnthropic
 	if t.protocol == llmconfig.ProviderTypeAnthropic {
 		other = llmconfig.ProviderTypeOpenAICompat
@@ -341,13 +278,12 @@ func (d *diagnosisRun) otherProtocol(ctx context.Context, t profileTarget, rawBa
 
 // checkTools 携带一个工具定义发对话请求：被接受即支持工具调用；上游 400 拒绝即不支持；
 // 其他失败（限流、网络）给不出结论，不改写声明。
-func (d *diagnosisRun) checkTools(ctx context.Context, r *reachResult) (httpapi.DiagnosisStep, *bool) {
+func (d *probeRun) checkTools(ctx context.Context, r *reachResult) (httpapi.DiagnosisStep, *bool) {
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	step := httpapi.DiagnosisStep{Key: httpapi.StepTools, Request: r.request}
-	t := r.profileTarget
 	start := time.Now()
-	gen, err := d.generator(cctx, t, r.scheme, toolsMaxTokens)
+	gen, err := d.generator(cctx, r.profileTarget, r.scheme, toolsMaxTokens)
 	if err == nil {
 		_, err = gen.Generate(cctx, []fwllm.Message{{Role: fwllm.RoleUser, Content: "Call the ping tool."}}, []fwllm.ToolSchema{{
 			Name: "ping", Description: "Connectivity check. Takes no arguments.",
@@ -368,53 +304,60 @@ func (d *diagnosisRun) checkTools(ctx context.Context, r *reachResult) (httpapi.
 	}
 }
 
-// checkModels 以已通过的鉴权方式拉模型列表：可选能力，端点不提供（404/405）只是提示。
-func (d *diagnosisRun) checkModels(ctx context.Context, t profileTarget, scheme fwllm.AuthScheme) (httpapi.DiagnosisStep, []string, bool) {
-	cctx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
-	step := httpapi.DiagnosisStep{Key: httpapi.StepModels, Request: "GET " + fwllm.OperationURL(t.protocol, t.baseURL, fwllm.OpModels)}
-	start := time.Now()
-	ids, err := d.listModels(cctx, t, scheme)
-	step.LatencyMS = time.Since(start).Milliseconds()
-	switch {
-	case err == nil && len(ids) > 0:
-		step.Status, step.Detail = httpapi.StepOK, fmt.Sprintf(modelsListedFmt, len(ids))
-		return step, ids, true
-	case err == nil:
-		step.Status, step.Detail = httpapi.StepWarn, "返回了空列表，请直接填写模型名"
-		return step, []string{}, true
-	case isPathMissing(httpStatus(err)):
-		if sibling, siblingStep, ok := d.siblingModels(ctx, t); ok {
-			return siblingStep, sibling, false
+// modelList 按鉴权方式的尝试顺序拉模型列表：被拒（401/403）换下一种，其余结果即结论。
+// 列表接口不存在（404/405）时，先试同主机的旁路来源，再如实说明——它判定不了地址对错：
+// 端点可能只是不提供列表（很多兼容端点只实现对话接口），也可能地址有误。
+func (d *probeRun) modelList(ctx context.Context, t profileTarget, schemes []fwllm.AuthScheme) httpapi.ModelList {
+	request := "GET " + fwllm.OperationURL(t.protocol, t.baseURL, fwllm.OpModels)
+	var err error
+	tried := 0
+	for _, scheme := range schemes {
+		var ids []string
+		ids, err = d.timedModelIDs(ctx, t, scheme)
+		tried++
+		if err == nil {
+			if len(ids) == 0 {
+				return httpapi.ModelList{Models: []string{}, Status: httpapi.StepWarn, Detail: "返回了空列表，请直接填写模型名", Request: request}
+			}
+			return httpapi.ModelList{Models: ids, Status: httpapi.StepOK, Request: request}
 		}
-		step.Status, step.Detail = httpapi.StepWarn, "该端点不提供模型列表，请直接填写模型名"
-	default:
-		step.Status, step.Detail = httpapi.StepWarn, "拉取失败："+humanizeProbeErr(err)
+		if !isAuthRejected(httpStatus(err)) {
+			break
+		}
 	}
-	return step, []string{}, false
+	status := httpStatus(err)
+	if isPathMissing(status) {
+		if ids, siblingRequest, ok := d.siblingModels(ctx, t); ok {
+			return httpapi.ModelList{
+				Models: ids, Status: httpapi.StepOK, Request: siblingRequest,
+				Detail: "该端点不提供模型列表，已从同主机的 OpenAI 兼容端点获取（可用性以测试连接为准）",
+			}
+		}
+		return httpapi.ModelList{
+			Models: []string{}, Status: httpapi.StepWarn, Request: request,
+			Detail: fmt.Sprintf("模型列表接口返回 %d：该端点可能不提供模型列表，也可能 Base URL 有误——可直接填写模型名后测试连接", status),
+		}
+	}
+	detail := humanizeProbeErr(err)
+	if isAuthRejected(status) && tried > 1 {
+		detail += fmt.Sprintf("（已尝试 %d 种鉴权方式）", tried)
+	}
+	return httpapi.ModelList{Models: []string{}, Status: httpapi.StepFail, Detail: detail, Request: request}
 }
 
 // siblingModels 在 Anthropic 兼容端点不提供模型列表时，从同主机的 OpenAI 兼容端点取可选
 // 模型（见 siblingListBases）。只用于填充模型下拉：两个端点认的模型名未必完全一致，
-// 选定的模型是否可用仍以对话实测为准。取到非空列表才算成功。
-func (d *diagnosisRun) siblingModels(ctx context.Context, t profileTarget) ([]string, httpapi.DiagnosisStep, bool) {
+// 选定的模型是否可用仍以对话实测为准。取到非空列表才算成功，返回取到它的实际请求。
+func (d *probeRun) siblingModels(ctx context.Context, t profileTarget) ([]string, string, bool) {
 	for _, base := range siblingListBases(t.protocol, t.baseURL) {
-		cctx, cancel := context.WithTimeout(ctx, callTimeout)
-		start := time.Now()
 		sibling := profileTarget{protocol: llmconfig.ProviderTypeOpenAICompat, baseURL: base, key: t.key}
-		ids, err := d.listModels(cctx, sibling, fwllm.AuthBearer)
-		cancel()
+		ids, err := d.timedModelIDs(ctx, sibling, fwllm.AuthBearer)
 		if err != nil || len(ids) == 0 {
 			continue
 		}
-		return ids, httpapi.DiagnosisStep{
-			Key: httpapi.StepModels, Status: httpapi.StepOK,
-			Detail:    fmt.Sprintf("该端点不提供模型列表；已从同主机的 OpenAI 兼容端点获取 %d 个模型（仅供选择，可用性以对话诊断为准）", len(ids)),
-			Request:   "GET " + fwllm.OperationURL(llmconfig.ProviderTypeOpenAICompat, base, fwllm.OpModels),
-			LatencyMS: time.Since(start).Milliseconds(),
-		}, true
+		return ids, "GET " + fwllm.OperationURL(llmconfig.ProviderTypeOpenAICompat, base, fwllm.OpModels), true
 	}
-	return nil, httpapi.DiagnosisStep{}, false
+	return nil, "", false
 }
 
 // siblingListBases 返回 Anthropic 兼容端点的模型列表旁路来源。常见的部署惯例是：
@@ -438,27 +381,23 @@ func siblingListBases(protocol, baseURL string) []string {
 	return []string{root + "/v1", root}
 }
 
-// withStep 返回把同 key 的一项换成 step 的检查清单副本。
-func withStep(steps []httpapi.DiagnosisStep, step httpapi.DiagnosisStep) []httpapi.DiagnosisStep {
-	out := slices.Clone(steps)
-	for i := range out {
-		if out[i].Key == step.Key {
-			out[i] = step
-		}
-	}
-	return out
-}
-
 // generator 按目标配置构造运行期同款生成器（输出上限按 maxTokens 覆盖，省额度）。
-func (d *diagnosisRun) generator(ctx context.Context, t profileTarget, scheme fwllm.AuthScheme, maxTokens int) (fwllm.Generator, error) {
+func (d *probeRun) generator(ctx context.Context, t profileTarget, scheme fwllm.AuthScheme, maxTokens int) (fwllm.Generator, error) {
 	return fwllm.BuildGeneratorWithKey(ctx, fwllm.ProviderSpec{
-		Code: "diagnose", Type: t.protocol, BaseURL: t.baseURL, Model: t.model, APIKey: t.key,
+		Code: "probe", Type: t.protocol, BaseURL: t.baseURL, Model: t.model, APIKey: t.key,
 		AuthScheme: scheme, OutputLimitParam: t.limit, MaxTokens: maxTokens,
 	}, d.pool)
 }
 
-// listModels 经运行期同一个 SDK client 调协议原生的模型列表接口（诊断不重试）。
-func (d *diagnosisRun) listModels(ctx context.Context, t profileTarget, scheme fwllm.AuthScheme) ([]string, error) {
+// timedModelIDs 以单次请求的超时调 modelIDs。
+func (d *probeRun) timedModelIDs(ctx context.Context, t profileTarget, scheme fwllm.AuthScheme) ([]string, error) {
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	return d.modelIDs(cctx, t, scheme)
+}
+
+// modelIDs 经运行期同一个 SDK client 调协议原生的模型列表接口（实测不重试），返回排序去重的模型名。
+func (d *probeRun) modelIDs(ctx context.Context, t profileTarget, scheme fwllm.AuthScheme) ([]string, error) {
 	var ids []string
 	if t.protocol == llmconfig.ProviderTypeAnthropic {
 		cli, err := d.pool.GetOrCreateAnthropic(t.baseURL, t.key, scheme)
@@ -493,18 +432,18 @@ func (d *diagnosisRun) listModels(ctx context.Context, t profileTarget, scheme f
 	return slices.Compact(ids), nil
 }
 
-// resolveKey 决定诊断用哪把密钥：请求明文优先，否则据 code 取已存并解密。
+// resolveKey 决定实测用哪把密钥：请求明文优先，否则据 code 取已存并解密。
 // 已存 provider 不存在时透传 pgx.ErrNoRows（HTTP 404）；取不到密钥是可修复的配置问题，
 // 包装 fwllm.ErrNotConfigured（HTTP 400）。
-func (d *Diagnoser) resolveKey(ctx context.Context, spec httpapi.ProviderProbeSpec) (string, error) {
+func (p *Prober) resolveKey(ctx context.Context, spec httpapi.ProviderProbeSpec) (string, error) {
 	if spec.APIKey != "" {
 		return spec.APIKey, nil
 	}
-	stored, err := d.store.ProviderByCode(ctx, spec.Code)
+	stored, err := p.store.ProviderByCode(ctx, spec.Code)
 	if err != nil {
 		return "", fmt.Errorf("取已存 provider %q 失败: %w", spec.Code, err)
 	}
-	key, err := llmconfig.ResolveAPIKey(stored, d.dec)
+	key, err := llmconfig.ResolveAPIKey(stored, p.dec)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", fwllm.ErrNotConfigured, err)
 	}
@@ -515,29 +454,25 @@ func (d *Diagnoser) resolveKey(ctx context.Context, spec httpapi.ProviderProbeSp
 type failureKind int
 
 const (
-	failInconclusive failureKind = iota // 未填模型、列表接口 404/405：判定不了端点（可能只是不提供列表）
-	failEndpoint                        // 没拿到 HTTP 响应，或地址不讲这个协议
-	failAuth                            // 鉴权被拒（各鉴权方式都试过）
-	failAfterAuth                       // 已过鉴权：模型不可用、限流、上游错误等
+	failEndpoint failureKind = iota // 没拿到 HTTP 响应，或地址不讲这个协议
+	failAuth                        // 鉴权被拒（各鉴权方式都试过）
+	failModel                       // 已过鉴权而对话失败：模型不可用、限流、上游错误等
 )
 
-func classifyFailure(t profileTarget, a attempt) failureKind {
+func classifyFailure(a attempt) failureKind {
 	switch {
-	case t.model == "" && isPathMissing(a.status):
-		return failInconclusive
 	case a.status == 0 || a.offProtocol():
 		return failEndpoint
-	case a.status == http.StatusUnauthorized || a.status == http.StatusForbidden:
+	case isAuthRejected(a.status):
 		return failAuth
 	default:
-		return failAfterAuth
+		return failModel
 	}
 }
 
-// failureSteps 依最后一次实测的失败性质，把未打通的结果展开为检查清单（顺序同 reportReach）：
-// 失败落在哪一项，其后依赖它的各项跳过。填了模型而鉴权已通过时，模型列表项先占位跳过，
-// 由 reportFailure 实测后替换。
-func failureSteps(t profileTarget, attempts []attempt) []httpapi.DiagnosisStep {
+// failureSteps 依最后一次实测的失败性质，把未打通的结果展开为检查清单（顺序同打通时）：
+// 失败落在哪一项，其后依赖它的各项跳过。
+func failureSteps(attempts []attempt) []httpapi.DiagnosisStep {
 	last := attempts[len(attempts)-1]
 	detail := humanizeProbeErr(last.err)
 	if n := len(attempts); n > 1 {
@@ -552,38 +487,17 @@ func failureSteps(t profileTarget, attempts []attempt) []httpapi.DiagnosisStep {
 	}
 	endpoint := httpapi.DiagnosisStep{Key: httpapi.StepEndpoint, Status: httpapi.StepOK, Request: last.request, LatencyMS: last.latency}
 	auth := httpapi.DiagnosisStep{Key: httpapi.StepAuth, Status: httpapi.StepOK, Detail: schemeLabel(last.scheme)}
-	switch classifyFailure(t, last) {
-	case failInconclusive:
-		// 未填模型时只能经模型列表验证，而列表接口 404/405 判定不了任何事：端点可能只是
-		// 不提供模型列表（很多兼容端点只实现对话接口），也可能地址有误。只有对话请求能给出
-		// 结论——如实说「无法判定」，并引导填写模型名，不把它报成端点错误。
-		endpoint.Status = httpapi.StepWarn
-		endpoint.Detail = fmt.Sprintf("无法判定：模型列表接口返回 %d——该端点可能不提供模型列表，也可能 Base URL 有误", last.status)
-		return []httpapi.DiagnosisStep{
-			endpoint,
-			{Key: httpapi.StepAuth, Status: httpapi.StepSkip},
-			{Key: httpapi.StepModels, Status: httpapi.StepWarn, Detail: "该端点可能不提供模型列表"},
-			{Key: httpapi.StepModel, Status: httpapi.StepFail, Detail: "请填写模型名后再诊断：对话请求能确认端点、鉴权与模型"},
-			{Key: httpapi.StepTools, Status: httpapi.StepSkip},
-		}
+	switch classifyFailure(last) {
 	case failEndpoint:
 		endpoint.Status, endpoint.Detail = httpapi.StepFail, detail
-		return append([]httpapi.DiagnosisStep{endpoint}, skip(httpapi.StepAuth, httpapi.StepModels, httpapi.StepModel, httpapi.StepTools)...)
+		return append([]httpapi.DiagnosisStep{endpoint}, skip(httpapi.StepAuth, httpapi.StepModel, httpapi.StepTools)...)
 	case failAuth:
 		auth.Status, auth.Detail = httpapi.StepFail, detail
-		return append([]httpapi.DiagnosisStep{endpoint, auth}, skip(httpapi.StepModels, httpapi.StepModel, httpapi.StepTools)...)
+		return append([]httpapi.DiagnosisStep{endpoint, auth}, skip(httpapi.StepModel, httpapi.StepTools)...)
+	default:
+		model := httpapi.DiagnosisStep{Key: httpapi.StepModel, Status: httpapi.StepFail, Detail: detail}
+		return append([]httpapi.DiagnosisStep{endpoint, auth, model}, skip(httpapi.StepTools)...)
 	}
-	if t.model == "" {
-		// 未填模型时实测的就是模型列表：失败落在模型列表项
-		return []httpapi.DiagnosisStep{
-			endpoint, auth,
-			{Key: httpapi.StepModels, Status: httpapi.StepFail, Detail: "拉取失败：" + detail, Request: last.request, LatencyMS: last.latency},
-			{Key: httpapi.StepModel, Status: httpapi.StepSkip, Detail: "未填写模型——从模型列表选择或手填后再诊断"},
-			{Key: httpapi.StepTools, Status: httpapi.StepSkip},
-		}
-	}
-	model := httpapi.DiagnosisStep{Key: httpapi.StepModel, Status: httpapi.StepFail, Detail: detail}
-	return []httpapi.DiagnosisStep{endpoint, auth, {Key: httpapi.StepModels, Status: httpapi.StepSkip}, model, {Key: httpapi.StepTools, Status: httpapi.StepSkip}}
 }
 
 // outputLimitOf 取生成器自适应后的输出上限字段（anthropic 协议没有这一概念，恒为 max_tokens）。

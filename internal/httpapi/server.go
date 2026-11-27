@@ -95,8 +95,9 @@ type Deps struct {
 	// 前端直填的明文 API Key 必须先加密才能落库，缺加密器就不该开这条写路径（fail-closed）。
 	// 由 api 组件注入 *cryptx.Cipher（自动满足），密钥来自配置 llm.encryption_key（fail-fast）。
 	KeyEncrypter KeyEncrypter
-	// ProviderDiagnoser 为 nil 时连接诊断路由（POST /models/providers/diagnose）不注册。
-	ProviderDiagnoser ProviderDiagnoser
+	// ProviderProber 为 nil 时 provider 实测路由（POST /models/providers/diagnose 与
+	// POST /models/providers/models）不注册。
+	ProviderProber ProviderProber
 	// RetrievalDiagnoser 为 nil 时检索模型诊断路由（POST /models/retrieval/diagnose）不注册。
 	RetrievalDiagnoser RetrievalDiagnoser
 	// RetrievalModelIndex 为 nil 时保存检索模型不触发向量收口（重置 + 即时补齐，单测）；

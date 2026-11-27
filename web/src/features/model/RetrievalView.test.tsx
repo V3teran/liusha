@@ -130,7 +130,7 @@ describe('检索模型分区', () => {
     renderView()
     await user.clear(await screen.findByLabelText('向量模型名'))
     await user.type(screen.getByLabelText('向量模型'), 'embed-other-model')
-    await user.click(screen.getByRole('button', { name: '测试' }))
+    await user.click(screen.getByRole('button', { name: '测试连接' }))
     await waitFor(() =>
       expect(mDiagnose).toHaveBeenCalledWith(
         expect.objectContaining({ embedding_model: 'embed-other-model' }),

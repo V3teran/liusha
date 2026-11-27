@@ -1,7 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, KeyRound, RefreshCw } from 'lucide-react'
 import type { AuthScheme, OutputLimitParam, ProviderConfig, ProviderType } from '@/api/types'
-import { Combobox } from '@/components/ui/Combobox'
 import { Switch } from '@/components/ui/Switch'
 import { Field } from '@/features/config/ConfigDrawer'
 import { FIELD_LABEL_CLASS, INPUT_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui/control'
@@ -15,6 +14,7 @@ import {
   thinkingBudgetError,
 } from './providerRules'
 import { Button } from '@/components/ui/Button'
+import { ModelField } from './ModelField'
 
 // 协议类型展示标签（后端枚举值不变，仅前端呈现）。
 export const TYPE_LABEL: Record<ProviderType, string> = {
@@ -44,7 +44,7 @@ const AUTH_SCHEME_LABEL: Record<AuthScheme, string> = {
 }
 
 // 协议选择：两种协议并列单选。新建时不预设——协议决定报文格式与请求路径，选错是接入失败
-// 的头号原因，必须由用户明确选择；切换协议时鉴权方式回到该协议的标准方式（运行诊断可改写）。
+// 的头号原因，必须由用户明确选择；切换协议时鉴权方式回到该协议的标准方式（测试连接可改写）。
 function ProtocolPicker({
   value,
   onChange,
@@ -136,7 +136,7 @@ function BaseUrlField({
   )
 }
 
-// 鉴权方式：密钥的携带方式（与协议正交）。默认协议标准方式；运行诊断实测识别后自动回填，
+// 鉴权方式：密钥的携带方式（与协议正交）。默认协议标准方式；测试连接实测识别后自动回填，
 // 中转网关只认另一种时也可手动指定。
 function AuthSchemeField({
   value,
@@ -155,36 +155,6 @@ function AuthSchemeField({
         ))}
       </Select>
     </Field>
-  )
-}
-
-// 默认模型：手填，或从运行诊断拉到的模型列表中选（可编辑下拉，展开即列出全部）。端点
-// 不提供模型列表时只能手填——这不是错误，很多兼容端点只实现对话接口。
-// 不用 Field：它以 <label> 包住控件，展开按钮嵌在 label 里会破坏点击与无障碍语义。
-function ModelField({
-  draft,
-  patch,
-  models,
-}: {
-  draft: ProviderConfig
-  patch: (p: Partial<ProviderConfig>) => void
-  models: string[]
-}) {
-  const inputId = useId()
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={inputId} className={FIELD_LABEL_CLASS}>
-        默认模型
-      </label>
-      <Combobox
-        id={inputId}
-        value={draft.default_model}
-        options={models}
-        onChange={(v) => patch({ default_model: v })}
-        placeholder="model-name"
-        toggleLabel="展开模型列表"
-      />
-    </div>
   )
 }
 
@@ -370,19 +340,17 @@ function ToggleField({
 
 // ProviderFormBody 是 provider 详情表单主体：先选协议，再填连接与能力（单页分组，无二级 tab）。
 // 协议未选时只展示协议选择——后续字段的写法（Base URL 约定、鉴权方式、思考预算）都取决于它。
-// models 是运行诊断拉到的模型列表（供默认模型下拉）；diagnosis 是连接诊断面板，紧跟在连接
-// 参数（地址、密钥、鉴权方式、模型）之后——填完即可就地诊断，回填的字段也都在近旁。
+// diagnosis 是测试连接面板，紧跟在连接参数（地址、密钥、鉴权方式、模型）之后——填完即可
+// 就地测试，回填的字段也都在近旁。
 export function ProviderFormBody({
   draft,
   patch,
   isNew,
-  models = [],
   diagnosis,
 }: {
   draft: ProviderConfig
   patch: (p: Partial<ProviderConfig>) => void
   isNew: boolean
-  models?: string[]
   diagnosis?: ReactNode
 }) {
   const onProtocol = (t: ProviderType) => {
@@ -407,7 +375,7 @@ export function ProviderFormBody({
           <BaseUrlField draft={draft} patch={patch} />
           <ApiKeyField draft={draft} patch={patch} isNew={isNew} />
           <AuthSchemeField value={draft.auth_scheme} onChange={(v) => patch({ auth_scheme: v })} />
-          <ModelField draft={draft} patch={patch} models={models} />
+          <ModelField draft={draft} patch={patch} />
           {diagnosis}
           <ToggleField
             label="启用"
@@ -457,7 +425,7 @@ export function ProviderFormBody({
               onValue={(v) => patch({ thinking_budget_tokens: v })}
             />
           )}
-          {/* 工具/视觉能力：工具调用由运行诊断实测后自动勾选；视觉无法低成本实测，按服务实际能力声明。 */}
+          {/* 工具/视觉能力：工具调用由测试连接实测后自动勾选；视觉无法低成本实测，按服务实际能力声明。 */}
           <ToggleField
             label="支持工具调用"
             checked={draft.supports_tools}

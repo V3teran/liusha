@@ -1,25 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, Stethoscope, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, CircleDashed, Loader2, PlugZap, XCircle } from 'lucide-react'
 import { errorText } from '@/api/client'
-import { diagnoseProvider } from '@/api/models'
 import type {
   Diagnosis,
   DiagnosisStep,
   DiagnosisStepKey,
   DiagnosisStepStatus,
   ProviderConfig,
-  ProviderType,
 } from '@/api/types'
+import { Button } from '@/components/ui/Button'
+import { InlineError } from '@/components/ui/InlineError'
 import { cn } from '@/lib/utils'
 import { TYPE_LABEL } from './providerForm'
-import { baseUrlError, normalizeBaseUrl } from './providerRules'
-import { Button } from '@/components/ui/Button'
+import { connectionKey, probeTarget, probeTargetMissing } from './providerRules'
+import { useDiagnoseProvider } from './useModelQueries'
 
 // 检查项标签是中性名词：结论由状态图标与详情表达（断言式标签配上失败结果会自相矛盾）。
 const STEP_LABEL: Record<DiagnosisStepKey, string> = {
   endpoint: '端点',
   auth: '鉴权',
-  models: '模型列表',
   model: '模型',
   tools: '工具调用',
   embedding: '向量',
@@ -33,94 +32,77 @@ const STATUS_STYLE: Record<DiagnosisStepStatus, { icon: typeof CheckCircle2; cla
   skip: { icon: CircleDashed, className: 'text-text-tertiary' },
 }
 
-/** 诊断输入的指纹：这些字段变了，已有结果就不再代表当前配置。 */
+/** 测试结论所对应的配置：连接与模型变了，已有结论就不再代表当前配置。 */
 function inputFingerprint(d: ProviderConfig): string {
-  const type = d.type || 'openai_compat'
-  return [d.type, normalizeBaseUrl(type, d.base_url), d.default_model.trim(), d.api_key ?? ''].join('\u0000')
+  return [connectionKey(d), d.default_model.trim()].join('\u0000')
 }
 
-/** 诊断请求所依据的全部输入：任一项在请求在途期间变化，结果就不能回填。 */
+/** 测试请求所依据的全部输入：任一项在请求在途期间变化，结果就不能回填。 */
 function requestFingerprint(d: ProviderConfig): string {
-  return [inputFingerprint(d), d.code, d.auth_scheme ?? '', d.output_limit_param ?? '', String(d.key_present)].join('\u0000')
+  return [inputFingerprint(d), d.auth_scheme, d.output_limit_param, String(d.key_present)].join('\u0000')
 }
 
-/** 诊断得出的、可直接回填表单的请求画像（不含需用户确认的建议），连同实测可用的自动选用模型。 */
+/** 测试连接的前置：实测目标齐全，且填了模型——可用性只能由对话请求证明。 */
+function diagnoseMissing(d: ProviderConfig): string | undefined {
+  return probeTargetMissing(d) ?? (d.default_model.trim() ? undefined : '请先填写默认模型（可从模型列表拉取）')
+}
+
+/** 测试得出的、可直接回填表单的请求画像（不含需用户确认的建议）。 */
 export function profilePatch(diag: Diagnosis): Partial<ProviderConfig> {
-  const patch: Partial<ProviderConfig> = {}
-  if (!diag.profile) return patch
-  if (diag.ok && diag.auto_model) patch.default_model = diag.auto_model
-  patch.auth_scheme = diag.profile.auth_scheme
-  if (diag.profile.output_limit_param) patch.output_limit_param = diag.profile.output_limit_param
+  if (!diag.profile) return {}
+  const patch: Partial<ProviderConfig> = {
+    auth_scheme: diag.profile.auth_scheme,
+    output_limit_param: diag.profile.output_limit_param,
+  }
   if (diag.profile.supports_tools !== undefined) patch.supports_tools = diag.profile.supports_tools
   return patch
 }
 
-// 连接诊断面板：按表单当前值实测端点 → 鉴权 → 模型列表 → 模型 → 工具调用（按返回顺序
-// 渲染，即依赖顺序），逐项展示结果与实际请求地址。打通时自动回填请求画像（鉴权方式、输出上限字段、工具调用）；
-// 「换个写法能通」时给出建议，用户一键采纳（建议改写的是用户填的协议/地址，必须确认）。
+// 测试连接：以默认模型按表单当前值实测端点 → 鉴权 → 模型 → 工具调用（按返回顺序渲染，即
+// 依赖顺序），逐项展示结果与实际请求地址。打通时自动回填请求画像（鉴权方式、输出上限字段、
+// 工具调用）；「换个写法能通」时给出建议，用户一键采纳（建议改写的是用户填的协议/地址，必须确认）。
 export function DiagnosisPanel({
   draft,
   onApply,
-  onModels,
 }: {
   draft: ProviderConfig
   onApply: (patch: Partial<ProviderConfig>) => void
-  onModels: (models: string[]) => void
 }) {
-  const [running, setRunning] = useState(false)
+  const diagnose = useDiagnoseProvider()
   const [result, setResult] = useState<Diagnosis | null>(null)
   const [error, setError] = useState('')
   const [ranFor, setRanFor] = useState('')
-  // 最新草稿与本次诊断的代际：响应到达时据此判断它是否仍对应当前配置。
+  // 最新草稿：响应到达时据此判断它是否仍对应当前配置。
   const latest = useRef(draft)
   useEffect(() => {
     latest.current = draft
   }, [draft])
-  const runSeq = useRef(0)
 
-  const precondition = (): string | undefined => {
-    if (!draft.type) return '请先选择协议'
-    if (!draft.base_url.trim() || baseUrlError(draft.base_url)) return '请先填写完整的 Base URL'
-    if (!draft.api_key && !draft.key_present) return '请先填写 API Key'
-    return undefined
-  }
-
-  const run = async () => {
-    const missing = precondition()
+  const run = () => {
+    const missing = diagnoseMissing(draft)
     setResult(null)
     setError(missing ?? '')
     if (missing) return
-    setRunning(true)
-    const seq = ++runSeq.current
     const sent = requestFingerprint(draft)
-    try {
-      const diag = await diagnoseProvider({
-        code: draft.code || undefined,
-        type: draft.type as ProviderType,
-        base_url: draft.base_url,
-        default_model: draft.default_model.trim() || undefined,
-        api_key: draft.api_key || undefined,
-        auth_scheme: draft.auth_scheme,
-        output_limit_param: draft.output_limit_param,
-      })
-      if (seq !== runSeq.current) return // 已有更新的诊断
-      setResult(diag)
-      if (requestFingerprint(latest.current) !== sent) {
-        // 在途期间配置被改过：只作为过期结果展示，不回填、不替换模型候选。
-        setRanFor(inputFingerprint(draft))
-        return
-      }
-      onModels(diag.models)
-      // 无建议时画像对应的就是当前配置：直接回填（连同归一后的地址与自动选用的模型，所见即所存）。
-      const patch: Partial<ProviderConfig> =
-        !diag.suggestion && diag.profile ? { base_url: diag.base_url, ...profilePatch(diag) } : {}
-      if (Object.keys(patch).length > 0) onApply(patch)
-      setRanFor(inputFingerprint({ ...draft, ...patch }))
-    } catch (e) {
-      setError(errorText(e, '诊断请求失败'))
-    } finally {
-      if (seq === runSeq.current) setRunning(false)
-    }
+    diagnose.mutate(
+      { ...probeTarget(draft), default_model: draft.default_model.trim(), output_limit_param: draft.output_limit_param },
+      {
+        onSuccess: (diag) => {
+          setResult(diag)
+          if (requestFingerprint(latest.current) !== sent) {
+            // 在途期间配置被改过：只作为过期结果展示，不回填。
+            setRanFor(inputFingerprint(draft))
+            return
+          }
+          // 无建议时画像对应的就是当前配置：直接回填（连同归一后的地址，所见即所存）。
+          const patch: Partial<ProviderConfig> =
+            !diag.suggestion && diag.profile ? { base_url: diag.base_url, ...profilePatch(diag) } : {}
+          if (Object.keys(patch).length > 0) onApply(patch)
+          setRanFor(inputFingerprint({ ...draft, ...patch }))
+        },
+        onError: (e) => setError(errorText(e, '测试连接失败')),
+      },
+    )
   }
 
   const adopt = () => {
@@ -133,28 +115,24 @@ export function DiagnosisPanel({
   }
 
   const stale = result !== null && ranFor !== inputFingerprint(draft)
+  const running = diagnose.isPending
 
   return (
-    <section aria-label="连接诊断" className="rounded-lg border border-border bg-surface px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <h4 className="min-w-0 text-sm font-medium text-text">连接诊断</h4>
-        <Button variant="secondary" size="sm" onClick={() => void run()} disabled={running}>
-          {running ? <Loader2 className="animate-spin" /> : <Stethoscope />}
-          {running ? '诊断中…' : '运行诊断'}
+    <section aria-label="测试连接" className="flex flex-col gap-3">
+      <div>
+        <Button variant="secondary" size="sm" onClick={run} disabled={running}>
+          {running ? <Loader2 className="animate-spin" /> : <PlugZap />}
+          {running ? '测试中…' : '测试连接'}
         </Button>
       </div>
 
-      {error && (
-        <p role="alert" className="mt-3 text-xs text-status-error">
-          {error}
-        </p>
-      )}
+      {error && <InlineError>{error}</InlineError>}
 
       {result && (
-        <div className={cn('mt-3 flex flex-col gap-2', stale && 'opacity-60')}>
+        <div className={cn('flex flex-col gap-2 rounded-lg border border-border bg-surface px-4 py-3', stale && 'opacity-60')}>
           <p className={cn('text-xs font-medium', result.ok ? 'text-accent' : 'text-status-error')}>
             {result.ok ? '配置可用' : '未通过'}
-            {stale && <span className="ml-2 font-normal text-text-tertiary">配置已改动，请重新诊断</span>}
+            {stale && <span className="ml-2 font-normal text-text-tertiary">配置已改动，请重新测试</span>}
           </p>
           <ol className="flex flex-col gap-1.5">
             {result.steps.map((step) => (

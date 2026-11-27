@@ -219,9 +219,10 @@ func registerModelsRoutes(r gin.IRouter, d Deps) {
 		r.PUT("/models/retrieval", saveRetrievalHandler(d.Models, d.KeyEncrypter, d.RetrievalModelIndex))
 	}
 
-	// 连接诊断（实测，不落库）
-	if d.ProviderDiagnoser != nil {
-		r.POST("/models/providers/diagnose", diagnoseProviderHandler(d.ProviderDiagnoser))
+	// provider 实测（不落库）：测试连接、拉取模型列表
+	if d.ProviderProber != nil {
+		r.POST("/models/providers/diagnose", diagnoseProviderHandler(d.ProviderProber))
+		r.POST("/models/providers/models", listProviderModelsHandler(d.ProviderProber))
 	}
 	if d.RetrievalDiagnoser != nil {
 		r.POST("/models/retrieval/diagnose", diagnoseRetrievalHandler(d.Models, d.RetrievalDiagnoser))
