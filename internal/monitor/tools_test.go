@@ -111,33 +111,47 @@ func TestGetGlobalStateTool_ListsHypotheses(t *testing.T) {
 	assert.Empty(t, state.Hypotheses[1].RefuteReason)
 }
 
-// 监察者判断「线索堆积着没人深挖」要看待深挖的线索：全局状态按创建先后列出它们；被动作
-// 跟进的、被判不追的与普通事实都不在其列。
+// 监察者判断「线索堆积着没人深挖」「追了总做不完」要看着等跟进的线索：全局状态按创建
+// 先后列出它们，带挂了多久与没做完、被否决的次数；被动作跟进的、已关闭的与普通事实都
+// 不在其列。
 func TestGetGlobalStateTool_ListsOpenLeads(t *testing.T) {
 	graph := newGraphWithActions(t)
 	ctx := context.Background()
-	lead := func(id, statement string) explorationgraph.Node {
+	base := time.Now().Add(-30 * time.Minute)
+	lead := func(id, statement string, age time.Duration) explorationgraph.Node {
 		return explorationgraph.Node{ID: id, TaskID: "t1", Kind: core.KindObservation, SourceType: explorationgraph.SourceExecutor,
-			Content: []byte(`{"category":"access","statement":"` + statement + `"}`), Metadata: explorationgraph.OpensDeeperMetadata()}
+			Content: []byte(`{"category":"access","statement":"` + statement + `"}`), Metadata: explorationgraph.OpensDeeperMetadata(),
+			CreatedAt: base.Add(age)}
 	}
 	for _, n := range []explorationgraph.Node{
-		lead("lead-open", "待深挖的线索"),
-		lead("lead-held", "被跟进的线索"),
-		{ID: "lead-declined", TaskID: "t1", Kind: core.KindObservation, SourceType: explorationgraph.SourceExecutor,
-			Content:  []byte(`{"category":"access","statement":"已不追的线索"}`),
-			Metadata: json.RawMessage(`{"opens_deeper":true,"lead_declined":{"reason":"超出任务目标"}}`)},
+		lead("lead-open", "待深挖的线索", 0),
+		lead("lead-held", "被跟进的线索", time.Minute),
+		{ID: "lead-shut", TaskID: "t1", Kind: core.KindObservation, SourceType: explorationgraph.SourceExecutor,
+			Content:  []byte(`{"category":"access","statement":"已关闭的线索"}`),
+			Metadata: json.RawMessage(`{"opens_deeper":true,"lead_closed":{"kind":"out_of_scope","reason":"超出任务目标"}}`)},
 		{ID: "fact", TaskID: "t1", Kind: core.KindObservation,
 			Content: []byte(`{"category":"access","statement":"普通事实"}`)},
 	} {
 		_, err := graph.CreateNode(ctx, n)
 		require.NoError(t, err)
 	}
-	// open 状态的规划动作经 pursues 边跟进 lead-held
 	open := explorationgraph.StateOpen
 	require.NoError(t, graph.CreateNodeWithEdges(ctx, explorationgraph.Node{
 		ID: "a-pursuing", TaskID: "t1", Kind: core.KindAction, State: &open, SourceType: explorationgraph.SourcePlanner,
 		Content: []byte(`{"instruction":"深挖"}`),
 	}, []explorationgraph.Edge{{TaskID: "t1", SrcID: "a-pursuing", Rel: explorationgraph.RelPursues, DstID: "lead-held"}}))
+	// lead-open 先被否决过一次，之后两次跟进都没做完（迭代预算耗尽）：处境由图推导，监察视图
+	// 带出来。
+	for i, id := range []string{"a-vetoed", "a-cut-1", "a-cut-2"} {
+		state := explorationgraph.StateExhausted
+		if id == "a-vetoed" {
+			state = explorationgraph.StateRejected
+		}
+		require.NoError(t, graph.CreateNodeWithEdges(ctx, explorationgraph.Node{
+			ID: id, TaskID: "t1", Kind: core.KindAction, State: &state, SourceType: explorationgraph.SourcePlanner,
+			Content: []byte(`{"instruction":"深挖"}`), UpdatedAt: base.Add(time.Duration(i+1) * time.Minute),
+		}, []explorationgraph.Edge{{TaskID: "t1", SrcID: id, Rel: explorationgraph.RelAttaches, DstID: "lead-open"}}))
+	}
 
 	tool := NewGetGlobalStateTool(graph, "t1", metrics.NewCollector(graph, "t1", zerolog.Nop()))
 	out, err := tool.Execute(ctx, []byte(`{}`))
@@ -148,7 +162,13 @@ func TestGetGlobalStateTool_ListsOpenLeads(t *testing.T) {
 		OpenLeads []OpenLead `json:"open_leads"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(out.Output), &state))
-	assert.Equal(t, []OpenLead{{ID: "lead-open", Statement: "待深挖的线索"}}, state.OpenLeads)
+	require.Len(t, state.OpenLeads, 1, "只有没人跟进、没被关闭的线索待深挖")
+	got := state.OpenLeads[0]
+	assert.Equal(t, "lead-open", got.ID)
+	assert.InDelta(t, 30, got.AgeMinutes, 0.2, "挂了约 30 分钟")
+	assert.Equal(t, 2, got.Truncated)
+	assert.Equal(t, 2, got.TruncationStreak)
+	assert.Equal(t, 1, got.Vetoes)
 }
 
 func TestPublishDecisionTool_RejectAction_AppliesStateChange(t *testing.T) {
@@ -168,6 +188,57 @@ func TestPublishDecisionTool_RejectAction_AppliesStateChange(t *testing.T) {
 	assert.Equal(t, explorationgraph.StateRejected, *node.State)
 	assert.Equal(t, explorationgraph.SourceMonitor, node.RejectedBy())
 	assert.Equal(t, "重复：与已完成动作做同一件事（证据：a-done）", *node.StateReason)
+}
+
+// 否决带范围：重复只否决这一步，它跟进的线索带着否决理由重新待深挖；偏离目标评判的是
+// 这条线本身，被否决的动作所跟进的线索随之关闭。
+func TestPublishDecisionTool_RejectAction_ScopeSettlesThePursuedLead(t *testing.T) {
+	graph := newGraphWithActions(t)
+	ctx := context.Background()
+	running := explorationgraph.StateRunning
+	_, err := graph.CreateNode(ctx, explorationgraph.Node{ID: "lead-1", TaskID: "t1", Kind: core.KindObservation,
+		SourceType: explorationgraph.SourceExecutor, Content: []byte(`{"category":"access","statement":"探通一条路"}`),
+		Metadata: explorationgraph.OpensDeeperMetadata()})
+	require.NoError(t, err)
+	pursue := func(id string) {
+		require.NoError(t, graph.CreateNodeWithEdges(ctx, explorationgraph.Node{
+			ID: id, TaskID: "t1", Kind: core.KindAction, State: &running, SourceType: explorationgraph.SourcePlanner,
+			Content: []byte(`{"instruction":"深挖"}`),
+		}, []explorationgraph.Edge{{TaskID: "t1", SrcID: id, Rel: explorationgraph.RelPursues, DstID: "lead-1"}}))
+	}
+	pursue("a-pursuit-1")
+	tool := NewPublishDecisionTool(graph, &replanRecorder{}, "t1")
+
+	out, err := tool.Execute(observedCtx(t, graph, "t1"), decisionArgs(t, Decision{
+		Type: DecisionRejectAction, ActionID: "a-pursuit-1", Problem: ProblemDuplicate,
+		EvidenceIDs: []string{"a-done"}, Reason: "与已完成的动作做同一件事",
+	}))
+	require.NoError(t, err)
+	require.Empty(t, out.Error)
+	node, err := graph.GetNode(ctx, "a-pursuit-1")
+	require.NoError(t, err)
+	assert.Equal(t, explorationgraph.RejectStep, node.RejectionScope(), "重复只否决这一步")
+	open, err := graph.OpenLeads(ctx, "t1")
+	require.NoError(t, err)
+	require.Len(t, open, 1, "线索带着否决理由重新待深挖")
+	assert.Equal(t, 1, open[0].Vetoes)
+	assert.Contains(t, open[0].LastVetoReason, "重复：与已完成的动作做同一件事")
+
+	pursue("a-pursuit-2")
+	out, err = tool.Execute(observedCtx(t, graph, "t1"), decisionArgs(t, Decision{
+		Type: DecisionRejectAction, ActionID: "a-pursuit-2", Problem: ProblemOffGoal,
+		EvidenceIDs: []string{"a-pursuit-2"}, Reason: "对象不在任务目标范围内",
+	}))
+	require.NoError(t, err)
+	require.Empty(t, out.Error)
+	node, err = graph.GetNode(ctx, "a-pursuit-2")
+	require.NoError(t, err)
+	assert.Equal(t, explorationgraph.RejectLead, node.RejectionScope(), "偏离目标连线索一起评判")
+	closed, err := graph.ClosedLeads(ctx, "t1")
+	require.NoError(t, err)
+	require.Len(t, closed, 1, "线索随之关闭")
+	assert.Equal(t, explorationgraph.ClosureVetoed, closed[0].Closure.Kind)
+	assert.Contains(t, closed[0].Closure.Reason, "偏离目标：对象不在任务目标范围内")
 }
 
 // 用户指派的动作体现人的明确意图，监察者无权否决；状态不得改变。

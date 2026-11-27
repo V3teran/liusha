@@ -153,9 +153,9 @@ function GraphCanvasInner({
         zoomable
       />
       {/* 图例放左上：Controls 默认在左下，避免遮挡。样本取自画法本身（EDGE_LOOKS）；
-          关系线型（左）与活动状态（右）是两类语义，分组线隔开 */}
+          关系线型与活动状态是两类语义，分组线隔开。窄屏放不下一行时折行，宽度不超过画布 */}
       <Panel position="top-left">
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-surface/90 px-3 py-1.5 text-2xs text-text-secondary backdrop-blur-sm">
+        <div className="flex max-w-[calc(100vw-3rem)] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border bg-surface/90 px-3 py-1.5 text-2xs text-text-secondary backdrop-blur-sm">
           {EDGE_LOOK_ORDER.map((look) => (
             <span key={look} className="flex items-center gap-1.5">
               <svg width="28" height="4" aria-hidden>

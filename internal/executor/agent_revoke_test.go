@@ -55,7 +55,7 @@ func TestExecuteAction_RevokedMidwayKeepsExternalDecision(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- a.executeAction(context.Background(), mustNode(t, store, "a1")) }()
 	<-exec.started
-	ok, err := store.RejectAction(context.Background(), "t1", "a1", explorationgraph.SourceUser, "超出授权范围")
+	ok, err := store.RejectAction(context.Background(), "t1", "a1", explorationgraph.SourceUser, explorationgraph.RejectStep, "超出授权范围")
 	require.NoError(t, err)
 	require.True(t, ok)
 

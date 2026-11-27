@@ -7,12 +7,15 @@
  * 卡片尺寸固定（与 ExplorationNodeCard 严格一致），dagre 估算即精确，
  * 连线不会错位。
  *
- * 图上有三种关系，画成四种线：
+ * 图上有六种关系，画成七种线：
  *  - 归属：目标 → 它名下的动作（generates）。动作都挂在根目标下，这条边每个动作都有，
  *    大图上是从根目标铺开的一片扇形——画成细点线，不压过携带信息的边
  *  - 推导：动作 → 观测 → 结果（generates），中性实线（颜色留给节点，避免满屏彩虹）
  *  - 滋生：结果 → 目标 / 动作（triggers），琥珀虚线——坐实的结果催生了新方向或新动作
  *  - 吸收：新派生目标 → 被它接管的旧目标（supersedes），紫色长虚线
+ *  - 推进：动作或线索 → 方向（serves），玫红短虚线——它为哪个方向出力
+ *  - 跟进：动作 → 线索（pursues），青色实线——动作为追这条线索而排出
+ *  - 挂接：在办动作 → 线索（attaches），青色细点线——线索晚出现，挂到它上只记账
  */
 
 import dagre from '@dagrejs/dagre'
@@ -33,12 +36,12 @@ export interface GraphStats {
   total: number
   edgeCount: number
   byKind: Record<string, number>
-  /** 滋生与吸收两种边的条数（全量）：没有就不给「只看方向关系」的入口 */
+  /** 滋生、吸收与推进三种边的条数（全量）：没有就不给「只看方向关系」的入口 */
   directionEdgeCount: number
 }
 
 /** 图上的三种关系（库里的 rel）。 */
-export type Relation = 'generates' | 'triggers' | 'supersedes'
+export type Relation = 'generates' | 'triggers' | 'supersedes' | 'serves' | 'pursues' | 'attaches'
 
 /** 边的画法：归属是 generates 里目标指向动作的那一种。 */
 export type EdgeLook = Relation | 'ownership'
@@ -53,46 +56,61 @@ export interface EdgeLookStyle {
 }
 
 // 边色是亮暗双主题通用的固定中间调（节点/连线墨水的既定用色口径），
-// 取值以「两主题背景上均 ≥3:1 图形对比度」为硬约束：
+// 取值以「两主题背景上均 ≥3:1 图形对比度」为硬约束（浅色背景 oklch(98.5% 0 0)、深色
+// oklch(14% 0.004 285) 上实测）：
 //  - 归属与推导共用 slate-500：slate-400 在浅色主题仅 2.4:1 会没入背景；两者靠线型
 //    （细点线 / 实线）分主次，色相保持克制
 //  - 滋生用 amber-600：它是全图里少见的彩色关系边，amber-500 浅色下仅 2:1
 //  - 吸收回目标家族色（violet-500，与目标节点的 accent 同谱）：只出现在
 //    目标 ↔ 目标之间，长虚线与滋生的短虚线区分
+//  - 推进用 rose-600（浅 4.5、深 4.1）：它与滋生同是朝向方向的边，色相拉开才分得清
+//    「结果催生方向」与「动作为方向出力」
+//  - 跟进与挂接共用 teal-600（浅 3.6、深 5.2）：两者都是动作 → 线索，实线与细点线分主次
 export const EDGE_LOOKS: Record<EdgeLook, EdgeLookStyle> = {
   generates: { color: '#64748b', width: 1.6, marker: 14 },
   triggers: { color: '#d97706', width: 1.6, dash: '6 4', marker: 14 },
   supersedes: { color: '#8b5cf6', width: 1.4, dash: '10 6', marker: 14 },
+  serves: { color: '#e11d48', width: 1.5, dash: '4 4', marker: 13 },
+  pursues: { color: '#0d9488', width: 1.8, marker: 14 },
+  attaches: { color: '#0d9488', width: 1.2, dash: '2 4', marker: 11 },
   ownership: { color: '#64748b', width: 1.1, dash: '2 5', marker: 11 },
 }
 
-/** 图例的顺序：先三种携带信息的关系，归属（每个动作都有）在最后。 */
-export const EDGE_LOOK_ORDER: readonly EdgeLook[] = ['generates', 'triggers', 'supersedes', 'ownership']
+/** 图例的顺序：先携带信息的关系，归属（每个动作都有）在最后。 */
+export const EDGE_LOOK_ORDER: readonly EdgeLook[] = ['generates', 'triggers', 'supersedes', 'serves', 'pursues', 'attaches', 'ownership']
 
 export const EDGE_LOOK_LABELS: Record<EdgeLook, string> = {
   generates: '推导',
   triggers: '滋生',
   supersedes: '吸收',
+  serves: '推进',
+  pursues: '跟进',
+  attaches: '挂接',
   ownership: '归属',
 }
 
-/** 滋生与吸收：结果催生方向、方向之间吸收——同是结果分析在图上留下的关系。 */
+/** 方向关系：结果催生方向、方向之间吸收、动作或线索为方向出力——同是规划者在方向上留下的关系。 */
+const DIRECTION_RELATIONS: ReadonlySet<string> = new Set(['triggers', 'supersedes', 'serves'])
+
 function isDirectionEdge(e: GraphEdge): boolean {
-  return e.rel === 'triggers' || e.rel === 'supersedes'
+  return DIRECTION_RELATIONS.has(e.rel)
 }
 
-/** 一条边该用哪种画法：目标指向动作的 generates 是归属，其余按关系；不认识的关系按推导画（照常显示）。 */
+/**
+ * 一条边该用哪种画法：目标指向动作的 generates 是归属；其余认识的关系各按自己的线型，
+ * 不认识的按推导画（照常显示）。
+ */
 export function edgeLook(e: GraphEdge, kindById: Map<string, string>): EdgeLook {
   if (e.rel === 'generates' && kindById.get(e.src_id) === 'objective') return 'ownership'
-  if (e.rel === 'triggers' || e.rel === 'supersedes') return e.rel
-  return 'generates'
+  return e.rel in EDGE_LOOKS && e.rel !== 'generates' && e.rel !== 'ownership' ? (e.rel as Relation) : 'generates'
 }
 
 /**
  * 把任务的探索图变成画布上的节点与边。
  *
- * directionOnly（只看方向关系）把图收缩到滋生与吸收两种边及它们两端的节点：这两种边一次
- * 结果分析才添几条，在整图里淹没在推导链与归属的扇形里；收缩后重排布局，一张图看得全。
+ * directionOnly（只看方向关系）把图收缩到方向关系（滋生、吸收、推进）及它们两端的节点：
+ * 这些边一次规划才添几条，在整图里淹没在推导链与归属的扇形里；收缩后重排布局，一张图
+ * 看得全。跟进与挂接不入内：动作 → 线索的边随线索数量增长，收进来就不是「一张图看得全」。
  */
 export function buildFlowGraph(
   graph: ExplorationGraph,

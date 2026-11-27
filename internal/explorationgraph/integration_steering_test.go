@@ -85,16 +85,16 @@ func TestSteeringPostgres(t *testing.T) {
 	})
 
 	t.Run("否决待执行与执行中的动作", func(t *testing.T) {
-		require.NoError(t, RejectActionTx(ctx, pool, taskID, running, SourceUser, "范围外"))
+		require.NoError(t, RejectActionTx(ctx, pool, taskID, running, SourceUser, RejectStep, "范围外"))
 		node, err := store.GetNode(ctx, running)
 		require.NoError(t, err)
 		assert.Equal(t, StateRejected, *node.State)
 		assert.Equal(t, SourceUser, node.RejectedBy())
 		assert.Equal(t, "范围外", *node.StateReason)
 
-		assert.ErrorIs(t, RejectActionTx(ctx, pool, taskID, done, SourceUser, "x"), ErrActionSettled)
-		assert.ErrorIs(t, RejectActionTx(ctx, pool, taskID, running, SourceUser, "x"), ErrActionSettled, "已否决即已结束")
-		assert.ErrorIs(t, RejectActionTx(ctx, pool, other, mine, SourceUser, "x"), ErrActionNotFound, "别的任务的动作")
-		assert.ErrorIs(t, RejectActionTx(ctx, pool, taskID, "5c2f6a9e-1111-4111-8111-0000000000ff", SourceUser, "x"), ErrActionNotFound)
+		assert.ErrorIs(t, RejectActionTx(ctx, pool, taskID, done, SourceUser, RejectStep, "x"), ErrActionSettled)
+		assert.ErrorIs(t, RejectActionTx(ctx, pool, taskID, running, SourceUser, RejectStep, "x"), ErrActionSettled, "已否决即已结束")
+		assert.ErrorIs(t, RejectActionTx(ctx, pool, other, mine, SourceUser, RejectStep, "x"), ErrActionNotFound, "别的任务的动作")
+		assert.ErrorIs(t, RejectActionTx(ctx, pool, taskID, "5c2f6a9e-1111-4111-8111-0000000000ff", SourceUser, RejectStep, "x"), ErrActionNotFound)
 	})
 }

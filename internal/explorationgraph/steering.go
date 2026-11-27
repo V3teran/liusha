@@ -57,12 +57,15 @@ func AssignAction(ctx context.Context, db Querier, taskID, instruction string, p
 	return id, nil
 }
 
-// RejectActionTx 在调用方事务内否决一个待执行或执行中的动作（→ rejected），记下否决方
-// 与原因；与 Store.RejectAction 同一迁移，单条语句同时覆盖 open 与 running。执行中的
+// RejectActionTx 在调用方事务内否决一个待执行或执行中的动作（→ rejected），记下否决方、
+// 范围与原因；与 Store.RejectAction 同一迁移，单条语句同时覆盖 open 与 running。执行中的
 // 动作由执行方的取消开关感知后中断。状态前置写在被更新的行上：并发的结束先提交时，
 // 语句按提交后的状态重判，不会覆盖。动作已结束返回 ErrActionSettled，不是本任务的动作
 // 返回 ErrActionNotFound。
-func RejectActionTx(ctx context.Context, db Querier, taskID, actionID string, by SourceType, reason string) error {
+func RejectActionTx(ctx context.Context, db Querier, taskID, actionID string, by SourceType, scope RejectScope, reason string) error {
+	if scope == "" {
+		scope = RejectStep
+	}
 	var outcome string
 	err := db.QueryRow(ctx, `
 		WITH target AS (
@@ -71,14 +74,14 @@ func RejectActionTx(ctx context.Context, db Querier, taskID, actionID string, by
 		), rejected AS (
 			UPDATE exploration_node n
 			   SET state = 'rejected',
-			       metadata = n.metadata || jsonb_build_object('state_reason', $3::text, 'rejected_by', $4::text)
+			       metadata = n.metadata || jsonb_build_object('state_reason', $3::text, 'rejected_by', $4::text, 'rejected_scope', $5::text)
 			  FROM target
 			 WHERE n.id = target.id AND n.state IN ('open', 'running')
 			RETURNING n.id
 		)
 		SELECT CASE WHEN EXISTS (SELECT 1 FROM rejected) THEN 'rejected'
 		            WHEN EXISTS (SELECT 1 FROM target) THEN 'settled'
-		            ELSE 'missing' END`, taskID, actionID, reason, string(by)).Scan(&outcome)
+		            ELSE 'missing' END`, taskID, actionID, reason, string(by), string(scope)).Scan(&outcome)
 	if err != nil {
 		return fmt.Errorf("否决动作 %s: %w", actionID, err)
 	}

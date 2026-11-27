@@ -208,15 +208,23 @@ FORBIDDEN=(
   'llm-audit'
   'LlmAudit'
   'llmaudit'
-  # 线索机制定名前的名字不得回流：认领线索的契约字段与图上的边同名（pursues_lead / pursues），
-  # 规划与监察视图统一叫 OpenLead；「排过就从清单消失」的一次性水位（deeper_planned）
-  # 已被 pursues 边加图结构推导取代。
+  # 线索机制定名前的名字不得回流：认领线索经图上的 pursues 边，规划与监察视图统一叫
+  # OpenLead；「排过就从清单消失」的一次性水位（deeper_planned）已被 pursues 边加图结构推导取代。
   'advances_lead'
   'AdvancesLead'
   'HotLead'
   'deeper_planned'
   'IsOpenLead'
   'noisyFactRenderLimit'
+  # 线索改为逐条交代后的名字不得回流：认领线索的契约字段 pursues_lead 并进了动作的 pursues
+  #   （短号，不再是 UUID）；判定不追的 declined_leads 并进了按类别关闭的 leads——不追只是
+  #   关闭的一种，另有受阻；线索上的批注 lead_declined 随之改称 lead_closed。
+  'pursues_lead'
+  'PursuesLead'
+  'declined_lead'
+  'DeclinedLead'
+  'lead_declined'
+  'LeadDecline'
 )
 
 # 术语豁免：某条术语在含「豁免串」的行里不算残留。写法是「术语||豁免串」——分隔符用两个竖线，

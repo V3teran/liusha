@@ -202,37 +202,60 @@ type Fact struct {
 	Statement string
 }
 
-// OpenLead 是一条待深挖的线索：执行者已探通、但尚未推进到结论，且当前没有算数的跟进
-// 动作。规划时单列、优先处理——动作以 pursues_lead 认领它，落图为 pursues 边。
+// Direction 是进行中的一个方向（派生目标）。方向只作分组与先验：动作与线索按它归组，
+// 分配决策落在线索上——方向存活久、拉拽少，累计在它上面的统计读不出取舍。
+type Direction struct {
+	ID   string
+	Goal string
+}
+
+// OpenLead 是一条待深挖的线索，连同它由图上推导出的处境：执行者已探通、尚未推进到结论，
+// 当前没有在办的动作在跟进。规划时逐条列出，本轮必须交代。
 type OpenLead struct {
 	ID        string
 	Statement string
+
+	DirectionID string    // 所属方向（没有为空）
+	ProducerID  string    // 产出它的动作（没有为空）
+	CreatedAt   time.Time // 线索出现的时刻
+
+	Truncated        int    // 跟进而没做完（迭代预算耗尽）的次数
+	TruncationStreak int    // 其中连续的次数
+	Faults           int    // 跟进它的动作执行出错的次数
+	Progressed       int    // 跟进过、推进了但没到结论的次数
+	Vetoes           int    // 跟进它的动作被否决（只否决这一步）的次数
+	LastVetoReason   string // 最近一次否决的理由
 }
 
-// DeclinedLead 是一条已被判定不追的线索：带着当初的理由呈现，规划者据此不再推进它。
-type DeclinedLead struct {
-	ID        string
+// ClosedLead 是一条已关闭的线索，带着关闭原因：规划者据此不再推进它，除非出现了新线索。
+type ClosedLead struct {
 	Statement string
+	Kind      explorationgraph.LeadClosureKind
 	Reason    string
 }
 
 // PlanningContext 规划上下文
 type PlanningContext struct {
 	Objective         string                  // 根目标描述（任务目标）
-	Objectives        []explorationgraph.Node // 全部目标（根目标 + 派生目标，含已收敛的；呈现时只列进行中的派生目标）
+	Directions        []Direction             // 进行中的方向（派生目标），创建序；第 i 个的短号是 D{i+1}
 	CompletedActions  []explorationgraph.Node // 已完成的 Action
-	PendingActions    []explorationgraph.Node // 待执行的 Action
+	PendingActions    []explorationgraph.Node // 在办（待执行或执行中）的 Action，创建序；第 i 个的短号是 A{i+1}
 	Results           []explorationgraph.Node // 已确认的结果（经判定坐实的主张）
 	FailedActions     []explorationgraph.Node // 失败的 Action
 	AbortedActions    []explorationgraph.Node // 已中止的 Action（任务收口或目标调整时未执行完；无对错判断，相关的可重提）
 	RejectedActions   []explorationgraph.Node // 已否决的 Action（监察者或用户判定不该做；含原因与否决方，禁止等效重提）
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	PendingHypotheses []string                // 待验证的假设陈述（复现门验证中，不必为它们安排动作）
-	OpenLeads         []OpenLead              // 待深挖的线索（单列，优先处理）
-	DeclinedLeads     []DeclinedLead          // 已判定不追的线索（含理由）
+	OpenLeads         []OpenLead              // 待深挖的线索，创建序；第 i 个的短号是 L{i+1}
+	ClosedLeads       []ClosedLead            // 已关闭的线索（带原因）
 	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
 	ReplanReasons     []string                // 强制重规划的理由（常规规划为空）
 	KnowledgeQueries  []string                // 本次运行已发出的知识库查询
+	Now               time.Time               // 读取图面的时刻（线索挂了多久从它算）；零值取当前时间
+
+	// 归属与跟进，由图上的边推导：在办动作推进的方向（serves 边）、认领了线索的动作（pursues 边）。
+	actionDirection map[string]string
+	claiming        map[string]bool
 }
 
 // ActionProposal LLM 返回的 Action 提案
@@ -242,21 +265,25 @@ type ActionProposal struct {
 	Priority    string   `json:"priority"`     // 优先级: critical/high/medium/low
 	Reasoning   string   `json:"reasoning"`    // 规划理由
 	TriggeredBy []string `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
-	PursuesLead string   `json:"pursues_lead"` // 本动作跟进的待深挖线索 ID（可选；认领后线索退出待深挖清单，动作沿它推进到结论）
+	Serves      string   `json:"serves"`       // 本动作推进的方向编号（D…）；不属于任何方向就不填
+	Pursues     []string `json:"pursues"`      // 本动作跟进的线索编号（L…）；不跟进线索就不填
 }
 
-// LeadDeclineProposal LLM 返回的「不追」提案
-type LeadDeclineProposal struct {
-	ID     string `json:"id"`     // 被判定不追的线索 ID
-	Reason string `json:"reason"` // 不追的理由
+// LeadDecisionProposal LLM 对一条待深挖线索本轮的处置。
+type LeadDecisionProposal struct {
+	ID       string `json:"id"`       // 线索编号
+	Decision string `json:"decision"` // attach / close / leave
+	Action   string `json:"action"`   // attach：挂到哪个在办动作（编号）
+	Kind     string `json:"kind"`     // close：关闭类别
+	Reason   string `json:"reason"`   // close：关闭的理由
 }
 
 // PlanningResponse LLM 响应
 type PlanningResponse struct {
-	ShouldContinue bool                  `json:"should_continue"` // 是否应该继续执行
-	Reasoning      string                `json:"reasoning"`       // 推理过程
-	Actions        []ActionProposal      `json:"actions"`         // 新提议的 Action
-	DeclinedLeads  []LeadDeclineProposal `json:"declined_leads"`  // 判定不追的线索
+	ShouldContinue bool                   `json:"should_continue"` // 是否应该继续执行
+	Reasoning      string                 `json:"reasoning"`       // 推理过程
+	Actions        []ActionProposal       `json:"actions"`         // 新提议的 Action；认领线索的经 pursues 说明
+	Leads          []LeadDecisionProposal `json:"leads"`           // 其余待深挖线索本轮的处置（attach / close / leave）
 }
 
 // PlanOutcome 是一次常规规划的结论。
@@ -264,11 +291,13 @@ type PlanOutcome struct {
 	// Stop 为真表示规划者判定停止探索（契约的 should_continue=false）：这是对任务的结论，
 	// 不是「本轮没有新动作」——由 Agent 收回规划者尚未做完的动作，等其余工作落定后收敛。
 	Stop bool
-	// Actions 是新提议的动作，DeclinedLeads 是判定不追的线索（Stop 时都为空）。
-	Actions       []explorationgraph.ActionDraft
-	DeclinedLeads []explorationgraph.LeadDecline
-	// OpenLeadCount 是规划时待深挖线索的条数：落图时据此核对这一轮有没有处理它们。
-	OpenLeadCount int
+	// Actions 是新提议的动作（Stop 时其余各项都为空）。
+	Actions []explorationgraph.ActionDraft
+	// Claims 是新动作对线索的认领（ActionID 指向 Actions 里的动作）；Attachments 是挂到图上
+	// 在办动作的线索；Closings 是关闭的线索。
+	Claims      []explorationgraph.Pursuit
+	Attachments []explorationgraph.Pursuit
+	Closings    []explorationgraph.LeadClosing
 }
 
 // planTools 按 function_tools 白名单列出本次规划要注册的工具。共享拦截链只包装
@@ -390,11 +419,12 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		onThoughtDelta = e.thoughts.Delta
 		onThinkingDelta = e.thoughts.ThinkingDelta
 	}
-	// 本轮的工具过程事件与终稿带同一个轮次标识
+	// 本轮的工具过程事件与终稿带同一个轮次标识（追问也算这一轮）
 	ctx = reasoning.BeginRound(ctx)
+	systemPrompt := e.buildPlannerSystemPrompt()
 	result, err := react.Run(ctx, &runtime.ReActConfig{
 		Objective:                  prompt,
-		SystemPrompt:               e.buildPlannerSystemPrompt(),
+		SystemPrompt:               systemPrompt,
 		LLMProvider:                provider,
 		MaxIterations:              e.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
 		MaxConsecutiveToolFailures: 8,       // 连续工具失败止损阈值（单机制：runtime 内置，随装配按角色调参）
@@ -417,19 +447,14 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	//    摘要作正文（谁解析谁叙述，前端不解释协议；协议原文由审计面保存）；
 	//    解析失败时正文回退原文——终态帧始终落库，清空气泡语义不受解析成败影响。
 	response, perr := e.parsePlanningResponse(result.FinalAnswer)
-	round := reasoning.RoundOf(result)
-	if perr == nil && response != nil {
-		round.Summary = planningNarrative(*response)
-	}
-	if e.thoughts != nil {
-		e.thoughts.Done(ctx, round)
-	}
 	if perr != nil {
+		e.finishRound(ctx, result, nil)
 		return PlanOutcome{}, fmt.Errorf("解析规划输出失败: %w", perr)
 	}
 
 	// 5. 停止探索：结论原样交给 Agent 落定（契约要求此时 actions 为空，给了也不执行）
 	if !response.ShouldContinue {
+		e.finishRound(ctx, result, response)
 		e.logger.Info().
 			Str("reasoning", response.Reasoning).
 			Int("ignored_actions", len(response.Actions)).
@@ -437,54 +462,92 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		return PlanOutcome{Stop: true}, nil
 	}
 
-	// 6. 转换 LLM 提案为动作草稿与不追处置
-	drafts := e.convertProposals(ctx, graph, taskID, response.Actions)
-	declines := convertLeadDeclines(response.DeclinedLeads)
-	e.logger.Info().Int("action_count", len(drafts)).Int("declined_leads", len(declines)).Msg("智能规划完成")
-	return PlanOutcome{Actions: drafts, DeclinedLeads: declines, OpenLeadCount: len(planCtx.OpenLeads)}, nil
-}
-
-// convertLeadDeclines 把不追提案转成图修订的处置：ID 去空白，没有 ID 的条目丢弃。理由
-// 为空的条目照常交下去——是否成立由修订校验判定并如实报告（见 PlanRevision）。
-func convertLeadDeclines(proposals []LeadDeclineProposal) []explorationgraph.LeadDecline {
-	declines := make([]explorationgraph.LeadDecline, 0, len(proposals))
-	for _, p := range proposals {
-		id := strings.TrimSpace(p.ID)
-		if id == "" {
-			continue
+	// 6. 待深挖的线索逐条交代。规划进行期间图面可能已经变了，先把新出现的线索补进清单，再
+	//    核对交代；没交代或不成立的，就着这份对话追问一次
+	added := e.refreshRound(ctx, graph, taskID, planCtx)
+	plan := accountLeads(planCtx, response)
+	if len(plan.problems) > 0 {
+		response, result, plan, err = e.completeLeadAccounting(ctx, provider, systemPrompt, result, response, plan, planCtx, added)
+		if err != nil {
+			e.finishRound(ctx, result, response)
+			return PlanOutcome{}, err
 		}
-		declines = append(declines, explorationgraph.LeadDecline{LeadID: id, Reason: p.Reason})
+		if len(plan.problems) > 0 {
+			e.logger.Warn().Strs("problems", plan.describe()).Msg("追问之后仍有线索没有得到有效交代，这些线索本轮留待")
+		}
 	}
-	return declines
+	e.finishRound(ctx, result, response)
+
+	drafts := e.convertProposals(ctx, graph, taskID, planCtx, response.Actions)
+	claims := make([]explorationgraph.Pursuit, 0)
+	for i, draft := range drafts {
+		for _, leadID := range plan.claims[i] {
+			claims = append(claims, explorationgraph.Pursuit{ActionID: draft.Node.ID, LeadID: leadID})
+		}
+	}
+	e.logger.Info().Int("action_count", len(drafts)).Int("claims", len(claims)).
+		Int("attachments", len(plan.attachments)).Int("closings", len(plan.closings)).
+		Int("leads_left", plan.left).Msg("智能规划完成")
+	return PlanOutcome{
+		Actions: drafts, Claims: claims, Attachments: plan.attachments, Closings: plan.closings,
+	}, nil
 }
 
-// gatherContext 收集规划所需的上下文信息
-func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Store, taskID string) (*PlanningContext, error) {
-	planCtx := &PlanningContext{}
+// finishRound 结束时间线上的这一轮：终稿能解析时正文用规划叙述，否则回退原文。
+func (e *Engine) finishRound(ctx context.Context, result *runtime.ReActResult, response *PlanningResponse) {
+	if e.thoughts == nil {
+		return
+	}
+	round := reasoning.RoundOf(result)
+	if response != nil {
+		round.Summary = planningNarrative(*response)
+	}
+	e.thoughts.Done(ctx, round)
+}
 
-	// 全部目标（根目标 + 派生目标）读入规划上下文
+// gatherContext 收集规划所需的上下文信息：目标与方向、动作、证据（结果、事实、假设）、线索。
+func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Store, taskID string) (*PlanningContext, error) {
+	planCtx := &PlanningContext{Now: time.Now()}
+	if err := planCtx.gatherObjectives(ctx, graph, taskID); err != nil {
+		return nil, err
+	}
+	if err := planCtx.gatherActions(ctx, graph, taskID); err != nil {
+		return nil, err
+	}
+	if err := planCtx.gatherEvidence(ctx, graph, taskID); err != nil {
+		return nil, err
+	}
+	if err := planCtx.gatherLeads(ctx, graph, taskID); err != nil {
+		return nil, err
+	}
+	return planCtx, nil
+}
+
+// gatherObjectives 读入全部目标：根目标即任务目标；进行中的派生目标是方向，带短号列出——
+// 已收敛的无需再投入。
+func (planCtx *PlanningContext) gatherObjectives(ctx context.Context, graph *explorationgraph.Store, taskID string) error {
 	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil {
-		return nil, fmt.Errorf("获取 Objective 失败: %w", err)
+		return fmt.Errorf("获取 Objective 失败: %w", err)
 	}
-	planCtx.Objectives = objectives
-	// 根目标描述（创建序最早 = 任务入口创建的根任务目标）
+	// 创建序最早的是任务入口创建的根目标
 	if len(objectives) > 0 {
-		var obj struct {
-			Description string `json:"description"`
-		}
-		if err := json.Unmarshal(objectives[0].Content, &obj); err == nil {
-			planCtx.Objective = obj.Description
+		planCtx.Objective = objectives[0].Goal()
+	}
+	for _, obj := range objectives {
+		if obj.IsDerivedObjective() && obj.State != nil && *obj.State == explorationgraph.StateOpen {
+			planCtx.Directions = append(planCtx.Directions, Direction{ID: obj.ID, Goal: objectiveDescription(obj)})
 		}
 	}
+	return nil
+}
 
-	// 获取所有 Action
+// gatherActions 读入全部动作并按状态分类，再记下每个动作的归属（推进的方向、是否在跟进线索）。
+func (planCtx *PlanningContext) gatherActions(ctx context.Context, graph *explorationgraph.Store, taskID string) error {
 	allActions, err := graph.ListNodesByKind(ctx, taskID, core.KindAction)
 	if err != nil {
-		return nil, fmt.Errorf("获取 Action 失败: %w", err)
+		return fmt.Errorf("获取 Action 失败: %w", err)
 	}
-
-	// 按状态分类 Action
 	for _, action := range allActions {
 		if action.State == nil {
 			continue
@@ -504,18 +567,21 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 			planCtx.RejectedActions = append(planCtx.RejectedActions, action)
 		}
 	}
+	return planCtx.indexAttribution(ctx, graph, taskID, allActions)
+}
 
-	// 获取已确认的结果
+// gatherEvidence 读入已坐实的结果，以及全部观察——事实（世界状态）与待验证、已证伪的假设
+// 共用一次查询，避免同表连查多次。
+func (planCtx *PlanningContext) gatherEvidence(ctx context.Context, graph *explorationgraph.Store, taskID string) error {
 	results, err := graph.ListNodesByKind(ctx, taskID, core.KindResult)
 	if err != nil {
-		return nil, fmt.Errorf("获取 Result 失败: %w", err)
+		return fmt.Errorf("获取 Result 失败: %w", err)
 	}
 	planCtx.Results = results
 
-	// 观察一次取全量，事实（世界状态）与待验证、已证伪的假设共用——避免同表连查多次。
 	observations, err := graph.ListNodesByKind(ctx, taskID, core.KindObservation)
 	if err != nil {
-		return nil, fmt.Errorf("获取 Observation 失败: %w", err)
+		return fmt.Errorf("获取 Observation 失败: %w", err)
 	}
 	for _, obs := range observations {
 		var c struct {
@@ -545,34 +611,136 @@ func (e *Engine) gatherContext(ctx context.Context, graph *explorationgraph.Stor
 			})
 		}
 	}
+	return nil
+}
 
-	// 线索单列，不埋在事实堆里让规划者每轮自己认：待深挖的排在事实之前（动作据 ID 认领），
-	// 已判定不追的带着理由（规划者据此尊重自己此前的判断）。两者都由图结构推导（见
-	// explorationgraph 的 lead.go）：跟进动作被撤回或否决后，线索自动回到待深挖。
-	openLeads, err := graph.OpenLeads(ctx, taskID)
+// gatherLeads 读入线索：待深挖的带短号与处境排在事实之前，已关闭的带着原因紧随其后——
+// 不埋在事实堆里让规划者每轮自己认。处境由图结构推导（见 explorationgraph 的 lead.go）。
+func (planCtx *PlanningContext) gatherLeads(ctx context.Context, graph *explorationgraph.Store, taskID string) error {
+	pending, err := graph.OpenLeads(ctx, taskID)
 	if err != nil {
-		return nil, fmt.Errorf("获取待深挖线索失败: %w", err)
+		return fmt.Errorf("获取待深挖线索失败: %w", err)
 	}
-	planCtx.OpenLeads = make([]OpenLead, 0, len(openLeads))
-	for _, lead := range openLeads {
-		if statement := lead.Statement(); statement != "" {
-			planCtx.OpenLeads = append(planCtx.OpenLeads, OpenLead{ID: lead.ID, Statement: statement})
+	for _, lead := range pending {
+		if open, ok := newOpenLead(lead); ok {
+			planCtx.OpenLeads = append(planCtx.OpenLeads, open)
 		}
 	}
-	declinedLeads, err := graph.DeclinedLeads(ctx, taskID)
+	closed, err := graph.ClosedLeads(ctx, taskID)
 	if err != nil {
-		return nil, fmt.Errorf("获取已判定不追的线索失败: %w", err)
+		return fmt.Errorf("获取已关闭线索失败: %w", err)
 	}
-	planCtx.DeclinedLeads = make([]DeclinedLead, 0, len(declinedLeads))
-	for _, lead := range declinedLeads {
-		if statement := lead.Statement(); statement != "" {
-			planCtx.DeclinedLeads = append(planCtx.DeclinedLeads, DeclinedLead{
-				ID: lead.ID, Statement: statement, Reason: lead.LeadDeclineReason(),
-			})
+	for _, lead := range closed {
+		if statement := lead.Statement(); statement != "" && lead.Closure != nil {
+			planCtx.ClosedLeads = append(planCtx.ClosedLeads, ClosedLead{Statement: statement, Kind: lead.Closure.Kind, Reason: lead.Closure.Reason})
 		}
 	}
+	return nil
+}
 
-	return planCtx, nil
+// newOpenLead 把图上推导出的线索处境转成规划输入里的一条；陈述缺失的线索列不出来。
+func newOpenLead(lead explorationgraph.Lead) (OpenLead, bool) {
+	statement := lead.Statement()
+	if statement == "" {
+		return OpenLead{}, false
+	}
+	return OpenLead{
+		ID: lead.ID, Statement: statement, DirectionID: lead.DirectionID,
+		ProducerID: lead.ProducerID, CreatedAt: lead.CreatedAt,
+		Truncated: lead.Truncated, TruncationStreak: lead.TruncationStreak, Faults: lead.Faults,
+		Progressed: lead.Progressed, Vetoes: lead.Vetoes, LastVetoReason: lead.LastVetoReason,
+	}, true
+}
+
+// refreshRound 把规划进行期间图上新出现的待深挖线索与在办动作补进本轮的清单。
+//
+// 规划是一段几分钟的推理：模型读图、思考的这会儿，执行者的新线索照样落图。模型经
+// graph_read 看得到它们，清单里却没有它们的短号——想认领也引用不上，而按开轮时的旧清单
+// 核对交代，又会把一条明明有人在追的线索算成没人管。所以首轮对话一结束就重读一遍：新
+// 出现的接在清单末尾（原有短号不变，模型上一版输出里的引用照旧成立），返回新补进来的线索
+// 供追问时列出来。读失败不影响这一轮，只是按开轮时的清单核对。
+func (e *Engine) refreshRound(ctx context.Context, graph *explorationgraph.Store, taskID string, planCtx *PlanningContext) []OpenLead {
+	e.refreshInFlight(ctx, graph, taskID, planCtx)
+
+	pending, err := graph.OpenLeads(ctx, taskID)
+	if err != nil {
+		e.logger.Warn().Err(err).Msg("重读待深挖线索失败，按开轮时的清单核对交代")
+		return nil
+	}
+	known := make(map[string]bool, len(planCtx.OpenLeads))
+	for _, lead := range planCtx.OpenLeads {
+		known[lead.ID] = true
+	}
+	var added []OpenLead
+	for _, lead := range pending {
+		if known[lead.ID] {
+			continue
+		}
+		if open, ok := newOpenLead(lead); ok {
+			planCtx.OpenLeads = append(planCtx.OpenLeads, open)
+			added = append(added, open)
+		}
+	}
+	return added
+}
+
+// refreshInFlight 把新出现在办的动作接在清单末尾，返回清单是否有变化；有变化时重记归属。
+func (e *Engine) refreshInFlight(ctx context.Context, graph *explorationgraph.Store, taskID string, planCtx *PlanningContext) bool {
+	actions, err := graph.ListNodesByKind(ctx, taskID, core.KindAction)
+	if err != nil {
+		e.logger.Warn().Err(err).Msg("重读在办动作失败，沿用开轮时的清单")
+		return false
+	}
+	known := make(map[string]bool, len(planCtx.PendingActions))
+	for _, action := range planCtx.PendingActions {
+		known[action.ID] = true
+	}
+	changed := false
+	for _, action := range actions {
+		if action.State == nil || (*action.State != explorationgraph.StateOpen && *action.State != explorationgraph.StateRunning) {
+			continue
+		}
+		if !known[action.ID] {
+			planCtx.PendingActions = append(planCtx.PendingActions, action)
+			changed = true
+		}
+	}
+	if changed {
+		if err := planCtx.indexAttribution(ctx, graph, taskID, actions); err != nil {
+			e.logger.Warn().Err(err).Msg("重记动作归属失败，沿用开轮时的归属")
+		}
+	}
+	return changed
+}
+
+// indexAttribution 由图上的边记下动作的归属：哪些动作认领了线索（pursues 边）、在办的动作
+// 推进哪个方向（serves 边，线索改写归属的 serves 边起点是线索，不算在内）。
+func (planCtx *PlanningContext) indexAttribution(ctx context.Context, graph *explorationgraph.Store, taskID string, actions []explorationgraph.Node) error {
+	planCtx.claiming = make(map[string]bool)
+	planCtx.actionDirection = make(map[string]string)
+	if len(actions) == 0 {
+		return nil
+	}
+	isAction := make(map[string]bool, len(actions))
+	for _, action := range actions {
+		isAction[action.ID] = true
+	}
+	edges, err := graph.ListEdgesByTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("获取边失败: %w", err)
+	}
+	for _, edge := range edges {
+		if !isAction[edge.SrcID] {
+			continue
+		}
+		switch edge.Rel {
+		case explorationgraph.RelPursues:
+			planCtx.claiming[edge.SrcID] = true
+		case explorationgraph.RelServes:
+			planCtx.actionDirection[edge.SrcID] = edge.DstID
+		}
+	}
+	return nil
 }
 
 // buildPlanningPrompt 构建规划 prompt
@@ -582,8 +750,8 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 1. 多智能体分工名册（各角色调度摘要，agent.description 前端可编辑）
 	sb.WriteString(buildTeamRosterSection(e.roster))
 
-	// 3. 任务目标
-	sb.WriteString(buildObjectiveSection(ctx.Objective, ctx.Objectives))
+	// 3. 任务目标与进行中的方向
+	sb.WriteString(buildObjectiveSection(ctx.Objective, ctx.Directions))
 
 	// 3.2 重规划理由（常规规划不渲染）
 	sb.WriteString(buildReplanSection(ctx.ReplanReasons))
@@ -595,7 +763,7 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	sb.WriteString(buildCompletedActionsSection(ctx.CompletedActions))
 
 	// 6. 进行中的工作
-	sb.WriteString(buildPendingActionsSection(ctx.PendingActions))
+	sb.WriteString(buildPendingActionsSection(ctx))
 
 	// 7. 失败的尝试
 	sb.WriteString(buildFailedActionsSection(ctx.FailedActions))
@@ -607,10 +775,10 @@ func (e *Engine) buildPlanningPrompt(ctx *PlanningContext) string {
 	// 8. 已坐实的结果
 	sb.WriteString(buildResultsSection(ctx.Results))
 
-	// 8.5 线索：待深挖的排在事实之前——它是要处理的事，不是背景；已判定不追的紧随其后，
-	// 带着理由，规划者据此不再推进它们
-	sb.WriteString(buildOpenLeadsSection(ctx.OpenLeads))
-	sb.WriteString(buildDeclinedLeadsSection(ctx.DeclinedLeads))
+	// 8.5 线索：待深挖的排在事实之前——它是要处理的事，不是背景；已关闭的紧随其后，
+	// 带着原因，规划者据此不再推进它们
+	sb.WriteString(buildOpenLeadsSection(ctx))
+	sb.WriteString(buildClosedLeadsSection(ctx.ClosedLeads))
 
 	// 8.8 已确认的事实（规划基底）
 	sb.WriteString(buildFactsSection(ctx.Facts))
@@ -699,9 +867,9 @@ func filterKnownIDs(ids []string, known map[string]bool) []string {
 	return valid
 }
 
-// convertProposals 把 LLM 提案转成动作草稿：优先级与复杂度进节点层，因果引用随草稿
-// 交给落图（落成 triggers 边），内容只留动作本身——类型、指令与规划理由。
-func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.Store, taskID string, proposals []ActionProposal) []explorationgraph.ActionDraft {
+// convertProposals 把 LLM 提案转成动作草稿：优先级与复杂度进节点层，因果引用与方向归属
+// 随草稿交给落图（落成 triggers / serves 边），内容只留动作本身——类型、指令与规划理由。
+func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.Store, taskID string, planCtx *PlanningContext, proposals []ActionProposal) []explorationgraph.ActionDraft {
 	// 滋生本动作的 result 存在集（triggered_by 同样要做幻影过滤——因果边指向
 	// 不存在的节点是假溯源，比缺边更糟）。查失败退回纯格式校验。
 	resultIDs := map[string]bool(nil)
@@ -729,6 +897,16 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 				Str("action_id", actionID).
 				Msg("过滤掉无效/幻影的 triggered_by（图中不存在该 result——因果溯源只认真实节点）")
 		}
+		// 不声明方向是常态（动作留在任务目标下）；声明了却对不上清单才是模型写错了。
+		var directionID string
+		if handle := strings.TrimSpace(proposal.Serves); handle != "" {
+			id, known := planCtx.directionID(handle)
+			if !known {
+				e.logger.Warn().Str("serves", handle).Str("action_id", actionID).
+					Msg("serves 不是「进行中的方向」里的编号，本动作按不归属方向处理")
+			}
+			directionID = id
+		}
 
 		contentBytes, _ := json.Marshal(map[string]string{
 			"instruction": proposal.Instruction,
@@ -748,9 +926,7 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 			CreatedAt:  time.Now(),
 		}
 
-		drafts = append(drafts, explorationgraph.ActionDraft{
-			Node: node, TriggeredBy: validTriggeredBy, PursuesLead: strings.TrimSpace(proposal.PursuesLead),
-		})
+		drafts = append(drafts, explorationgraph.ActionDraft{Node: node, TriggeredBy: validTriggeredBy, Serves: directionID})
 
 		e.logger.Debug().
 			Str("action_id", actionID).
@@ -761,31 +937,44 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 	return drafts
 }
 
-// planningNarrative 把规划协议转成时间线人读叙述：结论 + 动作清单 + 不追的线索 + 理由。
+// planningNarrative 把规划协议转成时间线人读叙述：结论 + 动作清单 + 线索的处置 + 理由。
 // 协议原文随 Round.Raw 折叠可查——叙述只在此处发生一次，前端不做协议解释。
 func planningNarrative(r PlanningResponse) string {
-	var b strings.Builder
-	if r.ShouldContinue {
-		if len(r.Actions) > 0 || len(r.DeclinedLeads) == 0 {
-			fmt.Fprintf(&b, "继续执行，本轮派发 %d 个动作：", len(r.Actions))
-			for i, a := range r.Actions {
-				fmt.Fprintf(&b, "\n%d. %s", i+1, a.Instruction)
+	var closures []string
+	attached := 0
+	for _, d := range r.Leads {
+		switch d.Decision {
+		case "attach":
+			attached++
+		case "close":
+			line := "关闭的线索"
+			if label := closureLabel(explorationgraph.LeadClosureKind(d.Kind)); label != "" {
+				line += "（" + label + "）"
 			}
+			closures = append(closures, line+"："+d.Reason)
 		}
-		if len(r.DeclinedLeads) > 0 {
-			if b.Len() > 0 {
-				b.WriteString("\n")
+	}
+
+	var lines []string
+	if r.ShouldContinue {
+		// 留待的线索图上没有变化，不写；只留待与没有处置是同一种局面。
+		if len(r.Actions) > 0 || attached+len(closures) == 0 {
+			line := fmt.Sprintf("继续执行，本轮派发 %d 个动作：", len(r.Actions))
+			for i, a := range r.Actions {
+				line += fmt.Sprintf("\n%d. %s", i+1, a.Instruction)
 			}
-			b.WriteString("判定不追的线索：")
-			for _, d := range r.DeclinedLeads {
-				fmt.Fprintf(&b, "\n- %s", d.Reason)
-			}
+			lines = append(lines, line)
+		}
+		lines = append(lines, closures...)
+		if attached > 0 {
+			lines = append(lines, fmt.Sprintf("挂到在办动作上的线索：%d 条", attached))
 		}
 	} else {
-		b.WriteString("任务收敛，不再派发动作。")
+		lines = append(lines, "任务收敛，不再派发动作。")
 	}
+	text := strings.Join(lines, "\n")
 	if r.Reasoning != "" {
-		b.WriteString("\n\n理由：" + r.Reasoning)
+		text += "\n\n理由：" + r.Reasoning
 	}
-	return b.String()
+	return text
 }

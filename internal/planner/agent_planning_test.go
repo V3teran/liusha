@@ -110,11 +110,10 @@ func TestApplyOutcome_PursuingActionClaimsLead(t *testing.T) {
 	store, ctx := leadGraph(t)
 	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop(),
 		onConverged: func(string, explorationgraph.GoalBasis) {}}
-	draft := planAction("p1", "沿线索一深挖")
-	draft.PursuesLead = "lead-1"
 
 	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), explorationgraph.Surface{}, PlanOutcome{
-		Actions: []explorationgraph.ActionDraft{draft},
+		Actions: []explorationgraph.ActionDraft{planAction("p1", "沿线索一深挖")},
+		Claims:  []explorationgraph.Pursuit{{ActionID: "p1", LeadID: "lead-1"}},
 	}, "planning"))
 
 	pursued, err := store.PursuedLeads(ctx, revisionTask, "p1")
@@ -125,24 +124,86 @@ func TestApplyOutcome_PursuingActionClaimsLead(t *testing.T) {
 	assert.Nil(t, a.conclusion, "排了新动作，此前的结论作废")
 }
 
-// 只判定不追、不排新动作的一轮也是图面的变化：「等待」结论作废，不走收敛判定——否则
+// 线索挂到在办动作上：落 attaches 边，线索由那个动作结算、退出待深挖清单；不排新动作也算
+// 图面有变化，「等待」结论作废，也不走收敛判定。
+func TestApplyOutcome_AttachesLeadToInFlightAction(t *testing.T) {
+	store, ctx := leadGraph(t)
+	running := explorationgraph.StateRunning
+	_, err := store.CreateNode(ctx, revisionNode("a-running", core.KindAction, explorationgraph.SourcePlanner, &running, 3*time.Second))
+	require.NoError(t, err)
+	converged := 0
+	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop(),
+		onConverged: func(string, explorationgraph.GoalBasis) { converged++ }}
+
+	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), explorationgraph.Surface{}, PlanOutcome{
+		Attachments: []explorationgraph.Pursuit{{ActionID: "a-running", LeadID: "lead-1"}},
+	}, "planning"))
+
+	edges, err := store.ListEdgesByTask(ctx, revisionTask)
+	require.NoError(t, err)
+	attached := false
+	for _, e := range edges {
+		if e.Rel == explorationgraph.RelAttaches && e.SrcID == "a-running" && e.DstID == "lead-1" {
+			attached = true
+		}
+	}
+	assert.True(t, attached, "挂接落成 attaches 边")
+	pursued, err := store.PursuedLeads(ctx, revisionTask, "a-running")
+	require.NoError(t, err)
+	assert.Empty(t, pursued, "挂接只记账，不进这个动作的执行输入")
+	assert.Equal(t, []string{"lead-2"}, openLeadIDs(t, store, ctx))
+	assert.Nil(t, a.conclusion, "图面有变化，等待结论不作数")
+	assert.Equal(t, 0, converged, "不因这一轮没有新动作就走收敛判定")
+}
+
+// 只关闭线索、不排新动作的一轮也是图面的变化：「等待」结论作废，不走收敛判定——否则
 // 剩下的待深挖线索没人处理，任务会在这里收敛。
-func TestApplyOutcome_DeclinedLeadsIsAGraphChange(t *testing.T) {
+func TestApplyOutcome_ClosingLeadsIsAGraphChange(t *testing.T) {
 	store, ctx := leadGraph(t)
 	converged := 0
 	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop(),
 		onConverged: func(string, explorationgraph.GoalBasis) { converged++ }}
 
 	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), explorationgraph.Surface{}, PlanOutcome{
-		DeclinedLeads: []explorationgraph.LeadDecline{{LeadID: "lead-1", Reason: "超出任务目标"}},
+		Closings: []explorationgraph.LeadClosing{{LeadID: "lead-1", Kind: explorationgraph.ClosureOutOfScope, Reason: "超出任务目标"}},
 	}, "planning"))
 
 	lead, err := store.GetNode(ctx, "lead-1")
 	require.NoError(t, err)
-	assert.Equal(t, "超出任务目标", lead.LeadDeclineReason(), "不追的理由落在线索上")
+	closure, ok := lead.LeadClosure()
+	require.True(t, ok)
+	assert.Equal(t, explorationgraph.ClosureOutOfScope, closure.Kind, "关闭的类别与理由落在线索上")
+	assert.Equal(t, "超出任务目标", closure.Reason)
 	assert.Equal(t, []string{"lead-2"}, openLeadIDs(t, store, ctx))
 	assert.Nil(t, a.conclusion, "图面有变化，等待结论不作数")
 	assert.Equal(t, 0, converged, "不因这一轮没有新动作就走收敛判定")
+}
+
+// 认领线索的动作与既有动作重复被拦下时，它对线索的认领一并落空：线索本轮无人跟进，
+// 不留下指向不存在动作的 pursues 边。
+func TestApplyPlan_ClaimFallsWithDuplicateProposal(t *testing.T) {
+	store, ctx := leadGraph(t)
+	done := explorationgraph.StateCompleted
+	existing := revisionNode("a1", core.KindAction, explorationgraph.SourcePlanner, &done, time.Second)
+	existing.Content = []byte(`{"instruction":"沿线索一深挖"}`)
+	_, err := store.CreateNode(ctx, existing)
+	require.NoError(t, err)
+	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop(),
+		onConverged: func(string, explorationgraph.GoalBasis) {}}
+
+	changed, err := a.applyPlan(ctx, basisOf(t, store), PlanOutcome{
+		Actions: []explorationgraph.ActionDraft{planAction("p1", "沿线索一深挖")},
+		Claims:  []explorationgraph.Pursuit{{ActionID: "p1", LeadID: "lead-1"}},
+	})
+	require.NoError(t, err)
+	assert.False(t, changed, "重复提案被拦下后图面没有任何变化")
+	assert.Equal(t, []string{"lead-1", "lead-2"}, openLeadIDs(t, store, ctx), "两条线索都仍待深挖")
+
+	edges, err := store.ListEdgesByTask(ctx, revisionTask)
+	require.NoError(t, err)
+	for _, e := range edges {
+		assert.NotEqual(t, explorationgraph.RelPursues, e.Rel, "不留下指向不存在动作的 pursues 边")
+	}
 }
 
 // goalShiftingPlanner 在第一次规划（或分析）期间改写任务目标，模拟用户在 LLM 调用

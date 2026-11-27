@@ -70,7 +70,7 @@ func (s *Service) RejectAction(ctx context.Context, taskID, actionID, reason str
 		if _, err := task.LockActive(ctx, tx, taskID); err != nil {
 			return nil, err
 		}
-		if err := explorationgraph.RejectActionTx(ctx, tx, taskID, actionID, explorationgraph.SourceUser, reason); err != nil {
+		if err := explorationgraph.RejectActionTx(ctx, tx, taskID, actionID, explorationgraph.SourceUser, explorationgraph.RejectStep, reason); err != nil {
 			return nil, err
 		}
 		return s.receipt(ctx, tx, convID, reason, conversation.SteeringActionRejected, map[string]any{"action_id": actionID})
