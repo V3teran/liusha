@@ -8,26 +8,18 @@
  * 连线不会错位。
  *
  * 横轴是时间：越靠右的节点出现得越晚，一条来路在图上就是一段自左向右的连线。库里的边
- * 不都是这个方向（跟进、覆盖由动作指向线索，吸收由新方向指向旧方向），画的时候按
- * UPSTREAM 调转——箭头一律指向更晚的节点。
+ * 不都是这个方向（跟进由动作指向线索），画的时候按 UPSTREAM 调转——箭头一律指向更晚
+ * 的节点。
  *
- * 图上有五种关系，画成五种线：
- *  - 推导（generates），中性实线（颜色留给节点，避免满屏彩虹）：动作 → 观测 → 结果，
- *    以及目标 → 挂在它名下的动作。后者平时不画（hidden）：每个动作都有这条边，大图上
- *    只是从根目标铺开的一片扇形；它留在边的列表里——布局靠它把目标排在动作左侧，来路
- *    高亮靠它把动作接回目标，并且只在来路上才画出来
- *  - 滋生：结果 → 目标 / 动作（triggers），琥珀短虚线——坐实的结果催生了新方向或新动作
- *  - 吸收：旧派生目标 → 接管它的新派生目标（supersedes），紫色长虚线
+ * 图上有三种关系，画成三种线：
+ *  - 推导（generates），中性实线（颜色留给节点，避免满屏彩虹）：目标 → 挂在它名下的动作、
+ *    动作 → 观测 → 结果。目标 → 动作那一段是方向的分组在图上的样子，常显
+ *  - 滋生：结果 → 方向 / 动作（triggers），琥珀短虚线——坐实的结果催生了新方向或新动作
  *  - 跟进：线索 → 跟进它的动作（pursues），青色点划线——动作为追这条线索而排出
- *  - 覆盖：线索 → 覆盖它的在办动作（covers），青色点线——线索晚出现，在办动作本来
- *    就在它上，只记账
  *
- * 每种关系一个线型，不靠颜色也分得开（实线 / 短虚线 / 长虚线 / 点划线 / 点线）。颜色按
- * 语义分族：推导是中性的骨架，滋生是结果催生的，吸收是目标之间的，跟进与覆盖都是线索
- * 与动作之间的。
+ * 每种关系一个线型，不靠颜色也分得开（实线 / 短虚线 / 点划线）。
  *
- * 执行中不是一个关系，是一种活动状态：连到执行中动作的线流动。动作在跑的时候还没有
- * 产出（观察是结束时才写的），它唯一的连线是从目标出发的那一段——所以那一段此刻画出来。
+ * 执行中不是一个关系，是一种活动状态：连到执行中动作的线流动。
  */
 
 import dagre from '@dagrejs/dagre'
@@ -44,23 +36,15 @@ export type ExplorationNodeData = {
 
 export type ExplorationFlowNode = Node<ExplorationNodeData, 'exploration'>
 
-/** 边上记的关系（库里那条边的 rel）；没有的按空串。 */
-function edgeRel(e: Edge): string {
-  const rel = (e.data as { rel?: unknown } | undefined)?.rel
-  return typeof rel === 'string' ? rel : ''
-}
-
 export interface GraphStats {
   total: number
-  /** 画出来的连线数：目标 → 动作的归属边只在动作执行中时画，平时不计 */
+  /** 画出来的连线数（= 全部边） */
   edgeCount: number
   byKind: Record<string, number>
-  /** 滋生与吸收两种边的条数（全量）：没有就不给「只看方向关系」的入口 */
-  directionEdgeCount: number
 }
 
-/** 图上的五种关系（库里的 rel）。 */
-export type Relation = 'generates' | 'triggers' | 'supersedes' | 'pursues' | 'covers'
+/** 图上的三种关系（库里的 rel）。 */
+export type Relation = 'generates' | 'triggers' | 'pursues'
 
 /**
  * 每种关系里时间上在先的一端（库里的 src / dst）。画出来时它在左、箭头指向另一端，
@@ -69,9 +53,7 @@ export type Relation = 'generates' | 'triggers' | 'supersedes' | 'pursues' | 'co
 const UPSTREAM: Record<Relation, 'src' | 'dst'> = {
   generates: 'src',
   triggers: 'src',
-  supersedes: 'dst',
   pursues: 'dst',
-  covers: 'dst',
 }
 
 /** 边的画法，一种关系一种。 */
@@ -91,42 +73,25 @@ export interface EdgeLookStyle {
 // oklch(14% 0.004 285) 上实测）：
 //  - 推导用 slate-500：slate-400 在浅色主题仅 2.4:1 会没入背景
 //  - 滋生用 amber-600：它是全图里少见的彩色关系边，amber-500 浅色下仅 2:1
-//  - 吸收回目标家族色（violet-500，与目标节点的 accent 同谱）：只出现在
-//    目标 ↔ 目标之间
-//  - 跟进与覆盖共用 teal-600（浅 3.6、深 5.2）：两者都是线索与动作之间的关系，点划线
-//    加粗与细点线分主次
+//  - 跟进用 teal-600（浅 3.6、深 5.2）：线索与动作之间的关系
 export const EDGE_LOOKS: Record<EdgeLook, EdgeLookStyle> = {
   generates: { color: '#64748b', width: 1.6, marker: 14 },
   triggers: { color: '#d97706', width: 1.6, dash: '6 4', marker: 14 },
-  supersedes: { color: '#8b5cf6', width: 1.4, dash: '12 6', marker: 14 },
   pursues: { color: '#0d9488', width: 1.8, dash: '10 4 2 4', marker: 14 },
-  covers: { color: '#0d9488', width: 1.2, dash: '2 4', marker: 11 },
 }
 
 /** 图例的顺序。 */
-export const EDGE_LOOK_ORDER: readonly EdgeLook[] = ['generates', 'triggers', 'supersedes', 'pursues', 'covers']
+export const EDGE_LOOK_ORDER: readonly EdgeLook[] = ['generates', 'triggers', 'pursues']
 
 export const EDGE_LOOK_LABELS: Record<EdgeLook, string> = {
   generates: '推导',
   triggers: '滋生',
-  supersedes: '吸收',
   pursues: '跟进',
-  covers: '覆盖',
-}
-
-/** 滋生与吸收：结果催生方向、方向之间吸收——同是结果分析在图上留下的关系。 */
-function isDirectionEdge(e: GraphEdge): boolean {
-  return e.rel === 'triggers' || e.rel === 'supersedes'
 }
 
 /** 一条边该用哪种画法：认识的关系各按自己的线型，不认识的按推导画（照常显示）。 */
 export function edgeLook(e: GraphEdge): EdgeLook {
   return e.rel in EDGE_LOOKS ? (e.rel as Relation) : 'generates'
-}
-
-/** 归属边：目标 → 挂在它名下的动作。平时不画；布局与来路高亮认它。 */
-function isOwnership(e: GraphEdge, kindById: Map<string, string>): boolean {
-  return e.rel === 'generates' && kindById.get(e.src_id) === 'objective'
 }
 
 /** 这条边连着的动作里有没有正在执行的：连到执行中动作的线流动。 */
@@ -148,41 +113,25 @@ export function owningDirection(graph: ExplorationGraph, actionId: string): Grap
 /**
  * 把任务的探索图变成画布上的节点与边。
  *
- * directionOnly（只看方向关系）把图收缩到滋生与吸收两种边及它们两端的节点：这两种边一次
- * 结果分析才添几条，在整图里淹没在推导链里；收缩后重排布局，一张图看得全。
- *
- * 交给画布的边一律从时间上在先的一端指向在后的（见 UPSTREAM），布局也按这个方向排。覆盖
- * 只记账，不进布局：在办的动作可能自己就产出那条线索，按时间调转后与它的推导边成环。
+ * 交给画布的边一律从时间上在先的一端指向在后的（见 UPSTREAM），布局也按这个方向排。
  */
 export function buildFlowGraph(
   graph: ExplorationGraph,
   filterKind: string,
   filterState: string,
   verificationsByNode: Map<string, Verification>,
-  directionOnly = false,
 ): { nodes: ExplorationFlowNode[]; edges: Edge[]; stats: GraphStats } {
   // 统计始终基于全量数据（筛选只影响画布可见性）
-  const kindById = new Map(graph.nodes.map((n) => [n.id, n.kind]))
   const stateById = new Map(graph.nodes.map((n) => [n.id, n.state ?? '']))
   const byKind: Record<string, number> = {}
-  for (const n of graph.nodes) byKind[n.kind] = (byKind[n.kind] ?? 0) + 1
-  const stats: GraphStats = {
-    total: graph.nodes.length,
-    edgeCount: graph.edges.filter((e) => !isOwnership(e, kindById) || isRunning(e, stateById)).length,
-    byKind,
-    directionEdgeCount: graph.edges.filter(isDirectionEdge).length,
+  for (const n of graph.nodes) {
+    byKind[n.kind] = (byKind[n.kind] ?? 0) + 1
   }
+  const stats: GraphStats = { total: graph.nodes.length, edgeCount: graph.edges.length, byKind }
 
-  const shownEdges = directionOnly ? graph.edges.filter(isDirectionEdge) : graph.edges
-  const onShownEdge = new Set(shownEdges.flatMap((e) => [e.src_id, e.dst_id]))
   const visible = new Set(
     graph.nodes
-      .filter(
-        (n) =>
-          (filterKind === 'all' || n.kind === filterKind) &&
-          (filterState === 'all' || n.state === filterState) &&
-          (!directionOnly || onShownEdge.has(n.id)),
-      )
+      .filter((n) => (filterKind === 'all' || n.kind === filterKind) && (filterState === 'all' || n.state === filterState))
       .map((n) => n.id),
   )
 
@@ -200,13 +149,11 @@ export function buildFlowGraph(
     }))
 
   // BuiltInEdge：smoothstep 的 pathOptions 只在联合类型的对应分支上（基础 Edge 无此字段）
-  const edges: BuiltInEdge[] = shownEdges
+  const edges: BuiltInEdge[] = graph.edges
     .filter((e) => visible.has(e.src_id) && visible.has(e.dst_id))
     .map((e, idx) => {
       const look = EDGE_LOOKS[edgeLook(e)]
       const [from, to] = UPSTREAM[edgeLook(e)] === 'dst' ? [e.dst_id, e.src_id] : [e.src_id, e.dst_id]
-      const ownership = isOwnership(e, kindById)
-      const running = isRunning(e, stateById)
       return {
         id: `${e.src_id}-${e.dst_id}-${e.rel}-${idx}`,
         source: from,
@@ -214,17 +161,13 @@ export function buildFlowGraph(
         type: 'smoothstep',
         pathOptions: { borderRadius: 14 },
         // 连到执行中动作的线流动：图是运行时探索图，活跃工作可感知
-        animated: running,
+        animated: isRunning(e, stateById),
         style: { stroke: look.color, strokeWidth: look.width, ...(look.dash ? { strokeDasharray: look.dash } : {}) },
         markerEnd: { type: MarkerType.ArrowClosed, width: look.marker, height: look.marker, color: look.color },
-        data: { rel: e.rel },
-        // 归属边平时不画；动作执行中时画出来——它此时还没有产出，这是它唯一的连线
-        hidden: ownership && !running,
       }
     })
 
-  const laidOut = edges.filter((e) => edgeRel(e) !== 'covers')
-  return { nodes: layoutLR(nodes, laidOut), edges, stats }
+  return { nodes: layoutLR(nodes, edges), edges, stats }
 }
 
 function layoutLR(nodes: ExplorationFlowNode[], edges: Edge[]): ExplorationFlowNode[] {
@@ -244,9 +187,8 @@ function layoutLR(nodes: ExplorationFlowNode[], edges: Edge[]): ExplorationFlowN
  * 来路高亮：选中节点后，从根目标到它的每一条来路上的节点保持常亮、连线加粗，其余
  * 节点/边淡出——在百节点图上直接回答「这个节点是怎么一步步来的」。
  *
- * 来路沿时间逆行：产出它的、它跟进的线索、催生它的结果或方向、它接管的方向，一路走到
- * 没有来路为止；一个节点有几条来路就都点亮。覆盖只记账，不算来路。平时不画的目标 →
- * 动作那一段，在来路上时画出来，来路因此从根目标起是连着的。
+ * 来路沿时间逆行：产出它的、它跟进的线索、催生它的结果或方向，一路走到没有来路为止；
+ * 一个节点有几条来路就都点亮。
  */
 export function applyFocus(
   flow: { nodes: ExplorationFlowNode[]; edges: Edge[] },
@@ -262,7 +204,6 @@ export function applyFocus(
   // 来路上的边按「指向谁」归堆，从选中节点一路逆着箭头走回去。
   const incoming = new Map<string, Edge[]>()
   for (const e of flow.edges) {
-    if (edgeRel(e) === 'covers') continue
     const list = incoming.get(e.target)
     if (list) list.push(e)
     else incoming.set(e.target, [e])
@@ -287,11 +228,7 @@ export function applyFocus(
     }),
     edges: flow.edges.map((e) => {
       const base = e.style ?? {}
-      if (originEdgeIds.has(e.id)) {
-        // 平时不画的归属边：在来路上才显形
-        return { ...e, hidden: false, style: { ...base, strokeWidth: 2.4 } }
-      }
-      if (e.hidden) return e
+      if (originEdgeIds.has(e.id)) return { ...e, style: { ...base, strokeWidth: 2.4 } }
       // 线与箭头同淡（opacity 不作用于 marker，改用透明色）
       const dim = (c: string) => c + '22'
       return {

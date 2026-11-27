@@ -39,8 +39,7 @@ const GRAPH: ExplorationGraph = {
 
 // 一条深挖链加一个方向：
 //   根目标 → a1 → 线索 l1 → a2（跟进 l1）→ o2
-//   结果 r 催生方向 d1；d2 接管 d1；a3 挂在 d1 下
-//   a4 在办，自己产出了线索 l2 并覆盖它（只记账）
+//   结果 r 催生方向 d1；a3 挂在 d1 下；a4 在办，自己产出了线索 l2
 const CHAIN: ExplorationGraph = {
   nodes: [
     node(),
@@ -50,7 +49,6 @@ const CHAIN: ExplorationGraph = {
     node({ id: 'o2', kind: 'observation', content: { statement: '拿到了凭据' } }),
     node({ id: 'r', kind: 'result', content: { statement: '弱口令坐实' } }),
     node({ id: 'd1', source_type: 'planner', state: 'open', content: { description: '换一个登录入口' } }),
-    node({ id: 'd2', source_type: 'planner', state: 'open', content: { description: '枚举全部入口' } }),
     node({ id: 'a3', kind: 'action', state: 'open', content: { instruction: '试另一个入口' } }),
     node({ id: 'a4', kind: 'action', state: 'running', content: { instruction: '翻上传页' } }),
     node({ id: 'l2', kind: 'observation', content: { statement: '又探通一条' }, metadata: { opens_deeper: true } }),
@@ -62,11 +60,9 @@ const CHAIN: ExplorationGraph = {
     edge('a2', 'l1', 'pursues'),
     edge('a2', 'o2', 'generates'),
     edge('r', 'd1', 'triggers'),
-    edge('d2', 'd1', 'supersedes'),
     edge('d1', 'a3', 'generates'),
     edge('n-obj', 'a4', 'generates'),
     edge('a4', 'l2', 'generates'),
-    edge('a4', 'l2', 'covers'),
   ],
 }
 
@@ -80,11 +76,11 @@ describe('layout（LR 布局 + 边关系 + 来路高亮）', () => {
   it('buildFlowGraph：LR 方向、执行中线流动、统计全量', () => {
     const { nodes, edges, stats } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
 
+    // 五条边全部画出（含目标 → 动作的两段）
     expect(stats).toEqual({
       total: 5,
-      edgeCount: 4, // 三条关系边，加执行中的 n-act-a 从目标出发的那一段
+      edgeCount: 5,
       byKind: { objective: 1, action: 2, observation: 1, result: 1 },
-      directionEdgeCount: 1,
     })
     expect(nodes).toHaveLength(5)
     // 节点声明显式尺寸：MiniMap 渲染的前提，也是 dagre 布局的尺寸假设
@@ -100,7 +96,7 @@ describe('layout（LR 布局 + 边关系 + 来路高亮）', () => {
     const chain = byId(edges, 'n-act-a-n-obs-generates-2')
     expect(chain).toMatchObject({ source: 'n-act-a', target: 'n-obs', animated: true })
     expect(chain.style?.strokeDasharray).toBeUndefined()
-    // 滋生：结果 → 它催生的节点，琥珀虚线
+    // 滋生：结果 → 它催生的节点，琥珀短虚线
     expect(byId(edges, 'n-res-n-obj-triggers-4')).toMatchObject({ source: 'n-res', target: 'n-obj' })
     expect(byId(edges, 'n-res-n-obj-triggers-4').style?.strokeDasharray).toBe('6 4')
   })
@@ -116,95 +112,34 @@ describe('layout（LR 布局 + 边关系 + 来路高亮）', () => {
 
 // 图例与线型同源：一种关系一种线，图例里列出的每一种都画得出来。
 describe('边的画法', () => {
-  it('目标指向动作的 generates 平时不画：每个动作都挂在某个目标下，这条线不带信息', () => {
-    // n-act-b 待执行：它从目标出发的那一段不画；仍在列表里（布局与来路高亮靠它）
-    expect(byId(buildFlowGraph(GRAPH, 'all', 'all', new Map()).edges, 'n-obj-n-act-b-generates-1').hidden).toBe(true)
+  it('目标 → 动作的 generates 常显：动作挂在哪个目标（方向）下，靠这条线画出来', () => {
+    const ownership = byId(buildFlowGraph(GRAPH, 'all', 'all', new Map()).edges, 'n-obj-n-act-b-generates-1')
+    expect(ownership.hidden).toBeUndefined()
+    expect(ownership).toMatchObject({ source: 'n-obj', target: 'n-act-b', style: { stroke: EDGE_LOOKS.generates.color } })
     expect(Object.keys(EDGE_LOOKS).sort()).toEqual([...EDGE_LOOK_ORDER].sort())
-    expect(EDGE_LOOK_LABELS).toEqual({
-      generates: '推导',
-      triggers: '滋生',
-      supersedes: '吸收',
-      pursues: '跟进',
-      covers: '覆盖',
-    })
+    expect(EDGE_LOOK_LABELS).toEqual({ generates: '推导', triggers: '滋生', pursues: '跟进' })
   })
 
   it('每种关系一个线型，不靠颜色也分得开', () => {
     const dashes = EDGE_LOOK_ORDER.map((look) => EDGE_LOOKS[look].dash ?? '实线')
     expect(new Set(dashes).size).toBe(dashes.length)
+    expect(EDGE_LOOKS.pursues.dash).toBe('10 4 2 4')
   })
 
-  it('跟进、覆盖各按自己的线型画；两者同色，靠线型分主次', () => {
+  it('跟进由线索指向跟进它的动作，青色点划线', () => {
     const { edges } = buildFlowGraph(CHAIN, 'all', 'all', new Map())
-    expect(byId(edges, 'a2-l1-pursues-3').style).toMatchObject({
-      stroke: EDGE_LOOKS.pursues.color,
-      strokeDasharray: '10 4 2 4',
+    expect(byId(edges, 'a2-l1-pursues-3')).toMatchObject({
+      source: 'l1',
+      target: 'a2',
+      style: { stroke: EDGE_LOOKS.pursues.color, strokeDasharray: '10 4 2 4' },
     })
-    expect(byId(edges, 'a4-l2-covers-10').style).toMatchObject({
-      stroke: EDGE_LOOKS.covers.color,
-      strokeDasharray: EDGE_LOOKS.covers.dash,
-    })
-    expect(EDGE_LOOKS.covers.width).toBeLessThan(EDGE_LOOKS.pursues.width)
-    expect(EDGE_LOOKS.covers.color).not.toBe(EDGE_LOOKS.generates.color)
   })
 
-  it('只看方向关系：收缩到滋生与吸收两种边及它们两端的节点；跟进不入内', () => {
-    const graph: ExplorationGraph = {
-      ...GRAPH,
-      nodes: [
-        ...GRAPH.nodes,
-        node({ id: 'n-dir', kind: 'objective', source_type: 'planner', content: { description: '换一个登录入口' } }),
-        node({ id: 'n-lead', kind: 'observation', content: { statement: '探通了一条路' } }),
-      ],
-      edges: [
-        ...GRAPH.edges,
-        edge('n-res', 'n-dir', 'triggers'),
-        edge('n-act-b', 'n-lead', 'pursues'),
-      ],
-    }
-    const all = buildFlowGraph(graph, 'all', 'all', new Map())
-    expect(all.nodes).toHaveLength(7)
-    expect(all.stats.directionEdgeCount).toBe(2)
-
-    const { nodes, edges } = buildFlowGraph(graph, 'all', 'all', new Map(), true)
-    // 只剩结果与两个目标；动作、观测（只连着推导、跟进与不画的归属边）不在内
-    expect(nodes.map((n) => n.id).sort()).toEqual(['n-dir', 'n-obj', 'n-res'])
-    expect(edges.map((e) => e.id)).toEqual(['n-res-n-obj-triggers-0', 'n-res-n-dir-triggers-1'])
-    // 统计仍是全量：筛选只影响画布可见性
-    expect(buildFlowGraph(graph, 'all', 'all', new Map(), true).stats.total).toBe(7)
-  })
-
-  it('只看方向关系时照旧吃节点种类与状态筛选', () => {
-    const { nodes } = buildFlowGraph(GRAPH, 'result', 'all', new Map(), true)
-    expect(nodes.map((n) => n.id)).toEqual(['n-res'])
-  })
-})
-
-// 横轴是时间：箭头一律指向更晚的节点，越靠右的节点出现得越晚。
-describe('时间先后', () => {
-  it('跟进由线索指向跟进它的动作，吸收由旧方向指向接管它的新方向', () => {
-    const { edges } = buildFlowGraph(CHAIN, 'all', 'all', new Map())
-    expect(byId(edges, 'a2-l1-pursues-3')).toMatchObject({ source: 'l1', target: 'a2' })
-    expect(byId(edges, 'd2-d1-supersedes-6')).toMatchObject({ source: 'd1', target: 'd2' })
-    expect(byId(edges, 'a4-l2-covers-10')).toMatchObject({ source: 'l2', target: 'a4' })
-    // 库里的两端原样留在 id 与关系上
-    expect(byId(edges, 'a2-l1-pursues-3').data).toEqual({ rel: 'pursues' })
-  })
-
-  it('布局跟着时间走：跟进的动作排在线索右侧，方向下的动作排在方向右侧，新方向排在旧方向右侧', () => {
+  it('布局跟着时间走：跟进的动作排在线索右侧，方向下的动作排在方向右侧', () => {
     const { nodes } = buildFlowGraph(CHAIN, 'all', 'all', new Map())
     const pos = positions(nodes)
     expect(pos.a2).toBeGreaterThan(pos.l1)
     expect(pos.a3).toBeGreaterThan(pos.d1)
-    expect(pos.d2).toBeGreaterThan(pos.d1)
-    expect(pos.l1).toBeGreaterThan(pos.a1)
-  })
-
-  it('覆盖只记账，不进布局：在办动作自己产出的线索不会和它成环', () => {
-    const { nodes } = buildFlowGraph(CHAIN, 'all', 'all', new Map())
-    const pos = positions(nodes)
-    // 只按产出边排：线索在产出它的动作右侧
-    expect(pos.l2).toBeGreaterThan(pos.a4)
   })
 })
 
@@ -223,57 +158,33 @@ describe('来路高亮', () => {
       o2: 'exp-selected',
       r: 'exp-dimmed',
       d1: 'exp-dimmed',
-      d2: 'exp-dimmed',
       a3: 'exp-dimmed',
       a4: 'exp-dimmed',
       l2: 'exp-dimmed',
     })
     const lit = view.edges.filter((e) => e.style?.strokeWidth === 2.4).map((e) => e.id)
-    expect(lit).toEqual([
-      'n-obj-a1-generates-0',
-      'n-obj-a2-generates-1',
-      'a1-l1-generates-2',
-      'a2-l1-pursues-3',
-      'a2-o2-generates-4',
-    ])
-    // 平时不画的两段归属边在来路上显形
-    expect(byId(view.edges, 'n-obj-a1-generates-0').hidden).toBe(false)
-    expect(byId(view.edges, 'n-obj-a2-generates-1').hidden).toBe(false)
-    // 不在来路上的归属边照旧不画（a3 待执行；a4 在执行，它那一段本来就画着）
-    expect(byId(view.edges, 'd1-a3-generates-7').hidden).toBe(true)
-    // 其余的线淡出（透明色后缀）
+    expect(lit).toEqual(['n-obj-a1-generates-0', 'n-obj-a2-generates-1', 'a1-l1-generates-2', 'a2-l1-pursues-3', 'a2-o2-generates-4'])
+    // 其余的线淡出（透明色后缀），没有哪条线被藏起来
+    expect(view.edges.every((e) => e.hidden !== true)).toBe(true)
     expect(byId(view.edges, 'r-d1-triggers-5').style?.stroke).toMatch(/22$/)
   })
 
   it('挂在方向下的动作：来路经过方向，再到催生它的结果', () => {
     const view = applyFocus(buildFlowGraph(CHAIN, 'all', 'all', new Map()), 'a3')
-    expect(classes(view.nodes)).toMatchObject({ a3: 'exp-selected', d1: 'exp-path', r: 'exp-path', 'n-obj': 'exp-dimmed', d2: 'exp-dimmed' })
-    expect(byId(view.edges, 'd1-a3-generates-7').hidden).toBe(false)
+    expect(classes(view.nodes)).toMatchObject({ a3: 'exp-selected', d1: 'exp-path', r: 'exp-path', 'n-obj': 'exp-dimmed', a1: 'exp-dimmed' })
+    expect(byId(view.edges, 'd1-a3-generates-6').style?.strokeWidth).toBe(2.4)
     expect(byId(view.edges, 'r-d1-triggers-5').style?.strokeWidth).toBe(2.4)
   })
 
-  it('接管了旧方向的新方向：旧方向在它的来路上', () => {
-    const view = applyFocus(buildFlowGraph(CHAIN, 'all', 'all', new Map()), 'd2')
-    expect(classes(view.nodes)).toMatchObject({ d2: 'exp-selected', d1: 'exp-path', r: 'exp-path', a3: 'exp-dimmed' })
-    expect(byId(view.edges, 'd2-d1-supersedes-6').style?.strokeWidth).toBe(2.4)
-  })
-
-  it('直接挂在根目标下的动作：来路只有根目标到它这一段；覆盖只记账，不算来路', () => {
+  it('直接挂在根目标下的动作：来路只有根目标到它这一段', () => {
     const view = applyFocus(buildFlowGraph(CHAIN, 'all', 'all', new Map()), 'a4')
-    expect(classes(view.nodes)).toMatchObject({
-      a4: 'exp-selected',
-      'n-obj': 'exp-path',
-      l2: 'exp-dimmed',
-      a1: 'exp-dimmed',
-      a3: 'exp-dimmed',
-    })
-    expect(byId(view.edges, 'a4-l2-covers-10').style?.stroke).toMatch(/22$/)
-    expect(byId(view.edges, 'a4-l2-generates-9').style?.stroke).toMatch(/22$/)
-    expect(byId(view.edges, 'n-obj-a4-generates-8')).toMatchObject({ hidden: false, style: { strokeWidth: 2.4 } })
+    expect(classes(view.nodes)).toMatchObject({ a4: 'exp-selected', 'n-obj': 'exp-path', l2: 'exp-dimmed', a1: 'exp-dimmed', a3: 'exp-dimmed' })
+    // a4 自己产出的东西在它之后，不在来路上
+    expect(byId(view.edges, 'a4-l2-generates-8').style?.stroke).toMatch(/22$/)
+    expect(byId(view.edges, 'n-obj-a4-generates-7')).toMatchObject({ style: { strokeWidth: 2.4 } })
   })
 
-  // 根目标自己也有来路时（图上有边指向它）一并点亮：逆着箭头走到没有来路为止。
-  it('一直走到没有来路为止：指向根目标的边也算', () => {
+  it('一直走到头为止：指向根目标的边也算', () => {
     const view = applyFocus(buildFlowGraph(GRAPH, 'all', 'all', new Map()), 'n-act-b')
     expect(classes(view.nodes)).toEqual({
       'n-obj': 'exp-path',
@@ -282,16 +193,17 @@ describe('来路高亮', () => {
       'n-obs': 'exp-path',
       'n-res': 'exp-path',
     })
-    expect(byId(view.edges, 'n-obj-n-act-a-generates-0').hidden).toBe(false)
+    // 来路上的每条线都加粗：目标 → 两个动作、动作 → 观察、观察 → 结果、结果 → 根目标
+    expect(view.edges.filter((e) => e.style?.strokeWidth === 2.4)).toHaveLength(5)
   })
 
   it('取消选中后恢复全图', () => {
     const flow = buildFlowGraph(CHAIN, 'all', 'all', new Map())
     const cleared = applyFocus(flow, '')
     expect(cleared.nodes.every((n) => !n.className)).toBe(true)
-    // 归属边里不在执行中的三段照旧不画（根目标下两个已完成的动作、方向下待执行的动作）
-    expect(cleared.edges.filter((e) => e.hidden)).toHaveLength(3)
     expect(cleared.edges.every((e) => e.style?.strokeWidth !== 2.4)).toBe(true)
+    // 取消选中不改动线的可见性：九条线都在
+    expect(cleared.edges).toHaveLength(9)
   })
 })
 
@@ -304,23 +216,23 @@ describe('owningDirection', () => {
   })
 })
 
-// 执行中不是一种关系，是一种活动状态：连到执行中动作的线流动。动作在跑的时候还没有产出，
-// 它唯一的连线是从目标出发的那一段，所以那一段此刻画出来。
+// 执行中不是一种关系，是一种活动状态：连到执行中动作的线流动，其余的线照常画着。
 describe('执行中', () => {
-  it('动作执行中时，它从目标出发的那一段画出来并流动；待执行的不画', () => {
+  it('连到执行中动作的线流动；待执行动作的线不流动，但一样画着', () => {
     const { edges } = buildFlowGraph(GRAPH, 'all', 'all', new Map())
-    expect(byId(edges, 'n-obj-n-act-a-generates-0')).toMatchObject({ hidden: false, animated: true })
-    expect(byId(edges, 'n-obj-n-act-b-generates-1')).toMatchObject({ hidden: true, animated: false })
+    expect(byId(edges, 'n-obj-n-act-a-generates-0')).toMatchObject({ animated: true })
+    expect(byId(edges, 'n-act-a-n-obs-generates-2').animated).toBe(true)
+    expect(byId(edges, 'n-obj-n-act-b-generates-1')).toMatchObject({ animated: false })
+    expect(edges.every((e) => e.hidden !== true)).toBe(true)
   })
 
-  it('动作结束后它那一段收起，线不再流动', () => {
+  it('动作结束后线不再流动', () => {
     const done: ExplorationGraph = {
       ...GRAPH,
       nodes: GRAPH.nodes.map((n) => (n.id === 'n-act-a' ? { ...n, state: 'completed' } : n)),
     }
     const { edges, stats } = buildFlowGraph(done, 'all', 'all', new Map())
-    expect(byId(edges, 'n-obj-n-act-a-generates-0').hidden).toBe(true)
     expect(edges.some((e) => e.animated)).toBe(false)
-    expect(stats.edgeCount).toBe(3)
+    expect(stats.edgeCount).toBe(5)
   })
 })

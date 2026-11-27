@@ -53,7 +53,6 @@ export const STATE_META: Record<string, StateMeta> = {
   aborted: { label: '已中止', dotClass: 'bg-status-neutral' },
   // 监察者或用户判定这一步不该做
   rejected: { label: '已否决', dotClass: 'bg-status-error' },
-  superseded: { label: '已吸收', dotClass: 'bg-status-neutral' },
 }
 
 export function stateMeta(state?: string): StateMeta | null {

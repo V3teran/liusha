@@ -17,7 +17,8 @@ import { useSelectedParam } from '@/hooks/useSelectedParam'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { LoadingState } from '@/components/ui/LoadingState'
 
-const EMPTY_STATS: GraphStats = { total: 0, edgeCount: 0, byKind: {}, directionEdgeCount: 0 }
+
+const EMPTY_STATS: GraphStats = { total: 0, edgeCount: 0, byKind: {} }
 
 /**
  * ExplorationGraphPage - 探索图可视化页面（薄组装层）。
@@ -68,8 +69,6 @@ export function ExplorationGraphPage() {
 
   const [filterKind, setFilterKind] = useState('all')
   const [filterState, setFilterState] = useState('all')
-  // 只看方向关系（结果催生目标 / 动作、目标之间吸收）：收缩到这两种边及两端的节点
-  const [directionOnly, setDirectionOnly] = useState(false)
   const [selectedNodeId, selectNode] = useSelectedParam()
 
   // 换选任务是一步导航：新增一条历史，后退回到原来的任务（进页自动定位最新任务才用 replace）；
@@ -78,8 +77,8 @@ export function ExplorationGraphPage() {
 
   const flow = useMemo(
     () =>
-      graph ? buildFlowGraph(graph, filterKind, filterState, verificationsByNode, directionOnly) : { nodes: [], edges: [], stats: EMPTY_STATS },
-    [graph, filterKind, filterState, verificationsByNode, directionOnly],
+      graph ? buildFlowGraph(graph, filterKind, filterState, verificationsByNode) : { nodes: [], edges: [], stats: EMPTY_STATS },
+    [graph, filterKind, filterState, verificationsByNode],
   )
   const view = useMemo(() => applyFocus(flow, selectedNodeId), [flow, selectedNodeId])
 
@@ -124,9 +123,6 @@ export function ExplorationGraphPage() {
         onFilterKind={setFilterKind}
         filterState={filterState}
         onFilterState={setFilterState}
-        directionEdgeCount={flow.stats.directionEdgeCount}
-        directionOnly={directionOnly}
-        onDirectionOnly={setDirectionOnly}
         stats={flow.stats}
       />
 

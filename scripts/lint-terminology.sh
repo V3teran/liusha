@@ -225,14 +225,23 @@ FORBIDDEN=(
   'DeclinedLead'
   'lead_declined'
   'LeadDecline'
-  # 探索图的关系收敛为五种后的名字不得回流：serves（动作或线索「推进」某个派生目标，没有
-  #   任何判断依赖它）连同方向短号一起删除；attaches 更名 covers，中文「挂接」更名「覆盖」
-  #   （原名与对话附件撞词，中文又与「跟进」难以区分）。
+  # 探索图的关系只剩三种（推导 generates / 滋生 triggers / 跟进 pursues）后的名字不得回流：
+  #   serves（动作或线索「推进」某个派生目标，没有任何判断依赖它）、attaches 与它的改名
+  #   covers（在办的动作「覆盖」某条线索的记账边；实测从未产生过，线索的处置只有认领与关闭，
+  #   迁移 0262）、supersedes / superseded / ObjectiveCompletion（方向的「吸收」与「达成」：方向
+  #   只作分组、没有生命周期，实测从未发生过，迁移 0262）。
   "RelServes"
   "'serves'"
   "'attaches'"
   "RelAttaches"
   '挂接'
+  "RelCovers"
+  "['\"]covers['\"]"
+  "RelSupersedes"
+  "['\"]supersedes['\"]"
+  'Superseded'
+  'ObjectiveCompletion'
+  '被吸收'
   # provider 实测拆成「测试连接」（对话实测、回填画像）与「拉取模型列表」两个操作后，界面不再有
   #   「运行诊断 / 连接诊断」：诊断不再顺带拉列表、未填模型时也不再自动挑模型（auto_model 删除）。
   #   后端接口仍叫 diagnose（逐项诊断），不在此列。
