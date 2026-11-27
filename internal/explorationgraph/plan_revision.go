@@ -18,7 +18,7 @@ import (
 // 里被重复写入。
 //
 // 目标修订只作用于派生目标（IsDerivedObjective）。根目标代表任务本身，只随
-// 任务终态由控制面收敛；动作挂在根目标下。
+// 任务终态由控制面收敛；动作挂在它所属的目标下（见 ActionDraft.ObjectiveID）。
 //
 // 修订以 Basis（规划所依据的目标）为前置：规划期间目标被改写，修订整体作废
 // （ErrGoalChanged），不会把按旧目标得出的结论写进新目标的图。
@@ -45,9 +45,10 @@ type ObjectiveCompletion struct {
 	Evidence    []string // 作证的 result，至少一条有效才成立
 }
 
-// ActionDraft 是一个待落图的动作（归属根目标，落 generates 边）。
+// ActionDraft 是一个待落图的动作：挂在它所属的目标下（落 generates 边）。
 type ActionDraft struct {
 	Node        Node     // 动作节点：kind=action、state=open、source=planner、属本任务
+	ObjectiveID string   // 所属的派生目标（规划者声明的方向）；空或引用失效 = 根目标
 	TriggeredBy []string // 催生它的 result（落 triggers 边）
 }
 
@@ -75,6 +76,7 @@ const (
 	FieldCompleted   RevisionField = "completed_objectives"
 	FieldEvidence    RevisionField = "evidence_ids"
 	FieldTriggeredBy RevisionField = "triggered_by"
+	FieldDirection   RevisionField = "direction"
 	FieldSupersedes  RevisionField = "supersedes"
 	FieldPursues     RevisionField = "pursues"
 	FieldLeads       RevisionField = "leads"
@@ -331,7 +333,7 @@ func (b *revisionBuilder) absorb(oldID string) bool {
 	return true
 }
 
-// addActions 新动作：归属根目标 + 溯源边。
+// addActions 新动作：挂在所属的目标下 + 溯源边。
 func (b *revisionBuilder) addActions(drafts []ActionDraft) error {
 	if len(drafts) == 0 {
 		return nil
@@ -343,13 +345,34 @@ func (b *revisionBuilder) addActions(drafts []ActionDraft) error {
 	for _, d := range drafts {
 		b.changes.Nodes = append(b.changes.Nodes, b.store.nodeToGraphNode(d.Node))
 		b.report.AddedActions = append(b.report.AddedActions, d.Node.ID)
-		b.edge(root.ID, RelGenerates, d.Node.ID)
+		b.edge(b.owner(d.ObjectiveID, root.ID), RelGenerates, d.Node.ID)
 		for _, resultID := range b.validResults(FieldTriggeredBy, d.TriggeredBy) {
 			b.edge(resultID, RelTriggers, d.Node.ID)
 		}
 		b.newActions[d.Node.ID] = true
 	}
 	return nil
+}
+
+// owner 判定动作挂在哪个目标下：声明的派生目标仍进行中时取它，否则取根目标。引用
+// 失效（不是本任务的派生目标、已收敛）即剔除并报告，动作照常排出——只是来路上记
+// 不到它所属的方向，不因此作废这一步。
+func (b *revisionBuilder) owner(directionID, rootID string) string {
+	node, ok := b.objective[directionID]
+	switch {
+	case directionID == "":
+	case b.completed[directionID] || b.superseded[directionID]:
+		b.reject(FieldDirection, directionID, "同一修订已让该目标收敛")
+	case !ok:
+		b.reject(FieldDirection, directionID, "不是本任务的目标")
+	case !node.IsDerivedObjective():
+		b.reject(FieldDirection, directionID, "不是派生目标")
+	case node.State == nil || *node.State != StateOpen:
+		b.reject(FieldDirection, directionID, fmt.Sprintf("目标已收敛（%s）", stateLabel(node.State)))
+	default:
+		return directionID
+	}
+	return rootID
 }
 
 // pursue 落一条跟进关系。新动作认领线索落 pursues 边；图上在办的动作落 covers 边

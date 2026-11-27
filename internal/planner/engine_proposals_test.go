@@ -43,6 +43,31 @@ func TestConvertProposals_ContentHoldsOnlyTheAction(t *testing.T) {
 
 }
 
+// 所属方向只认「进行中的方向」里的编号：解析成那个派生目标的 ID 随草稿交给落图。没声明的、
+// 引用失效的（不在清单里、写的是 ID 而不是编号）都挂在任务目标下——照常排出这一步，只是
+// 来路上记不到方向。
+func TestConvertProposals_DirectionResolvesToTheOwningObjective(t *testing.T) {
+	ctx := context.Background()
+	store := explorationgraph.NewMemoryStore()
+	e := NewEngine(nil, zerolog.Nop())
+	planCtx := &PlanningContext{Directions: []explorationgraph.Node{{ID: "d-one"}, {ID: "d-two"}}}
+
+	drafts := e.convertProposals(ctx, store, "t1", planCtx, []ActionProposal{
+		{Instruction: "甲", Direction: "D2"},
+		{Instruction: "乙", Direction: " d1 "},
+		{Instruction: "丙"},
+		{Instruction: "丁", Direction: "D9"},
+		{Instruction: "戊", Direction: "d-one"},
+	})
+
+	require.Len(t, drafts, 5, "方向引用失效不拦动作")
+	owners := make([]string, 0, len(drafts))
+	for _, d := range drafts {
+		owners = append(owners, d.ObjectiveID)
+	}
+	assert.Equal(t, []string{"d-two", "d-one", "", "", ""}, owners)
+}
+
 // 时间线叙述：有动作时列动作；关闭的线索与覆盖各起一行；留待的不写（图上没有变化）；只有
 // 关闭或覆盖、没有动作时不再写「派发 0 个动作」。
 func TestPlanningNarrative(t *testing.T) {

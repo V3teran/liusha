@@ -13,11 +13,12 @@ import (
 	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
 )
 
-// 短号：规划输入给在办的动作、待深挖的线索编的短号（A1、L1）。模型按短号引用，不必
-// 照抄 UUID；短号就是它在输入清单里的序号，规划输出按同一份清单解析。
+// 短号：规划输入给进行中的方向、在办的动作、待深挖的线索编的短号（D1、A1、L1）。模型按
+// 短号引用，不必照抄 UUID；短号就是它在输入清单里的序号，规划输出按同一份清单解析。
 const (
-	actionPrefix = "A"
-	leadPrefix   = "L"
+	directionPrefix = "D"
+	actionPrefix    = "A"
+	leadPrefix      = "L"
 )
 
 func ordinal(prefix string, index int) string { return fmt.Sprintf("%s%d", prefix, index+1) }
@@ -50,6 +51,15 @@ func (c *PlanningContext) actionID(handle string) (string, bool) {
 		return "", false
 	}
 	return c.PendingActions[i].ID, true
+}
+
+// directionID 把进行中的方向的短号解析成派生目标 ID。
+func (c *PlanningContext) directionID(handle string) (string, bool) {
+	i, ok := ordinalIndex(directionPrefix, handle)
+	if !ok || i >= len(c.Directions) {
+		return "", false
+	}
+	return c.Directions[i].ID, true
 }
 
 // actionHandle 是在办动作在输入里的短号；动作已不在办时为空。

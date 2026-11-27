@@ -175,7 +175,7 @@ func TestObjectiveView_SeparatesRootLiveAndSettled(t *testing.T) {
 	planCtx, err := (&Engine{}).gatherContext(context.Background(), store, revisionTask)
 	require.NoError(t, err)
 	planning := buildObjectiveSection("任务", planCtx.Directions)
-	assert.Contains(t, planning, "### 进行中的方向\n- live")
+	assert.Contains(t, planning, "### 进行中的方向\n- [D1] live")
 	assert.False(t, strings.Contains(planning, "done") || strings.Contains(planning, "absorbed"),
 		"规划只看进行中的方向：%s", planning)
 }

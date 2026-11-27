@@ -233,7 +233,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 节点类型为 objective / action / observation / result，agent 仍是四个；图上的全部变化是节点、节点上的标签与下面这五种关系：
 
-- `generates`（推导）：目标派生动作、动作产出观察、假设坐实成结果。页面上「目标 → 动作」那一条不画：动作都挂在根目标下，这条边每个动作都有、不带信息。
+- `generates`（推导）：目标派生动作、动作产出观察、假设坐实成结果。动作挂在它所属的目标下——没声明的挂根目标；页面上「根目标 → 动作」那一条不画：这条边每个动作都有、不带信息。
 - `triggers`（滋生）：结果催生方向或动作。
 - `supersedes`（吸收）：新派生目标接管旧派生目标。
 - `pursues`（跟进）：动作为跟进某条线索而排出，线索进入它的执行范围。
@@ -243,7 +243,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 
 | 角色 | 可做的写操作 |
 |---|---|
-| planner | 建 action；停止探索时收回自己排出、还没做完的动作（`StopExploration`：open / running → aborted，以规划依据为前置，用户指派的不动）；常规规划安排线索的处置（认领：`pursues` 边；声明由在办动作覆盖：`covers` 边；关闭：线索上的一次性批注，带类别与理由），同一次修订落图；结果分析的结论一律经 `RevisePlan` 落图——提出新派生目标、宣告达成（`completed`）、新目标吸收旧目标（`supersedes` 边 + 旧目标 `superseded`），并在被分析的 result 上记分析水位（`analyzed`）；结果分析不排动作 |
+| planner | 建 action（挂在它所属的目标下：声明了方向的取那个进行中的派生目标——规划输入里的方向短号 `D1…`，引用失效的剔除、动作改挂根目标）；停止探索时收回自己排出、还没做完的动作（`StopExploration`：open / running → aborted，以规划依据为前置，用户指派的不动）；常规规划安排线索的处置（认领：`pursues` 边；声明由在办动作覆盖：`covers` 边；关闭：线索上的一次性批注，带类别与理由），同一次修订落图；结果分析的结论一律经 `RevisePlan` 落图——提出新派生目标、宣告达成（`completed`）、新目标吸收旧目标（`supersedes` 边 + 旧目标 `superseded`），并在被分析的 result 上记分析水位（`analyzed`）；结果分析不排动作 |
 | executor | 建 observation（事实观察可带线索信号 `opens_deeper`）；CAS 认领 / 终结 action；写 action 的阻塞原因 |
 | evaluator | 只经 `PromotionGate` 建 result；回写假设（observation）的验证状态 |
 | monitor | 否决 action（`RejectAction`，否决方 monitor、范围随问题类别：重复只否决这一步，偏离目标与方向作废连它跟进的线索一起关闭；用户指派的动作不可否决）；重规划请求经 `planner.Agent.RequestReplan` 直达规划者，不写图。决策须基于本轮经 `task_survey` 亲见的态势，指明针对的功能障碍类别并引用本任务的证据节点；重规划请求带上监察者所见的图面（`explorationgraph.Surface`），规划者处理时若目标已改写、出现新的派生目标或新结果即作废（新增动作不算——原地打转时动作照样增长） |
@@ -257,7 +257,7 @@ liusha 的产品定位是渗透测试，但核心层是一台通用的「目标�
 - Store 不校验调用方角色，这张表是约定，靠评审守住。
 - 新增坐实结果只能经过复现门晋升，禁止绕过 `PromotionGate` 直接建 result。
 - 复放明细写 `exploration_verification` 审计链，不为复放新建 observation 节点。
-- 目标分两类：根目标（来源 user，代表任务本身，只随任务终态收敛；`RootObjective` 取最早创建的那个）与派生目标（来源 planner，`IsDerivedObjective`）。规划层只修订派生目标；根目标的达成由整体探索收敛决定，不由单次分析宣告。派生目标的 `completed` 专指有结果证据的达成。动作统一挂在根目标下（常规规划与用户指派同一口径），派生目标是规划视野里的方向，不拥有动作。
+- 目标分两类：根目标（来源 user，代表任务本身，只随任务终态收敛；`RootObjective` 取最早创建的那个）与派生目标（来源 planner，`IsDerivedObjective`）。规划层只修订派生目标；根目标的达成由整体探索收敛决定，不由单次分析宣告。派生目标的 `completed` 专指有结果证据的达成。动作挂在它所属的目标下：常规规划可以声明动作属于某个进行中的派生目标（`ActionDraft.ObjectiveID`），没声明的与用户指派的挂在根目标下；一个动作只有一个所属目标。派生目标收敛（达成 / 被吸收）不动它名下已有的动作，只是不能再往下面挂新动作——所属关系记的是这一步因何排出，不随方向的结局改写。
 - 节点 metadata 承载 task_id / source_type / priority 等身份字段：任何更新都是浅合并（`GraphStore.UpdateNode`、变更集批注），不得整体替换。
 - 规划结论都以「所依据的目标」为前置（`explorationgraph.GoalBasis`：根目标及其版本，版本随目标改写与任务状态迁移递增）：常规规划与结果分析同走 `RevisePlan`（变更集的版本前置），规划期间目标被改写即整批作废（`ErrGoalChanged`）、立刻按新目标重做；收敛同样带着依据，任务落 completed 的事务在锁住任务行后核对依据仍成立（`task.Store.CompleteConverged`）。依据在调用 LLM 之前读取。
 - 常规规划的「停止探索」（契约 `should_continue=false`）是对任务的结论，不是「本轮没有新动作」：规划者收回自己还没做完的动作，余下的用户指派动作、待验证假设与待分析结果落定后收敛。「本轮不再新增动作」的结论（停止探索或等待）在规划者进程内按图面缓存（`planner/agent_conclusion.go`），图面不变不再调用 LLM：停止探索只在目标改写、出现新目标 / 动作 / 结果时失效（收回的探索留下的验证结论不重开规划），等待在图面任何进展时失效；强制重规划不看缓存。

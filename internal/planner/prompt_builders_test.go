@@ -282,14 +282,14 @@ func TestBuildClosedLeadsSection(t *testing.T) {
 	}
 }
 
-// 进行中的派生目标逐条列出，供规划者分组与取舍。
+// 进行中的派生目标逐条列出、带短号（动作声明所属方向时引用），供规划者分组与取舍。
 func TestBuildObjectiveSection_listsLiveObjectives(t *testing.T) {
 	got := buildObjectiveSection("摸清目标", []explorationgraph.Node{
 		{ID: "d1", Kind: core.KindObjective, Content: []byte(`{"description":"摸清配置面"}`)},
 		{ID: "d2", Kind: core.KindObjective, Content: []byte(`{"description":"验证注入"}`)},
 	})
-	if !strings.Contains(got, "## 任务目标\n摸清目标\n\n### 进行中的方向\n- 摸清配置面\n- 验证注入\n") {
-		t.Fatalf("进行中的派生目标逐条列出，得:\n%s", got)
+	if !strings.Contains(got, "## 任务目标\n摸清目标\n\n### 进行中的方向\n- [D1] 摸清配置面\n- [D2] 验证注入\n") {
+		t.Fatalf("进行中的派生目标逐条列出、按创建序带短号，得:\n%s", got)
 	}
 	if got := buildObjectiveSection("摸清目标", nil); strings.Contains(got, "进行中的方向") {
 		t.Fatalf("没有进行中的方向时不出现该小节，得:\n%s", got)
