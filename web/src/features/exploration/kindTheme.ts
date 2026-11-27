@@ -53,12 +53,27 @@ export const STATE_META: Record<string, StateMeta> = {
   aborted: { label: '已中止', dotClass: 'bg-status-neutral' },
   // 监察者或用户判定这一步不该做
   rejected: { label: '已否决', dotClass: 'bg-status-error' },
-  superseded: { label: '已吸收', dotClass: 'bg-status-neutral' },
 }
 
 export function stateMeta(state?: string): StateMeta | null {
   if (!state) return null
   return STATE_META[state] ?? { label: state, dotClass: 'bg-status-neutral' }
+}
+
+export interface StateOption {
+  value: string
+  label: string
+  count: number
+}
+
+/**
+ * 状态筛选的选项：只列这张图里实际有的状态，按生命周期的先后，带上节点数——图上没有的状态
+ * 不占位。当前选中的状态即使图上已经没有也留着，否则下拉框显示的与生效的筛选对不上。
+ */
+export function stateOptions(byState: Record<string, number>, current: string): StateOption[] {
+  return Object.keys(STATE_META)
+    .filter((value) => (byState[value] ?? 0) > 0 || value === current)
+    .map((value) => ({ value, label: STATE_META[value].label, count: byState[value] ?? 0 }))
 }
 
 /* ========== 优先级 / 验证状态 / 复杂度 / 观察分类 ========== */
@@ -91,6 +106,15 @@ export const OBSERVATION_CATEGORY_META: Record<string, string> = {
 }
 
 /* ========== 线索（事实观察上的信号） ========== */
+
+/**
+ * 线索标记的颜色（卡片上沿的脊线与右上角的脚印）。亮暗两主题通用的固定色，取值以「两主题的
+ * 画布底与卡片淡底上均 ≥3:1 图形对比度」为硬约束（浅色底 3.4、深色底 5.4）。图上的类别色与
+ * 关系线都是冷色（蓝、绿、紫、青、灰），暖色里红归优先级、玫红归结果，橙色留给线索——整张图
+ * 上只有线索用它。它刻意不取「跟进」线的颜色：线表达两个节点的关系，标记表达「这条路还没
+ * 走到头」，两件事不共用一个颜色。
+ */
+export const LEAD_ACCENT = '#ea580c'
 
 /** 线索关闭类别的展示文案（与后端 explorationgraph.LeadClosureKind 同一词表） */
 export const LEAD_CLOSURE_META: Record<string, string> = {
@@ -166,7 +190,7 @@ export interface NodeChips {
   verification?: string
   /** 高优先级（节点优先级；仅 P0/P1 上卡，避免噪音） */
   priority?: { code: string; className: string }
-  /** 线索（仅被标为线索的事实观察）：点取跟进线的颜色，与指向它的连线同色 */
+  /** 线索（仅被标为线索的事实观察）：卡片上的标记见 ExplorationNodeCard */
   lead?: { label: string; closed: boolean; detail: string }
 }
 

@@ -76,6 +76,15 @@
   opacity: 0;
 }
 
+/* 线索脚印在卡片外面（见下方 .exp-card-lead）：随卡片一起退去，悬停时一起回来 */
+.react-flow__node.exp-dimmed > .exp-lead-mark {
+  display: none;
+}
+
+.react-flow__node.exp-dimmed .exp-card:hover ~ .exp-lead-mark {
+  display: inline-flex;
+}
+
 .react-flow__node.exp-dimmed .exp-card:hover {
   background: color-mix(in srgb, var(--exp-accent) 10%, var(--surface)) !important;
   border-color: var(--border-strong) !important;
@@ -102,6 +111,28 @@
   box-shadow:
     0 0 0 3px var(--accent-soft),
     var(--glow-accent-strong) !important;
+}
+
+/* 开着的线索卡片：四边一条实心描边，右上角骑着脚印（LeadMark）。描边取线索自己的颜色
+   （--exp-lead，卡片写入）。不靠给卡片底色染色：换一种淡底色远看仍像一张颜色略不同的
+   观测卡；描边是轮廓上的事，缩得很小时仍认得出「带橙框的卡」。选中、来路、无关三个状态
+   自己描边，线索的描边让位回到 1px（选中与来路用 !important 改颜色，这里只让宽度）；
+   无关的节点随卡片一起退去（见上）。 */
+.exp-card-lead {
+  border-width: 3px;
+  border-color: var(--exp-lead);
+}
+
+.react-flow__node:is(.exp-path, .exp-selected, .exp-dimmed) .exp-card-lead {
+  border-width: 1px;
+}
+
+/* 脚印骑在右上角上：中心落在角上，一半探出卡片。卡片裁切溢出内容，所以脚印是卡片的
+   兄弟节点，按节点的盒子定位 */
+.react-flow__node > .exp-lead-mark {
+  position: absolute;
+  top: -12px;
+  right: -12px;
 }
 
 .react-flow__edge path {

@@ -18,15 +18,10 @@ import (
 	"github.com/V3teran/liusha/internal/framework/runtime"
 )
 
-// leadAccountingContext 建一份规划上下文：两个在办动作（A1、A2）、四条待深挖线索（L1 与
-// L3 是同一陈述，在输入里并成一行）。
+// leadAccountingContext 建一份规划上下文：四条待深挖线索（L1 与 L3 是同一陈述，在输入里并成
+// 一行）。
 func leadAccountingContext() *PlanningContext {
-	open := explorationgraph.StateOpen
 	return &PlanningContext{
-		PendingActions: []explorationgraph.Node{
-			{ID: "run-1", Kind: core.KindAction, State: &open},
-			{ID: "run-2", Kind: core.KindAction, State: &open},
-		},
 		OpenLeads: []OpenLead{
 			{ID: "lead-1", Statement: "甲"},
 			{ID: "lead-2", Statement: "乙"},
@@ -36,16 +31,10 @@ func leadAccountingContext() *PlanningContext {
 	}
 }
 
-// 短号是清单里的序号：在办动作、线索各按自己的清单解析；同一陈述的线索引用其中任意一个
-// 短号都指这一行上的全部线索；越界、前缀不对、不是数字的都不认。
+// 短号是清单里的序号：同一陈述的线索引用其中任意一个短号都指这一行上的全部线索；越界、
+// 前缀不对、不是数字的都不认。
 func TestPlanningContext_ResolvesHandles(t *testing.T) {
 	ctx := leadAccountingContext()
-
-	id, ok := ctx.actionID("A2")
-	require.True(t, ok)
-	assert.Equal(t, "run-2", id)
-	_, ok = ctx.actionID("A3")
-	assert.False(t, ok)
 
 	ids, ok := ctx.leadIDs("L3")
 	require.True(t, ok)
@@ -54,9 +43,6 @@ func TestPlanningContext_ResolvesHandles(t *testing.T) {
 		_, ok := ctx.leadIDs(bad)
 		assert.False(t, ok, "不认 %q", bad)
 	}
-
-	assert.Equal(t, "A2", ctx.actionHandle("run-2"))
-	assert.Empty(t, ctx.actionHandle("run-done"))
 }
 
 // 每条待深挖的线索恰交代一次：被本轮动作的 pursues 引用（认领），或在 leads 里有处置。全部
@@ -75,24 +61,22 @@ func TestAccountLeads_EveryLeadAccountedOnce(t *testing.T) {
 	assert.Empty(t, plan.problems)
 	assert.Equal(t, map[int][]string{0: {"lead-1", "lead-3"}, 1: {"lead-2"}}, plan.claims, "引用 L1 即认领这一行上的两条线索")
 	assert.Equal(t, []explorationgraph.LeadClosing{{LeadID: "lead-4", Kind: explorationgraph.ClosureBlocked, Reason: "需要管理员凭据"}}, plan.closings)
-	assert.Empty(t, plan.covers)
 	assert.Zero(t, plan.left)
 }
 
-// 覆盖声明线索由在办动作结算；留待只计数、不产生任何落图的内容。
-func TestAccountLeads_AttachAndLeave(t *testing.T) {
+// 留待只计数、不产生任何落图的内容；处置的大小写与空白不敏感。
+func TestAccountLeads_LeaveOnlyCounts(t *testing.T) {
 	plan := accountLeads(leadAccountingContext(), &PlanningResponse{
 		Leads: []LeadDecisionProposal{
-			{ID: "L1", Decision: "COVER", Action: "a2"},
-			{ID: "L2", Decision: "leave"},
+			{ID: "L1", Decision: "LEAVE"},
+			{ID: "L2", Decision: " leave "},
 		},
 	})
 	require.Len(t, plan.problems, 1, "丙没人交代")
 	assert.Equal(t, "L4：还没有交代", plan.problems[0].handle+"："+plan.problems[0].message)
-	assert.Equal(t, []explorationgraph.Pursuit{
-		{ActionID: "run-2", LeadID: "lead-1"}, {ActionID: "run-2", LeadID: "lead-3"},
-	}, plan.covers, "覆盖同样落在这一行上的全部线索；大小写与空白不敏感")
-	assert.Equal(t, 1, plan.left)
+	assert.Equal(t, 3, plan.left, "同一行的两条线索都算留待")
+	assert.Empty(t, plan.claims)
+	assert.Empty(t, plan.closings)
 }
 
 // 输出里一条都没提到的线索按输入里的行报出来（同一行的短号一起列）；提到了但交代不成立的
@@ -110,20 +94,20 @@ func TestAccountLeads_ReportsLeadsNobodyMentioned(t *testing.T) {
 }
 
 // 交代不成立的原样列出，成立的部分不受影响：引用了不存在的短号、同一条线索交代两次、
-// 覆盖它的不是在办动作、关闭的类别不对或没写理由、decision 不在契约里。
+// 关闭的类别不对或没写理由、decision 不在契约里。
 func TestAccountLeads_ReportsInvalidDispositions(t *testing.T) {
 	plan := accountLeads(leadAccountingContext(), &PlanningResponse{
 		Actions: []ActionProposal{{Instruction: "沿乙深挖", Pursues: []string{"L2", "L9"}}},
 		Leads: []LeadDecisionProposal{
 			{ID: "L2", Decision: "leave"},
-			{ID: "L4", Decision: "cover", Action: "A9"},
+			{ID: "L4", Decision: "cover"},
 			{ID: "L0", Decision: "leave"},
 		},
 	})
 	assert.Equal(t, []string{
 		"L9：不是「待深挖的线索」里的编号",
 		"L2：被重复交代：一条线索本轮只由一个动作跟进、只交代一次——多出的认领去掉 pursues",
-		"L4：cover 的 action 不是「进行中的工作」里的在办动作编号",
+		"L4：decision 只能是 close 或 leave",
 		"L0：不是「待深挖的线索」里的编号",
 		"L1、L3：还没有交代",
 	}, plan.describe())
@@ -138,7 +122,7 @@ func TestAccountLeads_ReportsInvalidDispositions(t *testing.T) {
 	assert.Equal(t, []string{
 		"L1：close 的 kind 不在契约列出的类别里",
 		"L2：close 缺少 reason",
-		"L4：decision 只能是 cover、close 或 leave",
+		"L4：decision 只能是 close 或 leave",
 	}, plan.describe())
 	assert.Empty(t, plan.closings)
 }
@@ -146,14 +130,14 @@ func TestAccountLeads_ReportsInvalidDispositions(t *testing.T) {
 // 交代不成立的条目不算已交代：同一条线索后面跟着的成立版本照常生效，不被判成重复。
 func TestAccountLeads_InvalidEntryDoesNotCoverTheLead(t *testing.T) {
 	plan := accountLeads(leadAccountingContext(), &PlanningResponse{Leads: []LeadDecisionProposal{
-		{ID: "L4", Decision: "cover", Action: "A9"},
+		{ID: "L4", Decision: "cover"},
 		{ID: "L4", Decision: "close", Kind: "out_of_scope", Reason: " 范围外 "},
 		{ID: "L2", Decision: "park"},
 		{ID: "L2", Decision: "leave"},
 	}})
 	assert.Equal(t, []string{
-		"L4：cover 的 action 不是「进行中的工作」里的在办动作编号",
-		"L2：decision 只能是 cover、close 或 leave",
+		"L4：decision 只能是 close 或 leave",
+		"L2：decision 只能是 close 或 leave",
 		"L1、L3：还没有交代",
 	}, plan.describe())
 	require.Len(t, plan.closings, 1, "后面的成立版本生效")
@@ -161,8 +145,8 @@ func TestAccountLeads_InvalidEntryDoesNotCoverTheLead(t *testing.T) {
 	assert.Equal(t, 1, plan.left)
 }
 
-// 规划进行期间图上出现的新线索与新的在办动作补进本轮清单：短号接在末尾，原有的不变（模型
-// 上一版输出里的引用照旧成立）；已经在清单里的不重复。
+// 规划进行期间图上出现的新线索补进本轮清单：短号接在末尾，原有的不变（模型上一版输出里
+// 的引用照旧成立）；已经在清单里的不重复。
 func TestRefreshRound_AppendsWhatAppearedDuringPlanning(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
 	ctx := context.Background()
@@ -171,16 +155,12 @@ func TestRefreshRound_AppendsWhatAppearedDuringPlanning(t *testing.T) {
 	planCtx, err := (&Engine{}).gatherContext(ctx, store, revisionTask)
 	require.NoError(t, err)
 	require.Empty(t, planCtx.OpenLeads)
-	require.Empty(t, planCtx.PendingActions)
 
 	// 开轮之后：执行者报出一条线索，同一条线索的陈述又出现一次。
-	open := explorationgraph.StateOpen
 	for _, lead := range []explorationgraph.Node{planFactLead("late-lead", time.Second), planFactLead("late-twin", 2*time.Second)} {
 		_, err := store.CreateNode(ctx, lead)
 		require.NoError(t, err)
 	}
-	_, err = store.CreateNode(ctx, revisionNode("late-action", core.KindAction, explorationgraph.SourcePlanner, &open, 3*time.Second))
-	require.NoError(t, err)
 
 	added := followUpEngine().refreshRound(ctx, store, revisionTask, planCtx)
 	require.Len(t, added, 2)
@@ -188,19 +168,8 @@ func TestRefreshRound_AppendsWhatAppearedDuringPlanning(t *testing.T) {
 	assert.Equal(t, []string{"L1", "L2"}, []string{ordinal(leadPrefix, 0), ordinal(leadPrefix, 1)})
 	_, ok := planCtx.leadIDs("L1")
 	require.True(t, ok, "新线索可以用短号引用")
-	assert.Equal(t, []string{"late-action"}, planCtx.actionIDs(), "新出现在办的动作接在清单末尾")
-	assert.Equal(t, "A1", planCtx.actionHandle("late-action"))
 
 	assert.Empty(t, followUpEngine().refreshRound(ctx, store, revisionTask, planCtx), "已经在清单里的不重复补")
-}
-
-// actionIDs 是清单里在办动作的 ID，按清单顺序。
-func (c *PlanningContext) actionIDs() []string {
-	ids := make([]string, 0, len(c.PendingActions))
-	for _, action := range c.PendingActions {
-		ids = append(ids, action.ID)
-	}
-	return ids
 }
 
 // 追问的输入把规划期间新出现的线索连同短号、处境列出来，再列交代上的问题。
@@ -213,7 +182,7 @@ func TestLeadFollowUp_ListsLeadsAppearedDuringPlanning(t *testing.T) {
 	got := leadFollowUp(planCtx, []leadProblem{{"L1、L3", "还没有交代"}, {"L5", "还没有交代"}}, []OpenLead{newLead})
 	want := "上一版规划没有把「待深挖的线索」逐条交代完。" +
 		"规划进行期间图上又出现了待深挖的线索，编号接在输入清单之后：\n" +
-		"- [L5] 丁（由在办的 A1 产出；已挂 5 分钟）\n" +
+		"- [L5] 丁（已挂 5 分钟）\n" +
 		"按「输出契约」重新输出完整的规划 JSON（不是只补差额）：\n" +
 		"- L1、L3：还没有交代\n- L5：还没有交代\n"
 	assert.Equal(t, want, got)

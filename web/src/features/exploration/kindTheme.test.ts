@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { leadMeta, nodeTitle, nodeChips, rejectionScope } from './kindTheme'
+import { leadMeta, nodeTitle, nodeChips, rejectionScope, stateOptions } from './kindTheme'
 import type { GraphNode } from '@/api/explorationgraph'
 
 function node(o: Partial<GraphNode> = {}): GraphNode {
@@ -104,5 +104,24 @@ describe('kindTheme（线索与否决范围）', () => {
     expect(rejectionScope(action())).toBe('step')
     expect(rejectionScope(action({ metadata: { rejected_scope: 'lead' } }))).toBe('lead')
     expect(rejectionScope(action({ state: 'running' }))).toBeNull()
+  })
+})
+
+// 状态筛选的选项只列图里实际有的状态。
+describe('stateOptions', () => {
+  it('只列有节点的状态，按生命周期的先后，带节点数', () => {
+    expect(stateOptions({ completed: 10, running: 1, open: 1 }, 'all')).toEqual([
+      { value: 'open', label: '待处理', count: 1 },
+      { value: 'running', label: '执行中', count: 1 },
+      { value: 'completed', label: '已完成', count: 10 },
+    ])
+    expect(stateOptions({}, 'all')).toEqual([])
+  })
+
+  it('当前选中的状态即使图上已经没有也留着，计数为 0', () => {
+    expect(stateOptions({ completed: 3 }, 'failed')).toEqual([
+      { value: 'completed', label: '已完成', count: 3 },
+      { value: 'failed', label: '失败', count: 0 },
+    ])
   })
 })

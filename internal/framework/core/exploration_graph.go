@@ -68,10 +68,6 @@ const (
 	// NodeStateRejected 已否决（action 专用）：监察者或用户判定这一步不该做，附原因；
 	// 规划者不得再提出等效动作
 	NodeStateRejected NodeState = "rejected"
-
-	// NodeStateSuperseded 已吸收（派生 objective 专用：范围由吸收它的新目标
-	// 接管，本目标不再作为独立方向推进；与 supersedes 边同时落定，永不迁出）
-	NodeStateSuperseded NodeState = "superseded"
 )
 
 // VerificationStatus 是假设观察的验证状态。探索图与业务领域无关：
@@ -116,8 +112,7 @@ func (s NodeState) IsTerminal() bool {
 		s == NodeStateFailed ||
 		s == NodeStateExhausted ||
 		s == NodeStateAborted ||
-		s == NodeStateRejected ||
-		s == NodeStateSuperseded
+		s == NodeStateRejected
 }
 
 // String 返回节点类型的字符串表示

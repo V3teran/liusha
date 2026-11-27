@@ -34,8 +34,8 @@ func buildTeamRosterSection(roster []AgentBrief) string {
 }
 
 // buildObjectiveSection 构建任务目标部分：根目标即任务目标本体；进行中的派生目标（方向）
-// 逐条列出，带短号——动作声明所属方向时引用它。已收敛的方向不再列出：已达成的无需再
-// 投入，已吸收的范围由吸收它的新方向承接（新方向本身在列），也不能再往下面挂新动作。
+// 逐条列出，带短号——动作声明所属方向时引用它。任务进行期间方向始终进行中、只增不改；
+// 随任务落定的方向（任务重开后）是历史：不再列出，也不能再往下面挂新动作。
 func buildObjectiveSection(objective string, directions []explorationgraph.Node) string {
 	var sb strings.Builder
 	sb.WriteString("## 任务目标\n")
@@ -189,8 +189,7 @@ func buildCompletedActionsSection(actions []explorationgraph.Node) string {
 	return sb.String()
 }
 
-// buildPendingActionsSection 构建进行中工作部分（规划的直接输入，全量逐条）。每条带短号
-// （线索可以声明由它覆盖）。
+// buildPendingActionsSection 构建进行中工作部分（规划的直接输入，全量逐条）。
 func buildPendingActionsSection(ctx *PlanningContext) string {
 	if len(ctx.PendingActions) == 0 {
 		return ""
@@ -198,8 +197,8 @@ func buildPendingActionsSection(ctx *PlanningContext) string {
 
 	var sb strings.Builder
 	sb.WriteString("## 进行中的工作\n")
-	for i, action := range ctx.PendingActions {
-		fmt.Fprintf(&sb, "- [%s] %s", ordinal(actionPrefix, i), actionTag("进行中", action))
+	for _, action := range ctx.PendingActions {
+		fmt.Fprintf(&sb, "- %s", actionTag("进行中", action))
 		fmt.Fprintf(&sb, " [ID: %s] %s\n", action.ID, actionInstruction(action))
 	}
 	sb.WriteString("\n")
@@ -376,9 +375,6 @@ func (c *PlanningContext) now() time.Time {
 // leadStatus 陈述一条待深挖线索由图上推导的处境，各项之间用「；」分开；没有的不写。
 func (ctx *PlanningContext) leadStatus(lead OpenLead, now time.Time) string {
 	parts := make([]string, 0, 6)
-	if handle := ctx.actionHandle(lead.ProducerID); handle != "" {
-		parts = append(parts, "由在办的 "+handle+" 产出")
-	}
 	parts = append(parts, agePhrase(lead.CreatedAt, now))
 	if lead.Truncated > 0 {
 		parts = append(parts, fmt.Sprintf("没做完 %d 次", lead.Truncated))

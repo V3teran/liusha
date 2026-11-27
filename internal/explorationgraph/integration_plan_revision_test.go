@@ -15,10 +15,10 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// TestRevisePlanPostgres 验证目标修订在 PG 后端的真实落库：superseded 状态
-// 与 supersedes 边要过 DB CHECK 约束（ck_exploration_node_state /
-// ck_exploration_edge_rel），并发流转引发的冲突要整体回滚——内存后端证明不了的
-// 约束与事务语义在这里兜底。
+// TestRevisePlanPostgres 验证结果分析与常规规划的一次修订在 PG 后端的真实落库：新方向、
+// 滋生边、动作与它的所属边要过 DB CHECK 约束（ck_exploration_node_state /
+// ck_exploration_edge_rel）；变更集的前置不成立时整体回滚——内存后端证明不了的约束与
+// 事务语义在这里兜底。
 func TestRevisePlanPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
@@ -32,8 +32,6 @@ func TestRevisePlanPostgres(t *testing.T) {
 	const (
 		taskID   = "bbbbbbb1-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 		rootID   = "1b2f6a9e-1111-4111-8111-000000000001"
-		oldID    = "1b2f6a9e-1111-4111-8111-000000000002"
-		doneID   = "1b2f6a9e-1111-4111-8111-000000000003"
 		resultID = "1b2f6a9e-1111-4111-8111-000000000004"
 		newA     = "1b2f6a9e-1111-4111-8111-00000000000a"
 		newB     = "1b2f6a9e-1111-4111-8111-00000000000b"
@@ -48,62 +46,55 @@ func TestRevisePlanPostgres(t *testing.T) {
 	}
 	for _, n := range []Node{
 		mk(rootID, core.KindObjective, SourceUser, &open),
-		mk(oldID, core.KindObjective, SourcePlanner, &open),
-		mk(doneID, core.KindObjective, SourcePlanner, &open),
 		mk(resultID, core.KindResult, SourceEvaluator, nil),
 	} {
 		_, err := store.CreateNode(ctx, n)
 		require.NoError(t, err)
 	}
-	draftOf := func(id string, supersedes ...string) ObjectiveDraft {
-		return ObjectiveDraft{Node: mk(id, core.KindObjective, SourcePlanner, &open),
-			TriggeredBy: []string{resultID}, Supersedes: supersedes}
+	draftOf := func(id string) ObjectiveDraft {
+		return ObjectiveDraft{Node: mk(id, core.KindObjective, SourcePlanner, &open), TriggeredBy: []string{resultID}}
 	}
 
-	// 1. 拆分吸收 + 宣告达成 + 新动作，一次修订原子落库
+	// 1. 两个新方向（同一个结果催生）+ 一个挂在 newA 下的动作，一次修订原子落库
 	report, err := store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID),
-		AddedActions:        []ActionDraft{{Node: mk(actionID, core.KindAction, SourcePlanner, &open), TriggeredBy: []string{resultID}}},
-		AddedObjectives:     []ObjectiveDraft{draftOf(newA, oldID, rootID), draftOf(newB, oldID)},
-		CompletedObjectives: []ObjectiveCompletion{{ObjectiveID: doneID, Evidence: []string{resultID}}},
+		AddedActions:    []ActionDraft{{Node: mk(actionID, core.KindAction, SourcePlanner, &open), ObjectiveID: newA, TriggeredBy: []string{resultID}}},
+		AddedObjectives: []ObjectiveDraft{draftOf(newA), draftOf(newB)},
+		Analyzed:        []string{resultID},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{oldID}, report.SupersededObjectives)
-	assert.Equal(t, []string{doneID}, report.CompletedObjectives)
-	require.Len(t, report.Rejected, 1, "根目标引用被剔除")
-	assert.Equal(t, rootID, report.Rejected[0].ID)
-
-	state := func(id string) State {
-		n, gErr := store.GetNode(ctx, id)
-		require.NoError(t, gErr)
-		return *n.State
-	}
-	assert.Equal(t, StateSuperseded, state(oldID))
-	assert.Equal(t, StateCompleted, state(doneID))
-	assert.Equal(t, StateOpen, state(rootID))
+	assert.Empty(t, report.Rejected)
+	assert.Equal(t, []string{newA, newB}, report.AddedObjectives)
+	assert.Equal(t, []string{actionID}, report.AddedActions)
 
 	edges, err := store.ListEdgesByTask(ctx, taskID)
 	require.NoError(t, err)
-	absorbers := map[string]bool{}
+	have := map[[3]string]bool{}
 	for _, e := range edges {
-		if e.Rel == RelSupersedes && e.DstID == oldID {
-			absorbers[e.SrcID] = true
-		}
+		have[[3]string{e.SrcID, string(e.Rel), e.DstID}] = true
 	}
-	assert.Equal(t, map[string]bool{newA: true, newB: true}, absorbers)
-	assert.Equal(t, []string{actionID}, report.AddedActions)
-	var rootGeneratesAction bool
-	for _, e := range edges {
-		if e.Rel == RelGenerates && e.SrcID == rootID && e.DstID == actionID {
-			rootGeneratesAction = true
-		}
+	for _, want := range [][3]string{
+		{resultID, string(RelTriggers), newA},
+		{resultID, string(RelTriggers), newB},
+		{newA, string(RelGenerates), actionID}, // 动作挂在它声明的方向下
+		{resultID, string(RelTriggers), actionID},
+	} {
+		assert.True(t, have[want], "落边 %s →(%s)→ %s", want[0], want[1], want[2])
 	}
-	assert.True(t, rootGeneratesAction, "动作归属根目标")
+	assert.Len(t, have, 4)
+	analyzed, err := store.GetNode(ctx, resultID)
+	require.NoError(t, err)
+	assert.True(t, analyzed.IsAnalyzed(), "分析水位随修订落库")
 
-	// 2. 冲突回滚：校验通过后被引用目标已流转，新节点与边一个都不落
+	// 2. 冲突回滚：先把 newA 落成 completed，再提交一个前置不成立的变更集（newA 仍 open），
+	//    新节点与边一个都不落
+	err = store.graphStore.ApplyChangeSet(ctx, core.GraphChangeSet{
+		Transitions: []core.GraphStateTransition{{TaskID: taskID, NodeID: newA, From: "open", To: "completed"}},
+	})
+	require.NoError(t, err)
 	err = store.graphStore.ApplyChangeSet(ctx, core.GraphChangeSet{
 		Nodes:       []*core.GraphNode{store.nodeToGraphNode(mk(newC, core.KindObjective, SourcePlanner, &open))},
-		Transitions: []core.GraphStateTransition{{TaskID: taskID, NodeID: oldID, From: "open", To: "superseded"}},
-		Edges:       []*core.GraphEdge{{TaskID: taskID, From: newC, To: oldID, Relation: string(RelSupersedes)}},
+		Transitions: []core.GraphStateTransition{{TaskID: taskID, NodeID: newA, From: "open", To: "completed"}},
+		Edges:       []*core.GraphEdge{{TaskID: taskID, From: newC, To: newA, Relation: string(RelTriggers)}},
 	})
 	require.True(t, errors.Is(err, core.ErrGraphStateConflict), "got %v", err)
 	_, err = store.GetNode(ctx, newC)
@@ -218,9 +209,9 @@ func TestRejectAndWatermarkKeepIdentityPostgres(t *testing.T) {
 	assert.Equal(t, SourceEvaluator, result.SourceType, "水位批注不触碰其余元数据")
 }
 
-// 线索的整套处置在 PG 下真实落图，过得了库里的 CHECK 约束：新动作认领一条线索（pursues
-// 边）；在办的动作覆盖另一条线索（covers 边）；第三条线索被规划层按类别关闭，批注在它
-// 身上（metadata 浅合并）。opens_deeper 标志与节点来源都不受影响。
+// 线索的处置在 PG 下真实落图，过得了库里的 CHECK 约束：新动作认领一条线索（pursues
+// 边）；另一条线索被规划层按类别关闭，批注在它身上（metadata 浅合并）。opens_deeper
+// 标志与节点来源都不受影响。
 func TestLeadAccountingPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
@@ -236,71 +227,52 @@ func TestLeadAccountingPostgres(t *testing.T) {
 		claimedID = "3b2f6a9e-1111-4111-8111-000000000001"
 		actionID  = "3b2f6a9e-1111-4111-8111-000000000002"
 		closedID  = "3b2f6a9e-1111-4111-8111-000000000003"
-		runningID = "3b2f6a9e-1111-4111-8111-000000000005"
-		coveredID = "3b2f6a9e-1111-4111-8111-000000000006"
-		actionID2 = "3b2f6a9e-1111-4111-8111-000000000007"
 	)
 	dbtest.SeedTask(t, pool, taskID)
-	open, running := StateOpen, StateRunning
+	open := StateOpen
 	_, err := store.CreateNode(ctx, Node{ID: rootID, TaskID: taskID, Kind: core.KindObjective,
 		State: &open, SourceType: SourceUser, Content: []byte(`{"description":"root"}`)})
 	require.NoError(t, err)
-	for _, id := range []string{claimedID, closedID, coveredID} {
+	for _, id := range []string{claimedID, closedID} {
 		_, err = store.CreateNode(ctx, Node{ID: id, TaskID: taskID, Kind: core.KindObservation,
 			SourceType: SourceExecutor, Content: []byte(`{"category":"access","statement":"探通一条路"}`),
 			Metadata: OpensDeeperMetadata()})
 		require.NoError(t, err)
 	}
-	_, err = store.CreateNode(ctx, Node{ID: runningID, TaskID: taskID, Kind: core.KindAction, State: &running,
-		SourceType: SourcePlanner, Content: []byte(`{"instruction":"在办"}`)})
-	require.NoError(t, err)
 
 	pending, err := store.OpenLeads(ctx, taskID)
 	require.NoError(t, err)
-	require.Len(t, pending, 3, "落库后三条都等着跟进")
+	require.Len(t, pending, 2, "落库后两条都等着跟进")
 
 	report, err := store.RevisePlan(ctx, taskID, PlanRevision{Basis: pgBasis(t, store, taskID),
-		AddedActions: []ActionDraft{
-			{Node: Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open, SourceType: SourcePlanner,
-				Content: []byte(`{"instruction":"深挖"}`)}},
-			{Node: Node{ID: actionID2, TaskID: taskID, Kind: core.KindAction, State: &open, SourceType: SourcePlanner,
-				Content: []byte(`{"instruction":"铺开对象面"}`)}},
-		},
-		Pursuits: []Pursuit{
-			{ActionID: actionID, LeadID: claimedID},
-			{ActionID: runningID, LeadID: coveredID},
-		},
+		AddedActions: []ActionDraft{{
+			Node:    Node{ID: actionID, TaskID: taskID, Kind: core.KindAction, State: &open, SourceType: SourcePlanner, Content: []byte(`{"instruction":"深挖"}`)},
+			Pursues: []string{claimedID},
+		}},
 		ClosedLeads: []LeadClosing{{LeadID: closedID, Kind: ClosureOutOfScope, Reason: "超出任务目标"}},
 	})
 	require.NoError(t, err)
 	assert.Empty(t, report.Rejected)
-	assert.Equal(t, []string{coveredID}, report.CoveredLeads)
 	assert.Equal(t, []string{closedID}, report.ClosedLeads)
 
 	edges, err := store.ListEdgesByTask(ctx, taskID)
 	require.NoError(t, err)
-	have := map[[3]string]bool{}
+	var claimed bool
 	for _, e := range edges {
-		have[[3]string{e.SrcID, string(e.Rel), e.DstID}] = true
+		if e.SrcID == actionID && e.Rel == RelPursues && e.DstID == claimedID {
+			claimed = true
+		}
 	}
-	for _, want := range [][3]string{
-		{actionID, string(RelPursues), claimedID},
-		{runningID, string(RelCovers), coveredID},
-	} {
-		assert.True(t, have[want], "落边 %s →(%s)→ %s", want[0], want[1], want[2])
-	}
+	assert.True(t, claimed, "认领落 pursues 边")
 
 	pursued, err := store.PursuedLeads(ctx, taskID, actionID)
 	require.NoError(t, err)
 	require.Len(t, pursued, 1, "按动作查得到它认领的线索")
 	assert.Equal(t, claimedID, pursued[0].ID)
-	covered, err := store.PursuedLeads(ctx, taskID, runningID)
-	require.NoError(t, err)
-	assert.Empty(t, covered, "覆盖只记账，不进这个动作的执行输入")
 
 	pending, err = store.OpenLeads(ctx, taskID)
 	require.NoError(t, err)
-	assert.Empty(t, pending, "一条被在办动作认领、一条被在办动作覆盖、一条已关闭，都不再等着")
+	assert.Empty(t, pending, "一条被在办动作认领、一条已关闭，都不再等着")
 
 	closedLeads, err := store.ClosedLeads(ctx, taskID)
 	require.NoError(t, err)
@@ -310,11 +282,11 @@ func TestLeadAccountingPostgres(t *testing.T) {
 
 	leads, err := store.Leads(ctx, taskID)
 	require.NoError(t, err)
-	require.Len(t, leads, 3)
-	assert.True(t, leads[0].InFlight && leads[2].InFlight, "认领与覆盖都算有人在跟进")
+	require.Len(t, leads, 2)
+	assert.True(t, leads[0].InFlight, "认领算有人在跟进")
 	assert.True(t, leads[1].Closed())
 
-	for _, id := range []string{claimedID, closedID, coveredID} {
+	for _, id := range []string{claimedID, closedID} {
 		lead, err := store.GetNode(ctx, id)
 		require.NoError(t, err)
 		assert.True(t, lead.OpensDeeper(), "处置不抹掉 opens_deeper 标志")

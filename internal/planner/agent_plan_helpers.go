@@ -172,7 +172,7 @@ func (a *Agent) handleNoActions(ctx context.Context, basis explorationgraph.Goal
 // pendingWork 返回阻止任务收敛的未完结工作（空串 = 可以收敛）：
 //   - 非终态动作：在途执行会产出新观察；
 //   - 待验证假设：带着积压收敛会留下永久悬空的假设；
-//   - 未分析结果：坐实的发现还没进结果分析，它可能催生新方向、宣告方向达成。
+//   - 未分析结果：坐实的发现还没进结果分析，它可能催生新方向。
 //
 // 各项判定失败都保守视为未完结（宁可多等一轮，不误终止任务）。
 func (a *Agent) pendingWork(ctx context.Context) string {

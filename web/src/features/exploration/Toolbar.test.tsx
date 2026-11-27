@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toolbar } from './Toolbar'
@@ -16,30 +16,33 @@ vi.mock('@/api/tasks', () => ({
   })),
 }))
 
+function setup(over: Partial<Parameters<typeof Toolbar>[0]> = {}) {
+  const user = userEvent.setup()
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <Toolbar
+        scopeId=""
+        onTaskChange={vi.fn()}
+        disabled={false}
+        refreshing={false}
+        onRefresh={vi.fn()}
+        showFilters
+        filterKind="all"
+        onFilterKind={vi.fn()}
+        filterState="all"
+        onFilterState={vi.fn()}
+        stats={{ total: 0, edgeCount: 0, byKind: {}, byState: {} }}
+        {...over}
+      />
+    </QueryClientProvider>,
+  )
+  return user
+}
+
 describe('探索图 Toolbar', () => {
   it('探索图属于任务：任务由可搜索的选择框选取（服务端按目标 / 批次名检索）', async () => {
     const onChange = vi.fn()
-    const user = userEvent.setup()
-    render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <Toolbar
-          scopeId=""
-          onTaskChange={onChange}
-          disabled={false}
-          refreshing={false}
-          onRefresh={vi.fn()}
-          showFilters={false}
-          filterKind="all"
-          onFilterKind={vi.fn()}
-          filterState="all"
-          onFilterState={vi.fn()}
-          directionEdgeCount={0}
-          directionOnly={false}
-          onDirectionOnly={vi.fn()}
-          stats={{ total: 0, edgeCount: 0, byKind: {}, directionEdgeCount: 0 }}
-        />
-      </QueryClientProvider>,
-    )
+    const user = setup({ showFilters: false, onTaskChange: onChange })
     await user.click(screen.getByRole('button', { name: '选择任务：选择任务' }))
     await user.type(screen.getByRole('combobox', { name: '搜索任务目标、批次名' }), '商城')
     await waitFor(() => expect(listTasks).toHaveBeenCalledWith(1, 20, { search: '商城' }))
@@ -51,54 +54,26 @@ describe('探索图 Toolbar', () => {
   })
 })
 
-// 滋生与吸收两种边在整图里稀少：有这种边时给一个开关，把图收缩到它们及两端的节点。
-describe('探索图 Toolbar · 只看方向关系', () => {
-  function setup(over: Partial<Parameters<typeof Toolbar>[0]> = {}) {
-    const user = userEvent.setup()
-    const onDirectionOnly = vi.fn()
-    render(
-      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <Toolbar
-          scopeId=""
-          onTaskChange={vi.fn()}
-          disabled={false}
-          refreshing={false}
-          onRefresh={vi.fn()}
-          showFilters
-          filterKind="all"
-          onFilterKind={vi.fn()}
-          filterState="all"
-          onFilterState={vi.fn()}
-          directionEdgeCount={23}
-          directionOnly={false}
-          onDirectionOnly={onDirectionOnly}
-          stats={{ total: 487, edgeCount: 499, byKind: {}, directionEdgeCount: 23 }}
-          {...over}
-        />
-      </QueryClientProvider>,
-    )
-    return { user, onDirectionOnly }
-  }
-
-  it('有滋生或吸收的边时出现开关，点它交出取舍', async () => {
-    const { user, onDirectionOnly } = setup()
-    await user.click(screen.getByRole('button', { name: '滋生 · 吸收' }))
-    expect(onDirectionOnly).toHaveBeenCalledWith(true)
+// 状态筛选只列这张图里实际有的状态，带上节点数；图上没有的状态不占位。
+describe('探索图 Toolbar · 状态筛选', () => {
+  it('只列图里有的状态，按生命周期的先后，带节点数', () => {
+    setup({ stats: { total: 12, edgeCount: 11, byKind: {}, byState: { completed: 10, running: 1, open: 1 } } })
+    const select = screen.getByRole('combobox', { name: '按状态筛选节点' })
+    const options = within(select).getAllByRole('option').map((o) => o.textContent)
+    expect(options).toEqual(['全部状态', '待处理（1）', '执行中（1）', '已完成（10）'])
   })
 
-  it('开着时标记为按下，「清空筛选」把它一并复位', async () => {
-    const onFilterKind = vi.fn()
+  it('当前选中的状态即使图上已经没有也留着，下拉框显示的与生效的筛选对得上', () => {
+    setup({ filterState: 'failed', stats: { total: 3, edgeCount: 0, byKind: {}, byState: { completed: 3 } } })
+    const select = screen.getByRole('combobox', { name: '按状态筛选节点' }) as HTMLSelectElement
+    expect(select.value).toBe('failed')
+    expect(within(select).getByRole('option', { name: '失败（0）' })).toBeTruthy()
+  })
+
+  it('选一个状态即交出筛选', async () => {
     const onFilterState = vi.fn()
-    const { user, onDirectionOnly } = setup({ directionOnly: true, onFilterKind, onFilterState })
-    expect(screen.getByRole('button', { name: '滋生 · 吸收' }).getAttribute('aria-pressed')).toBe('true')
-    await user.click(screen.getByRole('button', { name: '清空筛选' }))
-    expect(onDirectionOnly).toHaveBeenCalledWith(false)
-    expect(onFilterKind).toHaveBeenCalledWith('all')
-    expect(onFilterState).toHaveBeenCalledWith('all')
-  })
-
-  it('图上没有这两种边时不出现开关', () => {
-    setup({ directionEdgeCount: 0, stats: { total: 1, edgeCount: 0, byKind: {}, directionEdgeCount: 0 } })
-    expect(screen.queryByRole('button', { name: '滋生 · 吸收' })).toBeNull()
+    const user = setup({ onFilterState, stats: { total: 2, edgeCount: 0, byKind: {}, byState: { running: 1, aborted: 1 } } })
+    await user.selectOptions(screen.getByRole('combobox', { name: '按状态筛选节点' }), 'aborted')
+    expect(onFilterState).toHaveBeenCalledWith('aborted')
   })
 })

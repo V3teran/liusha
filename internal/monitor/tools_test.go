@@ -150,7 +150,7 @@ func TestGetGlobalStateTool_ListsOpenLeads(t *testing.T) {
 		require.NoError(t, graph.CreateNodeWithEdges(ctx, explorationgraph.Node{
 			ID: id, TaskID: "t1", Kind: core.KindAction, State: &state, SourceType: explorationgraph.SourcePlanner,
 			Content: []byte(`{"instruction":"深挖"}`), UpdatedAt: base.Add(time.Duration(i+1) * time.Minute),
-		}, []explorationgraph.Edge{{TaskID: "t1", SrcID: id, Rel: explorationgraph.RelCovers, DstID: "lead-open"}}))
+		}, []explorationgraph.Edge{{TaskID: "t1", SrcID: id, Rel: explorationgraph.RelPursues, DstID: "lead-open"}}))
 	}
 
 	tool := NewGetGlobalStateTool(graph, "t1", metrics.NewCollector(graph, "t1", zerolog.Nop()))

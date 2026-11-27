@@ -1,0 +1,73 @@
+import { describe, expect, it, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import type { NodeProps } from '@xyflow/react'
+import type { GraphNode } from '@/api/explorationgraph'
+import type { ExplorationFlowNode } from '../layout'
+import { LEAD_ACCENT } from '../kindTheme'
+
+// 连线端点要在 React Flow 的节点上下文里才能渲染，这里只看卡片本身
+vi.mock('@xyflow/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@xyflow/react')>()
+  return { ...actual, Handle: () => null }
+})
+
+import { ExplorationNodeCard } from './ExplorationNodeCard'
+
+const fact = (o: Partial<GraphNode> = {}): GraphNode =>
+  ({
+    id: 'n-1',
+    task_id: 't-1',
+    kind: 'observation',
+    content: { statement: '后台数据库为 MariaDB 10.11.6' },
+    source_type: 'executor',
+    created_at: '2026-06-10T00:00:00Z',
+    updated_at: '2026-06-10T00:00:00Z',
+    ...o,
+  }) as GraphNode
+
+function renderCard(node: GraphNode) {
+  const props = { data: { node } } as unknown as NodeProps<ExplorationFlowNode>
+  const { container } = render(<ExplorationNodeCard {...props} />)
+  return { card: container.querySelector('.exp-card') as HTMLElement, container }
+}
+
+describe('ExplorationNodeCard 的线索标记', () => {
+  it('开着的线索：卡片四边加描边，脚印骑在卡片外面的右上角（卡片裁切溢出），头部给它让位', () => {
+    const { card, container } = renderCard(fact({ metadata: { opens_deeper: true } }))
+
+    expect(card.classList.contains('exp-card-lead')).toBe(true)
+    expect(card.style.getPropertyValue('--exp-lead').trim()).toBe(LEAD_ACCENT)
+    const mark = container.querySelector('.exp-lead-mark') as HTMLElement
+    expect(mark).not.toBeNull()
+    expect(card.contains(mark)).toBe(false)
+    expect(mark.previousElementSibling).toBe(card)
+    expect(mark.querySelector('.exp-lead-mark, .lucide-flag')).toBeNull()
+    expect(card.firstElementChild?.className).toContain('pr-9')
+    expect(screen.queryByText('线索已关闭')).toBeNull()
+  })
+
+  it('线索不靠给卡片染色：底色与同类别的普通观测一模一样', () => {
+    const lead = renderCard(fact({ metadata: { opens_deeper: true } })).card
+    const plain = renderCard(fact()).card
+    expect(lead.style.background).toBe(plain.style.background)
+    expect(lead.style.background).not.toContain(LEAD_ACCENT)
+  })
+
+  it('已关闭的线索：脊线与徽章都撤掉，头部留「线索已关闭」并带原因', () => {
+    const { card, container } = renderCard(
+      fact({ metadata: { opens_deeper: true, lead_closed: { kind: 'out_of_scope', reason: '不在本期范围' } } }),
+    )
+
+    expect(card.classList.contains('exp-card-lead')).toBe(false)
+    expect(container.querySelector('.exp-lead-mark')).toBeNull()
+    expect(card.firstElementChild?.className).toContain('pr-3')
+    expect(screen.getByText('线索已关闭').getAttribute('title')).toBe('超出任务目标：不在本期范围')
+  })
+
+  it('不是线索的观测：什么标记都没有', () => {
+    const { card, container } = renderCard(fact({ metadata: { opens_deeper: false } }))
+    expect(card.classList.contains('exp-card-lead')).toBe(false)
+    expect(container.querySelector('.exp-lead-mark')).toBeNull()
+    expect(screen.queryByText('线索已关闭')).toBeNull()
+  })
+})

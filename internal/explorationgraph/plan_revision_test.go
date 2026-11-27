@@ -43,10 +43,10 @@ func resultNode(id string) Node {
 	return Node{ID: id, Kind: core.KindResult, SourceType: SourceEvaluator, Content: []byte(`{"statement":"r"}`)}
 }
 
-func draft(id string, triggeredBy, supersedes []string) ObjectiveDraft {
+func draft(id string, triggeredBy ...string) ObjectiveDraft {
 	n := derivedObjective(id, StateOpen)
 	n.TaskID = revTask
-	return ObjectiveDraft{Node: n, TriggeredBy: triggeredBy, Supersedes: supersedes}
+	return ObjectiveDraft{Node: n, TriggeredBy: triggeredBy}
 }
 
 // revisionFixture: 根目标 root、派生目标 d1/d2（open）、d-done（completed）、结果 r1。
@@ -82,115 +82,35 @@ func edgesOf(t *testing.T, store *Store, rel Relation) map[[2]string]bool {
 	return set
 }
 
-func TestRevisePlan_SupersedeLandsStateAndEdgeTogether(t *testing.T) {
+// 结果分析只追加方向：新方向带着催生它的结果的滋生边落图，既有的目标原样不动；
+// 不存在的结果引用只剔除并如实报告。
+func TestRevisePlan_NewDirectionHangsOnItsResults(t *testing.T) {
 	store := revisionFixture(t)
 
 	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
-		AddedObjectives: []ObjectiveDraft{draft("n1", []string{"r1"}, []string{"d1"})},
+		AddedObjectives: []ObjectiveDraft{draft("n1", "r1", "ghost-result")},
 	})
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{"n1"}, report.AddedObjectives)
-	assert.Equal(t, []string{"d1"}, report.SupersededObjectives)
-	assert.Empty(t, report.Rejected)
-	assert.Equal(t, StateSuperseded, nodeState(t, store, "d1"))
 	assert.Equal(t, StateOpen, nodeState(t, store, "n1"))
-	assert.True(t, edgesOf(t, store, RelSupersedes)[[2]string{"n1", "d1"}], "吸收边 新→旧")
-	assert.True(t, edgesOf(t, store, RelTriggers)[[2]string{"r1", "n1"}], "滋生边 结果→新目标")
-}
-
-func TestRevisePlan_SplitRecordsEveryAbsorber(t *testing.T) {
-	store := revisionFixture(t)
-
-	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
-		AddedObjectives: []ObjectiveDraft{
-			draft("n1", nil, []string{"d1"}),
-			draft("n2", nil, []string{"d1", "d1"}),
-		},
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"d1"}, report.SupersededObjectives, "旧目标只迁移一次")
-	assert.Empty(t, report.Rejected, "拆分不是无效引用")
-	supersedes := edgesOf(t, store, RelSupersedes)
-	assert.True(t, supersedes[[2]string{"n1", "d1"}])
-	assert.True(t, supersedes[[2]string{"n2", "d1"}])
-	assert.Len(t, supersedes, 2)
-}
-
-func TestRevisePlan_RejectsInvalidReferencesWithoutBlockingTheRest(t *testing.T) {
-	store := revisionFixture(t)
-	seedNode(t, store, Node{ID: "foreign", TaskID: "other-task", Kind: core.KindObjective,
-		State: stateOf(StateOpen), SourceType: SourcePlanner, CreatedAt: time.Now()})
-	seedNode(t, store, Node{ID: "a1", Kind: core.KindAction, State: stateOf(StateOpen), SourceType: SourcePlanner})
-
-	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
-		AddedObjectives: []ObjectiveDraft{
-			draft("n1", []string{"r1", "ghost-result"}, []string{"root", "d-done", "foreign", "a1", "ghost", "d2"}),
-		},
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"n1"}, report.AddedObjectives, "无效引用不拖垮新目标")
-	assert.Equal(t, []string{"d2"}, report.SupersededObjectives, "有效引用照常吸收")
-	rejected := map[string]RevisionField{}
-	for _, r := range report.Rejected {
-		rejected[r.ID] = r.Field
-	}
-	assert.Equal(t, map[string]RevisionField{
-		"ghost-result": FieldTriggeredBy,
-		"root":         FieldSupersedes,
-		"d-done":       FieldSupersedes,
-		"foreign":      FieldSupersedes,
-		"a1":           FieldSupersedes,
-		"ghost":        FieldSupersedes,
-	}, rejected)
-	assert.Equal(t, StateOpen, nodeState(t, store, "root"), "根目标不受修订影响")
+	assert.True(t, edgesOf(t, store, RelTriggers)[[2]string{"r1", "n1"}], "滋生边 结果→新方向")
+	assert.Equal(t, StateOpen, nodeState(t, store, "d1"), "修订不动既有目标")
 	assert.Equal(t, StateCompleted, nodeState(t, store, "d-done"))
-}
-
-func TestRevisePlan_CompletionNeedsDerivedOpenTargetAndEvidence(t *testing.T) {
-	store := revisionFixture(t)
-
-	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
-		CompletedObjectives: []ObjectiveCompletion{
-			{ObjectiveID: "d1", Evidence: []string{"r1"}},
-			{ObjectiveID: "d2", Evidence: []string{"ghost-result"}},
-			{ObjectiveID: "root", Evidence: []string{"r1"}},
-		},
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"d1"}, report.CompletedObjectives)
-	assert.Equal(t, StateCompleted, nodeState(t, store, "d1"))
-	assert.Equal(t, StateOpen, nodeState(t, store, "d2"), "无有效证据不成立")
-	assert.Equal(t, StateOpen, nodeState(t, store, "root"), "根目标不能被宣告达成")
-	assert.Len(t, report.Rejected, 3) // ghost-result 证据 + d2 + root
-}
-
-func TestRevisePlan_CompletionWinsOverSupersedeOfSameObjective(t *testing.T) {
-	store := revisionFixture(t)
-
-	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
-		CompletedObjectives: []ObjectiveCompletion{{ObjectiveID: "d1", Evidence: []string{"r1"}}},
-		AddedObjectives:     []ObjectiveDraft{draft("n1", nil, []string{"d1"})},
-	})
-	require.NoError(t, err)
-
-	assert.Equal(t, StateCompleted, nodeState(t, store, "d1"))
-	assert.Empty(t, report.SupersededObjectives)
-	assert.Empty(t, edgesOf(t, store, RelSupersedes), "未迁移就不落吸收边")
+	require.Len(t, report.Rejected, 1)
+	assert.Equal(t, FieldTriggeredBy, report.Rejected[0].Field)
+	assert.Equal(t, "ghost-result", report.Rejected[0].ID)
 }
 
 func TestRevisePlan_RejectsMalformedDrafts(t *testing.T) {
 	store := revisionFixture(t)
 	ctx := context.Background()
 
-	foreign := draft("n1", nil, nil)
+	foreign := draft("n1")
 	foreign.Node.TaskID = "other-task"
-	notDerived := draft("n2", nil, nil)
+	notDerived := draft("n2")
 	notDerived.Node.SourceType = SourceUser
-	notOpen := draft("n3", nil, nil)
+	notOpen := draft("n3")
 	notOpen.Node.State = stateOf(StateCompleted)
 
 	for name, d := range map[string]ObjectiveDraft{"跨任务": foreign, "非派生": notDerived, "非 open": notOpen} {
@@ -198,31 +118,9 @@ func TestRevisePlan_RejectsMalformedDrafts(t *testing.T) {
 		assert.Error(t, err, name)
 	}
 	_, err := store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store),
-		AddedObjectives: []ObjectiveDraft{draft("dup", nil, nil), draft("dup", nil, nil)},
+		AddedObjectives: []ObjectiveDraft{draft("dup"), draft("dup")},
 	})
 	assert.Error(t, err, "ID 重复")
-}
-
-func TestApplyChangeSet_ConflictRollsBackEverything(t *testing.T) {
-	store := revisionFixture(t)
-	ctx := context.Background()
-
-	n := derivedObjective("n1", StateOpen)
-	n.TaskID = revTask
-	err := store.graphStore.ApplyChangeSet(ctx, core.GraphChangeSet{
-		Nodes: []*core.GraphNode{store.nodeToGraphNode(n)},
-		Transitions: []core.GraphStateTransition{
-			{TaskID: revTask, NodeID: "d1", From: "open", To: "superseded"},
-			{TaskID: revTask, NodeID: "d-done", From: "open", To: "superseded"}, // 前置不成立
-		},
-		Edges: []*core.GraphEdge{{TaskID: revTask, From: "n1", To: "d1", Relation: string(RelSupersedes)}},
-	})
-	require.True(t, errors.Is(err, core.ErrGraphStateConflict), "got %v", err)
-
-	_, getErr := store.GetNode(ctx, "n1")
-	assert.Error(t, getErr, "新节点随冲突回滚")
-	assert.Equal(t, StateOpen, nodeState(t, store, "d1"), "已校验通过的迁移也回滚")
-	assert.Empty(t, edgesOf(t, store, RelSupersedes))
 }
 
 func TestIsDerivedObjective(t *testing.T) {
@@ -244,7 +142,7 @@ func TestRevisePlan_ActionsHangOnRootAndShareTheTransaction(t *testing.T) {
 	store := revisionFixture(t)
 
 	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
-		AddedObjectives: []ObjectiveDraft{draft("n1", nil, []string{"d1"})},
+		AddedObjectives: []ObjectiveDraft{draft("n1")},
 		AddedActions:    []ActionDraft{actionDraft("a1", []string{"r1", "ghost-result"})},
 	})
 	require.NoError(t, err)
@@ -292,30 +190,27 @@ func TestRevisePlan_ActionHangsOnItsDeclaredDirection(t *testing.T) {
 	assert.Equal(t, []RevisionField{FieldDirection, FieldDirection, FieldDirection}, fields)
 }
 
-// 同一修订里宣告达成的方向不能再往下面挂动作：动作改挂根目标，引用剔除并报告。
-func TestRevisePlan_DirectionSettledInTheSameRevisionCannotOwnActions(t *testing.T) {
+// 修订是原子的：动作可以声明挂在同一次修订新提出的方向下，不必等它先落图。
+func TestRevisePlan_ActionHangsOnADirectionAddedByTheSameRevision(t *testing.T) {
 	store := revisionFixture(t)
 
 	report, err := store.RevisePlan(context.Background(), revTask, PlanRevision{Basis: basisOf(t, store),
-		CompletedObjectives: []ObjectiveCompletion{{ObjectiveID: "d2", Evidence: []string{"r1"}}},
-		AddedActions:        []ActionDraft{{Node: actionDraft("a1", nil).Node, ObjectiveID: "d2"}},
+		AddedObjectives: []ObjectiveDraft{draft("fresh")},
+		AddedActions:    []ActionDraft{{Node: actionDraft("a-fresh", nil).Node, ObjectiveID: "fresh"}},
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, StateCompleted, nodeState(t, store, "d2"))
-	assert.True(t, edgesOf(t, store, RelGenerates)[[2]string{"root", "a1"}])
-	require.Len(t, report.Rejected, 1)
-	assert.Equal(t, FieldDirection, report.Rejected[0].Field)
+	assert.Empty(t, report.Rejected)
+	assert.True(t, edgesOf(t, store, RelGenerates)[[2]string{"fresh", "a-fresh"}], "动作挂在同一次修订新提出的方向下")
 }
 
-// 规划修订整体失败时什么都不落：重试不会重复写入已生效的一半。
 func TestRevisePlan_FailureLeavesNothingBehind(t *testing.T) {
 	store := revisionFixture(t)
 	ctx := context.Background()
 	clash := actionDraft("n1", nil) // 与新目标同 ID：编程错误，整体拒绝
 
 	_, err := store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store),
-		AddedObjectives: []ObjectiveDraft{draft("n1", nil, []string{"d1"})},
+		AddedObjectives: []ObjectiveDraft{draft("n1")},
 		AddedActions:    []ActionDraft{clash},
 	})
 	require.Error(t, err)
@@ -386,11 +281,11 @@ func TestRevisePlan_ConcurrentConsumersCommitOnce(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store),
-		Analyzed: []string{"r1"}, AddedObjectives: []ObjectiveDraft{draft("first", nil, nil)},
+		Analyzed: []string{"r1"}, AddedObjectives: []ObjectiveDraft{draft("first")},
 	})
 	require.NoError(t, err)
 	_, err = store.RevisePlan(ctx, revTask, PlanRevision{Basis: basisOf(t, store),
-		Analyzed: []string{"r1"}, AddedObjectives: []ObjectiveDraft{draft("second", nil, nil)},
+		Analyzed: []string{"r1"}, AddedObjectives: []ObjectiveDraft{draft("second")},
 	})
 	require.True(t, errors.Is(err, core.ErrGraphStateConflict), "got %v", err)
 	_, getErr := store.GetNode(ctx, "second")
