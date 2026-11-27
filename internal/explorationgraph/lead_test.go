@@ -55,9 +55,9 @@ func generatedBy(actionID string, observations ...Node) []Edge {
 	return edges
 }
 
-// pursuitEdge 建一条 action → 线索的跟进边（pursues 认领，covers 覆盖）。
-func pursuitEdge(rel Relation, actionID, leadID string) Edge {
-	return Edge{TaskID: revTask, SrcID: actionID, Rel: rel, DstID: leadID}
+// pursuitEdge 建一条 action → 线索的跟进边（动作认领这条线索）。
+func pursuitEdge(actionID, leadID string) Edge {
+	return Edge{TaskID: revTask, SrcID: actionID, Rel: RelPursues, DstID: leadID}
 }
 
 // plannedAction 建一个规划者排出的、处在给定状态的动作。
@@ -206,7 +206,7 @@ func TestDeriveLeads_OutcomeFollowsStopReason(t *testing.T) {
 				}
 				actions = append(actions, action)
 				edges = append(edges, generatedBy("act", c.observations...)...)
-				edges = append(edges, pursuitEdge(RelPursues, "act", "lead"))
+				edges = append(edges, pursuitEdge("act", "lead"))
 			}
 
 			leads := deriveLeads(nodes, actions, edges)
@@ -232,7 +232,7 @@ func TestDeriveLeads_OutcomeFollowsStopReason(t *testing.T) {
 // 最近一次否决的说法。
 func TestDeriveLeads_ClosesAfterSecondVeto(t *testing.T) {
 	actions := []Node{endedAt(plannedAction("v1", StateRejected), time.Minute), endedAt(plannedAction("v2", StateRejected), 2*time.Minute)}
-	edges := []Edge{pursuitEdge(RelPursues, "v1", "lead"), pursuitEdge(RelCovers, "v2", "lead")}
+	edges := []Edge{pursuitEdge("v1", "lead"), pursuitEdge("v2", "lead")}
 	for i := range actions {
 		reason := "重复：已在动作甲里做过"
 		actions[i].StateReason = &reason
@@ -259,7 +259,7 @@ func TestDeriveLeads_TruncationStreak(t *testing.T) {
 		}
 		edges := []Edge{}
 		for _, id := range []string{"done", "withdrawn", "cut-1", "cut-2", "last"} {
-			edges = append(edges, pursuitEdge(RelPursues, id, "lead"))
+			edges = append(edges, pursuitEdge(id, "lead"))
 		}
 		// done 报出了新事实：推进了，线索不会被它关闭。
 		edges = append(edges, generatedBy("done", observation("fact", "access", "换了个入口"))...)
@@ -286,7 +286,7 @@ func TestDeriveLeads_ClosureKeepsTheEarliestReason(t *testing.T) {
 	// newest 先报出了主张（有结论）；earliest 更早完成却什么都没留下（干涸）。
 	actions := []Node{endedAt(plannedAction("newest", StateCompleted), 2*time.Minute), endedAt(plannedAction("earliest", StateCompleted), time.Minute)}
 	edges := append(generatedBy("newest", claim),
-		pursuitEdge(RelPursues, "newest", "lead"), pursuitEdge(RelCovers, "earliest", "lead"))
+		pursuitEdge("newest", "lead"), pursuitEdge("earliest", "lead"))
 
 	leads := deriveLeads([]Node{factLead("lead"), claim}, actions, edges)
 	require.Len(t, leads, 1)
@@ -311,9 +311,9 @@ func TestStore_OpenLeads_SplitByStanding(t *testing.T) {
 	seedLead(t, store, "held")
 	seedLead(t, store, "shut")
 	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("act", StateRunning),
-		[]Edge{pursuitEdge(RelPursues, "act", "held")}))
+		[]Edge{pursuitEdge("act", "held")}))
 	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("dry", StateCompleted),
-		[]Edge{pursuitEdge(RelPursues, "dry", "shut")}))
+		[]Edge{pursuitEdge("dry", "shut")}))
 
 	open, err := store.OpenLeads(ctx, revTask)
 	require.NoError(t, err)
@@ -327,17 +327,16 @@ func TestStore_OpenLeads_SplitByStanding(t *testing.T) {
 	assert.Equal(t, ClosureDry, closed[0].Closure.Kind, "跟进完什么都没留下：干涸")
 }
 
-// PursuedLeads 只返回动作认领的线索：晚来的 covers 边只记账，不进执行者的输入。
-func TestStore_PursuedLeads_OnlyClaims(t *testing.T) {
+// PursuedLeads 只返回这个动作认领的线索，别的动作认领的不在其列。
+func TestStore_PursuedLeads_OnlyOwnClaims(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()
 	seedLead(t, store, "claimed")
-	seedLead(t, store, "attached")
 	seedLead(t, store, "other")
 	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("act", StateOpen),
-		[]Edge{pursuitEdge(RelPursues, "act", "claimed"), pursuitEdge(RelCovers, "act", "attached")}))
+		[]Edge{pursuitEdge("act", "claimed")}))
 	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("other-act", StateOpen),
-		[]Edge{pursuitEdge(RelPursues, "other-act", "other")}))
+		[]Edge{pursuitEdge("other-act", "other")}))
 
 	leads, err := store.PursuedLeads(ctx, revTask, "act")
 	require.NoError(t, err)
@@ -350,21 +349,18 @@ func TestStore_PursuedLeads_OnlyClaims(t *testing.T) {
 	assert.Empty(t, none)
 }
 
-// RevisePlan 认领线索：落一条 pursues 边（action → 线索），线索由在办动作跟进，退出待跟进
-// 清单。
-func TestRevisePlan_PursuitCreatesClaimEdge(t *testing.T) {
+// 认领落 pursues 边：线索由在办动作跟进，退出待深挖清单。
+func TestRevisePlan_ClaimCreatesPursuesEdge(t *testing.T) {
 	ctx := context.Background()
 	store := revisionFixture(t)
 	seedLead(t, store, "lead-1")
 
 	report, err := store.RevisePlan(ctx, revTask, PlanRevision{
 		Basis:        basisOf(t, store),
-		AddedActions: []ActionDraft{{Node: plannedAction("act-1", StateOpen)}},
-		Pursuits:     []Pursuit{{ActionID: "act-1", LeadID: "lead-1"}},
+		AddedActions: []ActionDraft{{Node: plannedAction("act-1", StateOpen), Pursues: []string{"lead-1"}}},
 	})
 	require.NoError(t, err)
-	assert.Empty(t, report.Rejected, "跟进一条真实待深挖的线索不被剔除")
-	assert.Empty(t, report.CoveredLeads, "新动作认领不是覆盖")
+	assert.Empty(t, report.Rejected, "认领一条真实待深挖的线索不被剔除")
 	assert.True(t, edgesOf(t, store, RelPursues)[[2]string{"act-1", "lead-1"}], "落一条 act→lead 的 pursues 边")
 
 	leads, err := store.OpenLeads(ctx, revTask)
@@ -372,67 +368,19 @@ func TestRevisePlan_PursuitCreatesClaimEdge(t *testing.T) {
 	assert.Empty(t, leads, "线索由在办动作跟进")
 }
 
-// 晚到的归属：声明一条新出现的线索被在办的动作覆盖，落 covers 边。已收场的动作覆盖不了
-// ——想说明它已经覆盖了这条线索，走关闭。
-func TestRevisePlan_AttachesInFlightAction(t *testing.T) {
-	ctx := context.Background()
-	store := revisionFixture(t)
-	seedLead(t, store, "lead-running")
-	seedLead(t, store, "lead-done")
-	seedLead(t, store, "lead-queued")
-	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("running", StateRunning), nil))
-	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("queued", StateOpen), nil))
-	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("done", StateCompleted), nil))
-
-	report, err := store.RevisePlan(ctx, revTask, PlanRevision{
-		Basis: basisOf(t, store),
-		Pursuits: []Pursuit{
-			{ActionID: "running", LeadID: "lead-running"},
-			{ActionID: "queued", LeadID: "lead-queued"},
-			{ActionID: "done", LeadID: "lead-done"},
-			{ActionID: "幻觉ID", LeadID: "lead-done"},
-		},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"lead-running", "lead-queued"}, report.CoveredLeads)
-	covers := edgesOf(t, store, RelCovers)
-	assert.True(t, covers[[2]string{"running", "lead-running"}])
-	assert.True(t, covers[[2]string{"queued", "lead-queued"}])
-	assert.False(t, covers[[2]string{"done", "lead-done"}], "已完成的动作覆盖不了")
-	assert.False(t, covers[[2]string{"幻觉ID", "lead-done"}], "不存在的动作覆盖不了")
-	require.Len(t, report.Rejected, 2)
-	for _, r := range report.Rejected {
-		assert.Equal(t, FieldPursues, r.Field)
-		assert.Equal(t, "只能由本任务在办的动作覆盖", r.Reason)
-	}
-
-	leads, err := store.OpenLeads(ctx, revTask)
-	require.NoError(t, err)
-	require.Len(t, leads, 1, "被覆盖的两条不再待深挖，覆盖不了的仍待深挖")
-	assert.Equal(t, "lead-done", leads[0].ID)
-}
-
-// 引用失效的跟进（幻觉线索、已被在办动作跟进的线索、同一修订里已被关闭或已有动作跟进的
-// 线索）剔除该条并如实报告，不拖垮修订：动作照常落图，也不落无效的边。
 func TestRevisePlan_PursuitRejectsStaleReferences(t *testing.T) {
 	ctx := context.Background()
 	store := revisionFixture(t)
 	seedLead(t, store, "busy")
 	seedLead(t, store, "shut")
 	seedLead(t, store, "once")
-	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("act-prev", StateOpen), []Edge{pursuitEdge(RelPursues, "act-prev", "busy")}))
+	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("act-prev", StateOpen), []Edge{pursuitEdge("act-prev", "busy")}))
 
 	report, err := store.RevisePlan(ctx, revTask, PlanRevision{
 		Basis: basisOf(t, store),
 		AddedActions: []ActionDraft{
-			{Node: plannedAction("act-2", StateOpen)}, {Node: plannedAction("act-3", StateOpen)},
-		},
-		Pursuits: []Pursuit{
-			{ActionID: "act-2", LeadID: "busy"},
-			{ActionID: "act-2", LeadID: "shut"},
-			{ActionID: "act-2", LeadID: "幻觉ID"},
-			{ActionID: "act-2", LeadID: "once"},
-			{ActionID: "act-3", LeadID: "once"},
+			{Node: plannedAction("act-2", StateOpen), Pursues: []string{"busy", "shut", "幻觉ID", "once"}},
+			{Node: plannedAction("act-3", StateOpen), Pursues: []string{"once"}},
 		},
 		ClosedLeads: []LeadClosing{{LeadID: "shut", Kind: ClosureNotWorth, Reason: "价值够不上一个动作"}},
 	})
@@ -442,7 +390,7 @@ func TestRevisePlan_PursuitRejectsStaleReferences(t *testing.T) {
 
 	want := map[string]string{
 		"busy": "不是本任务待深挖的线索", "shut": "同一修订已关闭这条线索",
-		"幻觉ID": "不是本任务待深挖的线索", "once": "同一修订里已有动作跟进这条线索",
+		"幻觉ID": "不是本任务待深挖的线索", "once": "同一修订里已有动作认领这条线索",
 	}
 	require.Len(t, report.Rejected, len(want))
 	for _, r := range report.Rejected {
@@ -497,7 +445,7 @@ func TestRevisePlan_ClosingRejectsStaleAndMalformed(t *testing.T) {
 	seedLead(t, store, "busy")
 	seedLead(t, store, "reasonless")
 	seedLead(t, store, "derived-kind")
-	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("act-prev", StateOpen), []Edge{pursuitEdge(RelPursues, "act-prev", "busy")}))
+	require.NoError(t, store.CreateNodeWithEdges(ctx, plannedAction("act-prev", StateOpen), []Edge{pursuitEdge("act-prev", "busy")}))
 
 	report, err := store.RevisePlan(ctx, revTask, PlanRevision{
 		Basis: basisOf(t, store),

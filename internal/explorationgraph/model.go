@@ -16,11 +16,7 @@
 //   - generates: objective → action、action → observation、observation → result（推导链：
 //     目标派生动作，动作产出观察，假设坐实成结果）
 //   - triggers: result → objective/action（结果催生新目标 / 新动作）
-//   - supersedes: objective → objective（新派生目标吸收旧派生目标，src=新、dst=旧；
-//     与旧目标的 superseded 状态同一事务落定，见 RevisePlan）
 //   - pursues: action → observation（动作为跟进这条线索而排出：线索进入它的执行范围）
-//   - covers: action → observation（在办的动作覆盖这条线索：只记账，线索由它的结局
-//     结算，不改这个动作的范围）
 //
 // 动作之间没有执行依赖：open 即可执行，先后关系由增量规划表达——需要前一步结果的
 // 动作在前一步的观察落图后才被提出，指令因此基于真实结果。
@@ -40,14 +36,13 @@ type State = core.NodeState
 
 // 状态常量：实体定义在 core，经类型别名提升为本包 API
 const (
-	StateOpen       = core.NodeStateOpen
-	StateRunning    = core.NodeStateRunning
-	StateCompleted  = core.NodeStateCompleted
-	StateFailed     = core.NodeStateFailed
-	StateExhausted  = core.NodeStateExhausted
-	StateAborted    = core.NodeStateAborted
-	StateRejected   = core.NodeStateRejected
-	StateSuperseded = core.NodeStateSuperseded
+	StateOpen      = core.NodeStateOpen
+	StateRunning   = core.NodeStateRunning
+	StateCompleted = core.NodeStateCompleted
+	StateFailed    = core.NodeStateFailed
+	StateExhausted = core.NodeStateExhausted
+	StateAborted   = core.NodeStateAborted
+	StateRejected  = core.NodeStateRejected
 )
 
 // Complexity 是 action 的复杂度（planner 提案 → executor 提示词的可读分档；
@@ -110,7 +105,7 @@ const (
 	PriorityLow      = core.PriorityLow
 )
 
-// Relation 是边的关系类型（5 种，小写字面量即存储值）
+// Relation 是边的关系类型（3 种，小写字面量即存储值）
 type Relation string
 
 // 探索图关系（与 DB 约束 ck_exploration_edge_rel 严格一致）：
@@ -119,11 +114,9 @@ type Relation string
 // triggers 是"发现滋生动作/新方向"的因果溯源（result → objective/action）——
 // 因果链（成果A 催生后续动作进而产出成果B）沿边可回溯。
 const (
-	RelGenerates  Relation = "generates"  // 上游产出下游（推导链）
-	RelTriggers   Relation = "triggers"   // result → objective/action（发现滋生动作/新方向）
-	RelSupersedes Relation = "supersedes" // objective → objective（吸收：新目标接管旧目标范围）
-	RelPursues    Relation = "pursues"    // action → observation（动作为跟进这条线索而排出）
-	RelCovers     Relation = "covers"     // action → observation（在办动作覆盖这条线索，只记账）
+	RelGenerates Relation = "generates" // 上游产出下游（推导链）
+	RelTriggers  Relation = "triggers"  // result → objective/action（发现滋生动作/新方向）
+	RelPursues   Relation = "pursues"   // action → observation（动作为跟进这条线索而排出）
 )
 
 // SourceType 是节点的来源类型

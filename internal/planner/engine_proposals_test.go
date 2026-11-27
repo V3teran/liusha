@@ -68,8 +68,8 @@ func TestConvertProposals_DirectionResolvesToTheOwningObjective(t *testing.T) {
 	assert.Equal(t, []string{"d-two", "d-one", "", "", ""}, owners)
 }
 
-// 时间线叙述：有动作时列动作；关闭的线索与覆盖各起一行；留待的不写（图上没有变化）；只有
-// 关闭或覆盖、没有动作时不再写「派发 0 个动作」。
+// 时间线叙述：有动作时列动作；关闭的线索每条一行；留待的不写（图上没有变化）；只有关闭、
+// 没有动作时不再写「派发 0 个动作」。
 func TestPlanningNarrative(t *testing.T) {
 	base := "继续执行，本轮派发 1 个动作：\n1. 深挖参数甲"
 	if got := planningNarrative(PlanningResponse{ShouldContinue: true, Actions: []ActionProposal{{Instruction: "深挖参数甲"}}}); got != base {
@@ -83,11 +83,10 @@ func TestPlanningNarrative(t *testing.T) {
 	}
 
 	leads := []LeadDecisionProposal{
-		{ID: "L2", Decision: "cover", Action: "A1"},
 		{ID: "L3", Decision: "close", Kind: "out_of_scope", Reason: "范围外"},
 		{ID: "L4", Decision: "close", Kind: "blocked", Reason: "需要管理员凭据"},
 	}
-	rest := "关闭的线索（超出任务目标）：范围外\n关闭的线索（受阻）：需要管理员凭据\n由在办动作覆盖的线索：1 条"
+	rest := "关闭的线索（超出任务目标）：范围外\n关闭的线索（受阻）：需要管理员凭据"
 	if got := planningNarrative(PlanningResponse{ShouldContinue: true, Actions: []ActionProposal{{Instruction: "深挖参数甲"}}, Leads: leads}); got != base+"\n"+rest {
 		t.Fatalf("有动作与处置时得:\n%s\n期望:\n%s", got, base+"\n"+rest)
 	}

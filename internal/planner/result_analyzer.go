@@ -12,8 +12,8 @@ import (
 	"github.com/V3teran/liusha/internal/scenario"
 )
 
-// AnalyzeResults 分析 Result 节点，修订探索方向：哪些派生目标已达成、是否提出新方向
-// （及其吸收的旧方向）。下一步做什么由随后的常规规划决定。
+// AnalyzeResults 分析 Result 节点，决定要不要提出新方向。下一步做什么由随后的常规规划
+// 决定。
 func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Store, taskID string, results []explorationgraph.Node) (*ResultAnalysis, error) {
 	e.logger.Info().
 		Int("result_count", len(results)).
@@ -23,7 +23,7 @@ func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 		return &ResultAnalysis{}, nil
 	}
 
-	// 1. 目标视野：根目标（创建序最早）是任务意图；派生目标是修订的对象
+	// 1. 目标视野：根目标（创建序最早）是任务意图；派生目标是已有的方向
 	objectives, err := graph.ListNodesByKind(ctx, taskID, core.KindObjective)
 	if err != nil {
 		return nil, fmt.Errorf("获取 Objective 失败: %w", err)
@@ -42,8 +42,7 @@ func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 
 	e.logger.Info().
 		Int("total_actions", actionCount).
-		Int("live_derived_objectives", len(view.live)).
-		Int("settled_derived_objectives", len(view.settled)).
+		Int("directions", len(view.directions)).
 		Msg("当前探索状态统计")
 
 	// 2. 构建分析 prompt
@@ -57,18 +56,11 @@ func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 
 	// 4. 转换响应为 ResultAnalysis
 	analysis := &ResultAnalysis{Reasoning: response.Reasoning}
-	for _, c := range response.CompletedObjectives {
-		analysis.CompletedObjectives = append(analysis.CompletedObjectives, explorationgraph.ObjectiveCompletion{
-			ObjectiveID: c.ID,
-			Evidence:    c.EvidenceIDs,
-		})
-	}
 	for _, obj := range response.NewObjectives {
 		analysis.NewObjectives = append(analysis.NewObjectives, NewObjective{
 			Description: obj.Description,
 			Priority:    explorationgraph.NormalizePriority(obj.Priority),
 			TriggeredBy: obj.TriggeredBy,
-			Supersedes:  obj.Supersedes,
 			Reasoning:   obj.Reasoning,
 		})
 	}
@@ -77,7 +69,7 @@ func (e *Engine) AnalyzeResults(ctx context.Context, graph *explorationgraph.Sto
 }
 
 // buildAnalysisPrompt 构建结果分析的输入：只陈述数据——任务的动作总量、目标视野与本次
-// 分析的新结果。怎样判断方向达成、穷尽与切换由章程说明，响应格式由结果分析契约规定。
+// 分析的新结果。怎样判断要不要提出新方向由章程说明，响应格式由结果分析契约规定。
 func (e *Engine) buildAnalysisPrompt(view objectiveView, results []explorationgraph.Node, actionCount int) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "任务目前共有 %d 个动作。\n\n", actionCount)
@@ -88,8 +80,8 @@ func (e *Engine) buildAnalysisPrompt(view objectiveView, results []explorationgr
 
 // buildAnalysisSystemPrompt 组装结果分析的 system prompt：规划者章程（可自定义）+ 结果分析
 // 契约（planner/contract，与本文件的解析同改同测，不可自定义）+ 任务场景块（无场景时没有）。
-// 结果分析是规划者的另一项
-// 职责，与常规规划共用同一份章程。章程为空时返回空串，由调用方拒绝。
+// 结果分析是规划者的另一项职责，与常规规划共用同一份章程。章程为空时返回空串，由调用方
+// 拒绝。
 func (e *Engine) buildAnalysisSystemPrompt() string {
 	charter := strings.TrimSpace(e.charter)
 	if charter == "" {
@@ -100,23 +92,15 @@ func (e *Engine) buildAnalysisSystemPrompt() string {
 
 // AnalysisResponse 是 LLM 的分析响应
 type AnalysisResponse struct {
-	Reasoning           string                       `json:"reasoning"`
-	CompletedObjectives []AnalysisCompletedObjective `json:"completed_objectives"`
-	NewObjectives       []AnalysisObjective          `json:"new_objectives"`
+	Reasoning     string              `json:"reasoning"`
+	NewObjectives []AnalysisObjective `json:"new_objectives"`
 }
 
-// AnalysisCompletedObjective 是 AnalyzeResults 宣告达成的派生目标。
-type AnalysisCompletedObjective struct {
-	ID          string   `json:"id"`
-	EvidenceIDs []string `json:"evidence_ids"`
-}
-
-// AnalysisObjective 是 AnalyzeResults 提议的新目标。
+// AnalysisObjective 是 AnalyzeResults 提议的新方向。
 type AnalysisObjective struct {
 	Description string   `json:"description"`
 	Priority    string   `json:"priority"`
 	TriggeredBy []string `json:"triggered_by"`
-	Supersedes  []string `json:"supersedes"`
 	Reasoning   string   `json:"reasoning"`
 }
 

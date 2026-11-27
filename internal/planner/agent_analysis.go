@@ -13,9 +13,9 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// analyzeAndProcessResults 分析增量 Results，并把结论连同分析水位作为一次规划
-// 修订原子落图：达成与新方向及其吸收互不排斥，分析给出几样就落几样，要么全落、
-// 要么全不落。分析只修订方向，不排动作。失败返回错误——水位随修订一起未落，下一轮整体重做；
+// analyzeAndProcessResults 分析增量 Results，并把结论（新方向）连同分析水位作为一次
+// 规划修订原子落图：要么全落、要么全不落。分析只追加方向，不排动作。失败返回错误——
+// 水位随修订一起未落，下一轮整体重做；
 // 因为没有部分生效的写入，重做不会重复落图。分析以调用前读取的目标为依据，分析期间
 // 目标被改写则返回 ErrGoalChanged（结论作废，按新目标重新分析）。
 func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorationgraph.Node) error {
@@ -35,7 +35,6 @@ func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorat
 	}
 
 	a.logger.Info().
-		Int("completed_objectives", len(analysis.CompletedObjectives)).
 		Int("new_objectives", len(analysis.NewObjectives)).
 		Str("reasoning", analysis.Reasoning).
 		Msg("Result 分析完成")
@@ -61,18 +60,7 @@ func (a *Agent) analyzeAndProcessResults(ctx context.Context, results []explorat
 		return fmt.Errorf("规划修订: %w", err)
 	}
 
-	a.logger.Info().
-		Strs("added_objectives", report.AddedObjectives).
-		Strs("completed", report.CompletedObjectives).
-		Strs("superseded", report.SupersededObjectives).
-		Msg("规划修订已落图")
-	evidence := make(map[string][]string, len(revision.CompletedObjectives))
-	for _, c := range revision.CompletedObjectives {
-		evidence[c.ObjectiveID] = c.Evidence
-	}
-	for _, id := range report.CompletedObjectives {
-		a.logger.Info().Str("objective_id", id).Strs("evidence", evidence[id]).Msg("派生目标已达成")
-	}
+	a.logger.Info().Strs("added_objectives", report.AddedObjectives).Msg("规划修订已落图")
 	return nil
 }
 
@@ -87,7 +75,7 @@ func admit(seen map[string]bool, text string) (string, bool) {
 	return text, true
 }
 
-// knownObjectives 读取图上全部目标描述（去首尾空白，含根目标与已收敛目标）。
+// knownObjectives 读取图上全部目标描述（去首尾空白，含根目标）。
 // 读失败降级为空集：本轮跳过去重，不阻断分析结论落图。
 func (a *Agent) knownObjectives(ctx context.Context) map[string]bool {
 	known := map[string]bool{}
@@ -112,7 +100,7 @@ func (a *Agent) knownObjectives(ctx context.Context) map[string]bool {
 // planRevision 把分析结论翻译为规划修订（构造新节点，引用原样交给 RevisePlan
 // 校验）。新目标先按描述字面去重：分析会复述目标清单，复读在这里拦下。
 func (a *Agent) planRevision(analysis *ResultAnalysis, knownObjectives map[string]bool) (explorationgraph.PlanRevision, error) {
-	revision := explorationgraph.PlanRevision{CompletedObjectives: analysis.CompletedObjectives}
+	revision := explorationgraph.PlanRevision{}
 	for _, obj := range analysis.NewObjectives {
 		description, ok := admit(knownObjectives, obj.Description)
 		if !ok {
@@ -129,7 +117,6 @@ func (a *Agent) planRevision(analysis *ResultAnalysis, knownObjectives map[strin
 		revision.AddedObjectives = append(revision.AddedObjectives, explorationgraph.ObjectiveDraft{
 			Node:        node,
 			TriggeredBy: obj.TriggeredBy,
-			Supersedes:  obj.Supersedes,
 		})
 	}
 	return revision, nil

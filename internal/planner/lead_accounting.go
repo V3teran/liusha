@@ -13,11 +13,10 @@ import (
 	plannercontract "github.com/V3teran/liusha/internal/planner/contract"
 )
 
-// 短号：规划输入给进行中的方向、在办的动作、待深挖的线索编的短号（D1、A1、L1）。模型按
-// 短号引用，不必照抄 UUID；短号就是它在输入清单里的序号，规划输出按同一份清单解析。
+// 短号：规划输入给进行中的方向、待深挖的线索编的短号（D1、L1）。模型按短号引用，不必
+// 照抄 UUID；短号就是它在输入清单里的序号，规划输出按同一份清单解析。
 const (
 	directionPrefix = "D"
-	actionPrefix    = "A"
 	leadPrefix      = "L"
 )
 
@@ -44,15 +43,6 @@ func canonical(prefix, handle string) string {
 	return strings.TrimSpace(handle)
 }
 
-// actionID 把在办动作的短号解析成动作 ID。
-func (c *PlanningContext) actionID(handle string) (string, bool) {
-	i, ok := ordinalIndex(actionPrefix, handle)
-	if !ok || i >= len(c.PendingActions) {
-		return "", false
-	}
-	return c.PendingActions[i].ID, true
-}
-
 // directionID 把进行中的方向的短号解析成派生目标 ID。
 func (c *PlanningContext) directionID(handle string) (string, bool) {
 	i, ok := ordinalIndex(directionPrefix, handle)
@@ -60,14 +50,6 @@ func (c *PlanningContext) directionID(handle string) (string, bool) {
 		return "", false
 	}
 	return c.Directions[i].ID, true
-}
-
-// actionHandle 是在办动作在输入里的短号；动作已不在办时为空。
-func (c *PlanningContext) actionHandle(id string) string {
-	if i := slices.IndexFunc(c.PendingActions, func(a explorationgraph.Node) bool { return a.ID == id }); i >= 0 {
-		return ordinal(actionPrefix, i)
-	}
-	return ""
 }
 
 // leadIDs 把线索的短号解析成它指的线索：同一陈述的线索在输入里并成一行列出，引用其中
@@ -96,8 +78,7 @@ type leadProblem struct {
 
 // leadPlan 是规划输出里对线索的交代，解析到图上引用之后的结果。
 type leadPlan struct {
-	claims   map[int][]string           // 动作在响应里的下标 → 它认领的线索 ID
-	covers   []explorationgraph.Pursuit // 声明由图上在办的动作覆盖的线索
+	claims   map[int][]string // 动作在响应里的下标 → 它认领的线索 ID
 	closings []explorationgraph.LeadClosing
 	left     int // 明确留待下轮的线索条数
 	problems []leadProblem
@@ -113,12 +94,12 @@ func (p leadPlan) describe() []string {
 }
 
 // accountLeads 核对规划输出对每条待深挖线索的交代：每条恰一次——被本轮某个动作的 pursues
-// 引用，或在 leads 里有一条成立的处置（cover / close / leave）。不成立的地方原样列出，
+// 引用，或在 leads 里有一条成立的处置（close / leave）。不成立的地方原样列出，
 // 成立的部分照常保留：一条交代不成立不让其余的跟着作废。
 func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 	plan := leadPlan{claims: map[int][]string{}}
-	// covered 是已有成立交代的线索；touched 是输出里提到过的线索（交代成立与否不论）。
-	covered := make(map[string]bool, len(planCtx.OpenLeads))
+	// accounted 是已有成立交代的线索；touched 是输出里提到过的线索（交代成立与否不论）。
+	accounted := make(map[string]bool, len(planCtx.OpenLeads))
 	touched := make(map[string]bool, len(planCtx.OpenLeads))
 	// 输出里提到了这条线索：交代不成立的已就那条交代报过，末尾不再报一次「还没有交代」。
 	touch := func(ids []string) {
@@ -128,11 +109,11 @@ func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 	}
 	// 登记一条成立的交代：它指的线索里已有一条被交代过就不登记，返回是否成立。
 	admit := func(ids []string) bool {
-		if slices.ContainsFunc(ids, func(id string) bool { return covered[id] }) {
+		if slices.ContainsFunc(ids, func(id string) bool { return accounted[id] }) {
 			return false
 		}
 		for _, id := range ids {
-			covered[id] = true
+			accounted[id] = true
 		}
 		return true
 	}
@@ -168,19 +149,6 @@ func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 		touch(ids)
 		// 先校验、后登记：交代不成立的线索不算已交代，模型给的下一个版本仍可成立。
 		switch strings.ToLower(strings.TrimSpace(d.Decision)) {
-		case "cover":
-			actionID, ok := planCtx.actionID(d.Action)
-			if !ok {
-				plan.problems = append(plan.problems, leadProblem{handle, "cover 的 action 不是「进行中的工作」里的在办动作编号"})
-				continue
-			}
-			if !admit(ids) {
-				plan.problems = append(plan.problems, leadProblem{handle, duplicated})
-				continue
-			}
-			for _, id := range ids {
-				plan.covers = append(plan.covers, explorationgraph.Pursuit{ActionID: actionID, LeadID: id})
-			}
 		case "close":
 			kind := explorationgraph.LeadClosureKind(strings.ToLower(strings.TrimSpace(d.Kind)))
 			if !kind.Declared() {
@@ -207,7 +175,7 @@ func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 		case "":
 			plan.problems = append(plan.problems, leadProblem{handle, "还没有交代"})
 		default:
-			plan.problems = append(plan.problems, leadProblem{handle, "decision 只能是 cover、close 或 leave"})
+			plan.problems = append(plan.problems, leadProblem{handle, "decision 只能是 close 或 leave"})
 		}
 	}
 

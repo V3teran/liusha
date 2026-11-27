@@ -111,9 +111,10 @@ func TestApplyOutcome_PursuingActionClaimsLead(t *testing.T) {
 	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop(),
 		onConverged: func(string, explorationgraph.GoalBasis) {}}
 
+	action := planAction("p1", "沿线索一深挖")
+	action.Pursues = []string{"lead-1"}
 	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), explorationgraph.Surface{}, PlanOutcome{
-		Actions: []explorationgraph.ActionDraft{planAction("p1", "沿线索一深挖")},
-		Claims:  []explorationgraph.Pursuit{{ActionID: "p1", LeadID: "lead-1"}},
+		Actions: []explorationgraph.ActionDraft{action},
 	}, "planning"))
 
 	pursued, err := store.PursuedLeads(ctx, revisionTask, "p1")
@@ -122,38 +123,6 @@ func TestApplyOutcome_PursuingActionClaimsLead(t *testing.T) {
 	assert.Equal(t, "lead-1", pursued[0].ID, "认领落成 pursues 边")
 	assert.Equal(t, []string{"lead-2"}, openLeadIDs(t, store, ctx), "被认领的线索退出待深挖清单")
 	assert.Nil(t, a.conclusion, "排了新动作，此前的结论作废")
-}
-
-// 在办动作覆盖一条线索：落 covers 边，线索由那个动作结算、退出待深挖清单；不排新动作也算
-// 图面有变化，「等待」结论作废，也不走收敛判定。
-func TestApplyOutcome_InFlightActionCoversLead(t *testing.T) {
-	store, ctx := leadGraph(t)
-	running := explorationgraph.StateRunning
-	_, err := store.CreateNode(ctx, revisionNode("a-running", core.KindAction, explorationgraph.SourcePlanner, &running, 3*time.Second))
-	require.NoError(t, err)
-	converged := 0
-	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop(),
-		onConverged: func(string, explorationgraph.GoalBasis) { converged++ }}
-
-	require.NoError(t, a.applyOutcome(ctx, basisOf(t, store), explorationgraph.Surface{}, PlanOutcome{
-		Covers: []explorationgraph.Pursuit{{ActionID: "a-running", LeadID: "lead-1"}},
-	}, "planning"))
-
-	edges, err := store.ListEdgesByTask(ctx, revisionTask)
-	require.NoError(t, err)
-	covered := false
-	for _, e := range edges {
-		if e.Rel == explorationgraph.RelCovers && e.SrcID == "a-running" && e.DstID == "lead-1" {
-			covered = true
-		}
-	}
-	assert.True(t, covered, "覆盖落成 covers 边")
-	pursued, err := store.PursuedLeads(ctx, revisionTask, "a-running")
-	require.NoError(t, err)
-	assert.Empty(t, pursued, "覆盖只记账，不进这个动作的执行输入")
-	assert.Equal(t, []string{"lead-2"}, openLeadIDs(t, store, ctx))
-	assert.Nil(t, a.conclusion, "图面有变化，等待结论不作数")
-	assert.Equal(t, 0, converged, "不因这一轮没有新动作就走收敛判定")
 }
 
 // 只关闭线索、不排新动作的一轮也是图面的变化：「等待」结论作废，不走收敛判定——否则
@@ -191,9 +160,10 @@ func TestApplyPlan_ClaimFallsWithDuplicateProposal(t *testing.T) {
 	a := &Agent{taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop(),
 		onConverged: func(string, explorationgraph.GoalBasis) {}}
 
+	action := planAction("p1", "沿线索一深挖")
+	action.Pursues = []string{"lead-1"}
 	changed, err := a.applyPlan(ctx, basisOf(t, store), PlanOutcome{
-		Actions: []explorationgraph.ActionDraft{planAction("p1", "沿线索一深挖")},
-		Claims:  []explorationgraph.Pursuit{{ActionID: "p1", LeadID: "lead-1"}},
+		Actions: []explorationgraph.ActionDraft{action},
 	})
 	require.NoError(t, err)
 	assert.False(t, changed, "重复提案被拦下后图面没有任何变化")
@@ -349,14 +319,14 @@ func (p *directionPlanner) AnalyzeResults(context.Context, *explorationgraph.Sto
 	return p.analysis, nil
 }
 
-// 结果分析只修订方向，动作由同一轮的常规规划排出：常规规划看得到分析刚落下的新方向，
+// 结果分析只追加方向，动作由同一轮的常规规划排出：常规规划看得到分析刚落下的新方向，
 // 不会因为分析先排了动作而被跳过（实测：分析看不到已有事实与动作，排出的重复动作挤掉了
 // 看得到全貌的那次规划）。
 func TestPlanActions_AnalysisRevisesDirectionThenPlanningSchedules(t *testing.T) {
 	a, store := revisionAgent(t, nil)
 	planner := &directionPlanner{
 		store:    store,
-		analysis: &ResultAnalysis{CompletedObjectives: []explorationgraph.ObjectiveCompletion{{ObjectiveID: "d1", Evidence: []string{"r1"}}}},
+		analysis: &ResultAnalysis{NewObjectives: []NewObjective{{Description: "换一个入口", Priority: core.PriorityHigh, TriggeredBy: []string{"r1"}}}},
 		plan:     []explorationgraph.ActionDraft{planAction("p1", "沿新结果探测")},
 	}
 	a.planner = planner
@@ -367,7 +337,12 @@ func TestPlanActions_AnalysisRevisesDirectionThenPlanningSchedules(t *testing.T)
 
 	assert.True(t, isAnalyzed(t, store, "r1"))
 	assert.Equal(t, 1, planner.planCalls, "分析之后同一轮即常规规划")
-	assert.Equal(t, []string{"d2"}, planner.liveAtPlans, "常规规划看到的是分析修订后的方向")
+	// 常规规划看到的是分析追加后的方向：原有的两条原样在，新方向排在后面
+	require.Len(t, planner.liveAtPlans, 3)
+	assert.Equal(t, []string{"d1", "d2"}, planner.liveAtPlans[:2], "分析只追加，既有的方向不动")
+	added, err := store.GetNode(ctx, planner.liveAtPlans[2])
+	require.NoError(t, err)
+	assert.Equal(t, "换一个入口", added.Goal())
 	open, err := store.ListOpenActions(ctx, revisionTask)
 	require.NoError(t, err)
 	require.Len(t, open, 1)

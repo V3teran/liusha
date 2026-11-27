@@ -107,7 +107,7 @@ func TestActionSections_LabelUserAssigned(t *testing.T) {
 		SourceType: explorationgraph.SourcePlanner, Content: []byte(`{"instruction":"枚举目录"}`)}
 
 	pending := buildPendingActionsSection(&PlanningContext{PendingActions: []explorationgraph.Node{assigned, planned}})
-	if !strings.Contains(pending, "[A1] [进行中·用户指派] [ID: a1]") || !strings.Contains(pending, "[A2] [进行中] [ID: a2]") {
+	if !strings.Contains(pending, "- [进行中·用户指派] [ID: a1]") || !strings.Contains(pending, "- [进行中] [ID: a2]") {
 		t.Fatalf("进行中的用户指派动作应标出来源:\n%s", pending)
 	}
 	assigned.State = &done
@@ -176,14 +176,14 @@ func TestBuildPendingHypothesesSection(t *testing.T) {
 	}
 }
 
-// 进行中的工作每条带短号（线索可以声明由它覆盖）。
-func TestBuildPendingActionsSection_MarksHandles(t *testing.T) {
+// 进行中的工作逐条列出：状态与 ID。
+func TestBuildPendingActionsSection_ListsEveryAction(t *testing.T) {
 	open := explorationgraph.StateOpen
 	ctx := &PlanningContext{PendingActions: []explorationgraph.Node{{ID: "a1", State: &open}, {ID: "a2", State: &open}}}
 	got := buildPendingActionsSection(ctx)
-	for _, want := range []string{"[A1] [进行中] [ID: a1]", "[A2] [进行中] [ID: a2]"} {
+	for _, want := range []string{"- [进行中] [ID: a1]", "- [进行中] [ID: a2]"} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("在办动作应带短号，缺 %q:\n%s", want, got)
+			t.Fatalf("在办动作应逐条列出，缺 %q:\n%s", want, got)
 		}
 	}
 	if buildPendingActionsSection(&PlanningContext{}) != "" {
@@ -231,7 +231,7 @@ func TestBuildOpenLeadsSection(t *testing.T) {
 		t.Fatalf("应有小节标题，得:\n%s", got)
 	}
 	for _, want := range []string{
-		"- [L1、L3] 管理入口未鉴权（由在办的 A1 产出；已挂 12 分钟）\n",
+		"- [L1、L3] 管理入口未鉴权（已挂 12 分钟）\n",
 		"- [L2] 参数可注入（已挂 1 小时 30 分钟；没做完 2 次；连续没做完 2 次；被否决 1 次：重复）\n",
 		"- [L4] 另一条路（已挂不到 1 分钟；执行故障 1 次；跟进过 1 次、推进了但没到结论）\n",
 	} {
@@ -244,9 +244,9 @@ func TestBuildOpenLeadsSection(t *testing.T) {
 	}
 
 	// 同一行上的线索处境不同：逐条标出短号。
-	ctx.OpenLeads[2].ProducerID = ""
+	ctx.OpenLeads[2].Faults = 1
 	got = buildOpenLeadsSection(ctx)
-	if !strings.Contains(got, "- [L1、L3] 管理入口未鉴权（L1：由在办的 A1 产出；已挂 12 分钟；L3：已挂 12 分钟）\n") {
+	if !strings.Contains(got, "- [L1、L3] 管理入口未鉴权（L1：已挂 12 分钟；L3：已挂 12 分钟；执行故障 1 次）\n") {
 		t.Fatalf("处境不同时逐条标出，得:\n%s", got)
 	}
 }

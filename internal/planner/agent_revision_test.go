@@ -83,21 +83,20 @@ func stateIn(t *testing.T, store *explorationgraph.Store, id string) exploration
 	return *n.State
 }
 
-// 达成与新方向（含吸收）同时出现时全部落实；结果分析只修订方向，不排动作。
-func TestAnalyzeAndProcessResults_AppliesEveryPartOfTheAnalysis(t *testing.T) {
+// 结果分析只追加方向：新方向带着催生它的结果的滋生边落图，既有的目标原样不动；动作只由
+// 常规规划排出。
+func TestAnalyzeAndProcessResults_AppendsDirections(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{
-		CompletedObjectives: []explorationgraph.ObjectiveCompletion{{ObjectiveID: "d2", Evidence: []string{"r1"}}},
 		NewObjectives: []NewObjective{{
-			Description: "细化后的方向", Priority: core.PriorityHigh,
-			TriggeredBy: []string{"r1"}, Supersedes: []string{"d1"},
+			Description: "换一个入口", Priority: core.PriorityHigh, TriggeredBy: []string{"r1"},
 		}},
 	})
 	ctx := context.Background()
 
 	require.NoError(t, a.analyzeNewResults(ctx))
 
-	assert.Equal(t, explorationgraph.StateSuperseded, stateIn(t, store, "d1"))
-	assert.Equal(t, explorationgraph.StateCompleted, stateIn(t, store, "d2"))
+	assert.Equal(t, explorationgraph.StateOpen, stateIn(t, store, "d1"), "分析不动既有的方向")
+	assert.Equal(t, explorationgraph.StateOpen, stateIn(t, store, "d2"))
 	assert.Equal(t, explorationgraph.StateOpen, stateIn(t, store, "root"), "根目标只随任务终态收敛")
 
 	objectives, err := store.ListNodesByKind(ctx, revisionTask, core.KindObjective)
@@ -109,17 +108,13 @@ func TestAnalyzeAndProcessResults_AppliesEveryPartOfTheAnalysis(t *testing.T) {
 
 	edges, err := store.ListEdgesByTask(ctx, revisionTask)
 	require.NoError(t, err)
-	var supersedes, triggers int
+	var triggers int
 	for _, e := range edges {
-		switch {
-		case e.Rel == explorationgraph.RelSupersedes && e.SrcID == added.ID && e.DstID == "d1":
-			supersedes++
-		case e.Rel == explorationgraph.RelTriggers && e.SrcID == "r1" && e.DstID == added.ID:
+		if e.Rel == explorationgraph.RelTriggers && e.SrcID == "r1" && e.DstID == added.ID {
 			triggers++
 		}
 	}
-	assert.Equal(t, 1, supersedes)
-	assert.Equal(t, 1, triggers)
+	assert.Equal(t, 1, triggers, "新方向由催生它的结果滋生的边")
 
 	actions, err := store.ListNodesByKind(ctx, revisionTask, core.KindAction)
 	require.NoError(t, err)
@@ -130,9 +125,8 @@ func TestAnalyzeAndProcessResults_AppliesEveryPartOfTheAnalysis(t *testing.T) {
 // 引用失效（幻觉 ID、根目标）只剔除该引用：新方向照常落图，分析水位照常推进。
 func TestAnalyzeAndProcessResults_InvalidReferencesDoNotBlockRevision(t *testing.T) {
 	a, store := revisionAgent(t, &ResultAnalysis{
-		CompletedObjectives: []explorationgraph.ObjectiveCompletion{{ObjectiveID: "root", Evidence: []string{"r1"}}},
 		NewObjectives: []NewObjective{{
-			Description: "新方向", TriggeredBy: []string{"ghost-result"}, Supersedes: []string{"ghost", "root"},
+			Description: "新方向", TriggeredBy: []string{"ghost-result"},
 		}},
 	})
 	ctx := context.Background()
@@ -146,25 +140,24 @@ func TestAnalyzeAndProcessResults_InvalidReferencesDoNotBlockRevision(t *testing
 	assert.True(t, isAnalyzed(t, store, "r1"))
 }
 
-func TestObjectiveView_SeparatesRootLiveAndSettled(t *testing.T) {
-	completed, superseded := explorationgraph.StateCompleted, explorationgraph.StateSuperseded
+// 分析的视野：任务目标与已有的方向（新方向不与它们重复），方向不带 ID——分析不引用它们。
+func TestObjectiveView_ListsTaskAndDirections(t *testing.T) {
+	exhausted, aborted := explorationgraph.StateExhausted, explorationgraph.StateAborted
 	objectives := []explorationgraph.Node{
 		revisionNode("root", core.KindObjective, explorationgraph.SourceUser, openState(), 0),
 		revisionNode("live", core.KindObjective, explorationgraph.SourcePlanner, openState(), time.Second),
-		revisionNode("done", core.KindObjective, explorationgraph.SourcePlanner, &completed, 2*time.Second),
-		revisionNode("absorbed", core.KindObjective, explorationgraph.SourcePlanner, &superseded, 3*time.Second),
+		revisionNode("done", core.KindObjective, explorationgraph.SourcePlanner, &exhausted, 2*time.Second),
+		revisionNode("ended", core.KindObjective, explorationgraph.SourcePlanner, &aborted, 3*time.Second),
 	}
 
 	section := buildObjectiveViewSection(newObjectiveView(objectives))
-
 	assert.Contains(t, section, "## 任务目标\n\nroot")
-	assert.Contains(t, section, "- `live` live", "进行中的派生目标带 ID 供引用")
-	assert.NotContains(t, section, "`root`", "根目标不可引用")
-	assert.Contains(t, section, "- [已达成] done")
-	assert.Contains(t, section, "- [已吸收] absorbed")
-	assert.NotContains(t, section, "`done`", "已收敛目标不带 ID")
+	assert.Contains(t, section, "## 已有的方向")
+	assert.Contains(t, section, "- live")
+	assert.Contains(t, section, "- done", "任务结束时落定的方向也在列：新方向不与它们重复")
+	assert.NotContains(t, section, "`root`", "分析不引用目标")
 
-	// 常规规划一侧：进行中的方向带短号列出（动作据它声明归属），已收敛的不列。
+	// 常规规划一侧：进行中的方向带短号列出（动作据它声明归属），已结束的不列。
 	store := explorationgraph.NewMemoryStore()
 	for _, n := range objectives {
 		n := n
@@ -176,7 +169,7 @@ func TestObjectiveView_SeparatesRootLiveAndSettled(t *testing.T) {
 	require.NoError(t, err)
 	planning := buildObjectiveSection("任务", planCtx.Directions)
 	assert.Contains(t, planning, "### 进行中的方向\n- [D1] live")
-	assert.False(t, strings.Contains(planning, "done") || strings.Contains(planning, "absorbed"),
+	assert.False(t, strings.Contains(planning, "done") || strings.Contains(planning, "ended"),
 		"规划只看进行中的方向：%s", planning)
 }
 
@@ -194,7 +187,7 @@ func TestAnalyzeAndProcessResults_FailedRevisionWritesNothing(t *testing.T) {
 	a := &Agent{
 		taskID: revisionTask, graph: store, eventBus: &fakeEventBus{}, logger: zerolog.Nop(),
 		planner: &analysisPlanner{analysis: &ResultAnalysis{
-			NewObjectives: []NewObjective{{Description: "新方向", Supersedes: []string{"d1"}}},
+			NewObjectives: []NewObjective{{Description: "新方向", TriggeredBy: []string{"r1"}}},
 		}},
 	}
 	ctx := context.Background()

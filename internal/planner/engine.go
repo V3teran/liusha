@@ -231,7 +231,7 @@ type PlanningContext struct {
 	Objective         string                  // 根目标描述（任务目标）
 	Directions        []explorationgraph.Node // 进行中的派生目标（方向），创建序；第 i 个的短号是 D{i+1}，动作声明所属方向时引用
 	CompletedActions  []explorationgraph.Node // 已完成的 Action
-	PendingActions    []explorationgraph.Node // 在办（待执行或执行中）的 Action，创建序；第 i 个的短号是 A{i+1}
+	PendingActions    []explorationgraph.Node // 在办（待执行或执行中）的 Action，创建序
 	Results           []explorationgraph.Node // 已确认的结果（经判定坐实的主张）
 	FailedActions     []explorationgraph.Node // 失败的 Action
 	AbortedActions    []explorationgraph.Node // 已中止的 Action（任务收口或目标调整时未执行完；无对错判断，相关的可重提）
@@ -260,11 +260,10 @@ type ActionProposal struct {
 	Direction   string   `json:"direction"`    // 本动作所属的方向编号（D…）；直接为任务目标排出的不填
 }
 
-// LeadDecisionProposal LLM 对一条待深挖线索本轮的处置。
+// LeadDecisionProposal LLM 对一条待深挖线索本轮的处置（没被本轮动作认领的那些）。
 type LeadDecisionProposal struct {
 	ID       string `json:"id"`       // 线索编号
-	Decision string `json:"decision"` // cover / close / leave
-	Action   string `json:"action"`   // cover：由哪个在办动作覆盖（编号）
+	Decision string `json:"decision"` // close / leave
 	Kind     string `json:"kind"`     // close：关闭类别
 	Reason   string `json:"reason"`   // close：关闭的理由
 }
@@ -274,7 +273,7 @@ type PlanningResponse struct {
 	ShouldContinue bool                   `json:"should_continue"` // 是否应该继续执行
 	Reasoning      string                 `json:"reasoning"`       // 推理过程
 	Actions        []ActionProposal       `json:"actions"`         // 新提议的 Action；认领线索的经 pursues 说明
-	Leads          []LeadDecisionProposal `json:"leads"`           // 其余待深挖线索本轮的处置（cover / close / leave）
+	Leads          []LeadDecisionProposal `json:"leads"`           // 其余待深挖线索本轮的处置（close / leave）
 }
 
 // PlanOutcome 是一次常规规划的结论。
@@ -282,12 +281,9 @@ type PlanOutcome struct {
 	// Stop 为真表示规划者判定停止探索（契约的 should_continue=false）：这是对任务的结论，
 	// 不是「本轮没有新动作」——由 Agent 收回规划者尚未做完的动作，等其余工作落定后收敛。
 	Stop bool
-	// Actions 是新提议的动作（Stop 时其余各项都为空）。
-	Actions []explorationgraph.ActionDraft
-	// Claims 是新动作对线索的认领（ActionID 指向 Actions 里的动作）；Covers 是声明由图上
-	// 在办的动作覆盖的线索；Closings 是关闭的线索。
-	Claims   []explorationgraph.Pursuit
-	Covers   []explorationgraph.Pursuit
+	// Actions 是新提议的动作，带着各自认领的线索（Stop 时其余各项都为空）；Closings 是
+	// 规划层关闭的线索。
+	Actions  []explorationgraph.ActionDraft
 	Closings []explorationgraph.LeadClosing
 }
 
@@ -471,18 +467,14 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 	e.finishRound(ctx, result, response)
 
 	drafts := e.convertProposals(ctx, graph, taskID, planCtx, response.Actions)
-	claims := make([]explorationgraph.Pursuit, 0)
-	for i, draft := range drafts {
-		for _, leadID := range plan.claims[i] {
-			claims = append(claims, explorationgraph.Pursuit{ActionID: draft.Node.ID, LeadID: leadID})
-		}
+	claims := 0
+	for i := range drafts {
+		drafts[i].Pursues = plan.claims[i]
+		claims += len(plan.claims[i])
 	}
-	e.logger.Info().Int("action_count", len(drafts)).Int("claims", len(claims)).
-		Int("covers", len(plan.covers)).Int("closings", len(plan.closings)).
-		Int("leads_left", plan.left).Msg("智能规划完成")
-	return PlanOutcome{
-		Actions: drafts, Claims: claims, Covers: plan.covers, Closings: plan.closings,
-	}, nil
+	e.logger.Info().Int("action_count", len(drafts)).Int("claims", claims).
+		Int("closings", len(plan.closings)).Int("leads_left", plan.left).Msg("智能规划完成")
+	return PlanOutcome{Actions: drafts, Closings: plan.closings}, nil
 }
 
 // finishRound 结束时间线上的这一轮：终稿能解析时正文用规划叙述，否则回退原文。
@@ -644,7 +636,7 @@ func newOpenLead(lead explorationgraph.Lead) (OpenLead, bool) {
 	}, true
 }
 
-// refreshRound 把规划进行期间图上新出现的待深挖线索与在办动作补进本轮的清单。
+// refreshRound 把规划进行期间图上新出现的待深挖线索补进本轮的清单。
 //
 // 规划是一段几分钟的推理：模型读图、思考的这会儿，执行者的新线索照样落图。模型经
 // graph_read 看得到它们，清单里却没有它们的短号——想认领也引用不上，而按开轮时的旧清单
@@ -652,8 +644,6 @@ func newOpenLead(lead explorationgraph.Lead) (OpenLead, bool) {
 // 出现的接在清单末尾（原有短号不变，模型上一版输出里的引用照旧成立），返回新补进来的线索
 // 供追问时列出来。读失败不影响这一轮，只是按开轮时的清单核对。
 func (e *Engine) refreshRound(ctx context.Context, graph *explorationgraph.Store, taskID string, planCtx *PlanningContext) []OpenLead {
-	e.refreshInFlight(ctx, graph, taskID, planCtx)
-
 	pending, err := graph.OpenLeads(ctx, taskID)
 	if err != nil {
 		e.logger.Warn().Err(err).Msg("重读待深挖线索失败，按开轮时的清单核对交代")
@@ -674,35 +664,6 @@ func (e *Engine) refreshRound(ctx context.Context, graph *explorationgraph.Store
 		}
 	}
 	return added
-}
-
-// refreshInFlight 把新出现在办的动作接在清单末尾，返回清单是否有变化；有变化时重记哪些在跟进线索。
-func (e *Engine) refreshInFlight(ctx context.Context, graph *explorationgraph.Store, taskID string, planCtx *PlanningContext) bool {
-	actions, err := graph.ListNodesByKind(ctx, taskID, core.KindAction)
-	if err != nil {
-		e.logger.Warn().Err(err).Msg("重读在办动作失败，沿用开轮时的清单")
-		return false
-	}
-	known := make(map[string]bool, len(planCtx.PendingActions))
-	for _, action := range planCtx.PendingActions {
-		known[action.ID] = true
-	}
-	changed := false
-	for _, action := range actions {
-		if action.State == nil || (*action.State != explorationgraph.StateOpen && *action.State != explorationgraph.StateRunning) {
-			continue
-		}
-		if !known[action.ID] {
-			planCtx.PendingActions = append(planCtx.PendingActions, action)
-			changed = true
-		}
-	}
-	if changed {
-		if err := planCtx.indexFollowing(ctx, graph, taskID, actions); err != nil {
-			e.logger.Warn().Err(err).Msg("重读动作的线索跟进失败，沿用开轮时的记录")
-		}
-	}
-	return changed
 }
 
 // indexFollowing 由图上的边记下哪些动作认领了线索（pursues 边）。
@@ -941,24 +902,21 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 // 协议原文随 Round.Raw 折叠可查——叙述只在此处发生一次，前端不做协议解释。
 func planningNarrative(r PlanningResponse) string {
 	var closures []string
-	covered := 0
 	for _, d := range r.Leads {
-		switch d.Decision {
-		case "cover":
-			covered++
-		case "close":
-			line := "关闭的线索"
-			if label := closureLabel(explorationgraph.LeadClosureKind(d.Kind)); label != "" {
-				line += "（" + label + "）"
-			}
-			closures = append(closures, line+"："+d.Reason)
+		if d.Decision != "close" {
+			continue
 		}
+		line := "关闭的线索"
+		if label := closureLabel(explorationgraph.LeadClosureKind(d.Kind)); label != "" {
+			line += "（" + label + "）"
+		}
+		closures = append(closures, line+"："+d.Reason)
 	}
 
 	var lines []string
 	if r.ShouldContinue {
 		// 留待的线索图上没有变化，不写；只留待与没有处置是同一种局面。
-		if len(r.Actions) > 0 || covered+len(closures) == 0 {
+		if len(r.Actions) > 0 || len(closures) == 0 {
 			line := fmt.Sprintf("继续执行，本轮派发 %d 个动作：", len(r.Actions))
 			for i, a := range r.Actions {
 				line += fmt.Sprintf("\n%d. %s", i+1, a.Instruction)
@@ -966,9 +924,6 @@ func planningNarrative(r PlanningResponse) string {
 			lines = append(lines, line)
 		}
 		lines = append(lines, closures...)
-		if covered > 0 {
-			lines = append(lines, fmt.Sprintf("由在办动作覆盖的线索：%d 条", covered))
-		}
 	} else {
 		lines = append(lines, "任务收敛，不再派发动作。")
 	}
