@@ -1,6 +1,6 @@
 /**
  * 探索图工具栏：任务选择 + 刷新 + kind 计数 chips（点击即筛选，一物三用：
- * 计数即统计、色点即图例、点击即过滤）+ 状态筛选 + 总量。
+ * 计数即统计、色点即图例、点击即过滤）+ 状态筛选（只列这张图里有的状态）+ 总量。
  */
 
 import type { ReactNode } from 'react'
@@ -10,7 +10,7 @@ import { listTasks } from '@/api/tasks'
 import { EntityPicker, type PickerResult } from '@/components/ui/EntityPicker'
 import { shortDateTime } from '@/lib/format'
 import { taskStatusMeta } from '@/lib/taskStatus'
-import { KIND_ORDER, KIND_PROFILES, STATE_META } from './kindTheme'
+import { KIND_ORDER, KIND_PROFILES, stateOptions } from './kindTheme'
 import type { GraphStats } from './layout'
 import { Select } from '@/components/ui/Select'
 import { FilterBar } from '@/components/FilterBar'
@@ -142,9 +142,9 @@ export function Toolbar({
             aria-label="按状态筛选节点"
           >
             <option value="all">全部状态</option>
-            {Object.entries(STATE_META).map(([value, meta]) => (
-              <option key={value} value={value}>
-                {meta.label}
+            {stateOptions(stats.byState, filterState).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}（{option.count}）
               </option>
             ))}
           </Select>

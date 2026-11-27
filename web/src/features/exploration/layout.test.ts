@@ -81,6 +81,7 @@ describe('layout（LR 布局 + 边关系 + 来路高亮）', () => {
       total: 5,
       edgeCount: 5,
       byKind: { objective: 1, action: 2, observation: 1, result: 1 },
+      byState: { running: 1, open: 1 },
     })
     expect(nodes).toHaveLength(5)
     // 节点声明显式尺寸：MiniMap 渲染的前提，也是 dagre 布局的尺寸假设
@@ -234,5 +235,6 @@ describe('执行中', () => {
     const { edges, stats } = buildFlowGraph(done, 'all', 'all', new Map())
     expect(edges.some((e) => e.animated)).toBe(false)
     expect(stats.edgeCount).toBe(5)
+    expect(stats.byState).toEqual({ open: 1, completed: 1 })
   })
 })

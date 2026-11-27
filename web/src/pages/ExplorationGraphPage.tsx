@@ -18,7 +18,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { LoadingState } from '@/components/ui/LoadingState'
 
 
-const EMPTY_STATS: GraphStats = { total: 0, edgeCount: 0, byKind: {} }
+const EMPTY_STATS: GraphStats = { total: 0, edgeCount: 0, byKind: {}, byState: {} }
 
 /**
  * ExplorationGraphPage - 探索图可视化页面（薄组装层）。

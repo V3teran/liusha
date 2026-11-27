@@ -60,6 +60,22 @@ export function stateMeta(state?: string): StateMeta | null {
   return STATE_META[state] ?? { label: state, dotClass: 'bg-status-neutral' }
 }
 
+export interface StateOption {
+  value: string
+  label: string
+  count: number
+}
+
+/**
+ * 状态筛选的选项：只列这张图里实际有的状态，按生命周期的先后，带上节点数——图上没有的状态
+ * 不占位。当前选中的状态即使图上已经没有也留着，否则下拉框显示的与生效的筛选对不上。
+ */
+export function stateOptions(byState: Record<string, number>, current: string): StateOption[] {
+  return Object.keys(STATE_META)
+    .filter((value) => (byState[value] ?? 0) > 0 || value === current)
+    .map((value) => ({ value, label: STATE_META[value].label, count: byState[value] ?? 0 }))
+}
+
 /* ========== 优先级 / 验证状态 / 复杂度 / 观察分类 ========== */
 
 /** 假设观察的验证状态（事实观察与结果没有验证状态） */

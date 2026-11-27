@@ -41,6 +41,8 @@ export interface GraphStats {
   /** 画出来的连线数（= 全部边） */
   edgeCount: number
   byKind: Record<string, number>
+  /** 各状态的节点数（全量）：状态筛选只列这张图里实际有的状态 */
+  byState: Record<string, number>
 }
 
 /** 图上的三种关系（库里的 rel）。 */
@@ -124,10 +126,12 @@ export function buildFlowGraph(
   // 统计始终基于全量数据（筛选只影响画布可见性）
   const stateById = new Map(graph.nodes.map((n) => [n.id, n.state ?? '']))
   const byKind: Record<string, number> = {}
+  const byState: Record<string, number> = {}
   for (const n of graph.nodes) {
     byKind[n.kind] = (byKind[n.kind] ?? 0) + 1
+    if (n.state) byState[n.state] = (byState[n.state] ?? 0) + 1
   }
-  const stats: GraphStats = { total: graph.nodes.length, edgeCount: graph.edges.length, byKind }
+  const stats: GraphStats = { total: graph.nodes.length, edgeCount: graph.edges.length, byKind, byState }
 
   const visible = new Set(
     graph.nodes
