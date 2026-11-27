@@ -5,9 +5,12 @@
  * kind 编码三层：全卡淡染底（远距离的面积色，打开即全图时的主识别通道）
  * → accent 图标（中距离）→ 中文标签（近处的精确语义）。
  * 文字一律中性 token：小号彩字在任何主题都难保 4.5:1。
+ *
+ * 点选节点后的三个状态由上层写进包装类（选中 / 来路上 / 无关），样式在 exploration.css；
+ * 那里用到的类别色相经 CSS 变量 --exp-accent 取自这里。
  */
 
-import { memo } from 'react'
+import { memo, type CSSProperties } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { cn } from '@/lib/utils'
 import { kindProfile, nodeChips, nodeTitle } from '../kindTheme'
@@ -24,11 +27,16 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
     <div
       className={cn(
         'exp-card group relative flex h-26 w-[264px] flex-col overflow-hidden rounded-xl border border-border',
-        'pl-3 shadow-xs transition-[border-color,box-shadow] duration-150',
+        'pl-3 shadow-xs transition-[background-color,border-color,box-shadow] duration-150',
         'hover:border-border-strong hover:shadow-md',
         node.state === 'running' && 'exp-card-running',
       )}
-      style={{ background: `color-mix(in srgb, ${profile.accent} 10%, var(--surface))` }}
+      style={
+        {
+          background: `color-mix(in srgb, ${profile.accent} 10%, var(--surface))`,
+          '--exp-accent': profile.accent,
+        } as CSSProperties
+      }
     >
       <div className="flex items-center gap-1.5 pr-3 pt-2">
         <Icon className="h-3.5 w-3.5 flex-shrink-0" style={{ color: profile.accent }} />
