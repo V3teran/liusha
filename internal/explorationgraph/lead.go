@@ -14,8 +14,8 @@ import (
 // 结局也清楚；方向（派生目标）只作分组，不当这一级用。
 //
 // 线索之后怎么走，由图上的事实决定，都不写在标志本身上：
-//   - 跟进：为它排出的动作经 pursues 边认领它；在办的动作经 attaches 边挂到它上（见
-//     PlanRevision）。两种边都由这条线索的归属方（规划层）写入，只追加；
+//   - 跟进：为它排出的动作经 pursues 边认领它；在办的动作经 covers 边覆盖它（见
+//     PlanRevision）。两种边都由规划层写入，只追加；
 //   - 关闭：规划层的决定批注在它身上（见 metaLeadClosed），或由跟进的结局推导（见
 //     deriveLeads）。
 //
@@ -54,8 +54,7 @@ const vetoLimit = 2
 type Lead struct {
 	Node // 线索本身：一条标了 opens_deeper 的事实观察
 
-	ProducerID  string // 产出它的动作（generates 边；查不到为空）
-	DirectionID string // 所属方向：规划者显式改写过归属时取改写后的，否则取产出它的动作的方向；都没有为空
+	ProducerID string // 产出它的动作（generates 边；查不到为空）
 
 	// InFlight：有在办（待执行或执行中）的动作在跟进它——结局还不知道，它会推进这条线索。
 	InFlight bool
@@ -166,7 +165,7 @@ func (s *Store) ClosedLeads(ctx context.Context, taskID string) ([]Lead, error) 
 }
 
 // PursuedLeads 返回某个动作经 pursues 边认领的线索——指令为它们而写，执行者据它知道
-// 自己接手的是哪条线索，沿它推进到结论。晚挂上来的 attaches 边不在其列：它只记账，
+// 自己接手的是哪条线索，沿它推进到结论。晚来的 covers 边不在其列：它只记账，
 // 不改在途动作的范围。
 func (s *Store) PursuedLeads(ctx context.Context, taskID, actionID string) ([]Node, error) {
 	edges, err := s.graphStore.ListEdges(ctx, core.GraphEdgeQuery{
@@ -214,11 +213,9 @@ func deriveLeads(observations, actions []Node, edges []Edge) []Lead {
 	}
 
 	var (
-		producer        = map[string]string{}   // 观察ID → 产出它的动作
-		produced        = map[string][]string{} // 动作ID → 它产出的观察
-		actionDirection = map[string]string{}   // 动作ID → 它推进的方向
-		leadDirection   = map[string]string{}   // 线索ID → 显式改写后的方向
-		pursuits        = map[string][]Node{}   // 线索ID → 跟进它的动作
+		producer = map[string]string{}   // 观察ID → 产出它的动作
+		produced = map[string][]string{} // 动作ID → 它产出的观察
+		pursuits = map[string][]Node{}   // 线索ID → 跟进它的动作（pursues / covers）
 	)
 	for _, e := range edges {
 		switch e.Rel {
@@ -229,15 +226,9 @@ func deriveLeads(observations, actions []Node, edges []Edge) []Lead {
 					producer[e.DstID] = e.SrcID
 				}
 			}
-		case RelPursues, RelAttaches:
+		case RelPursues, RelCovers:
 			if a, ok := actionByID[e.SrcID]; ok && flagged[e.DstID] {
 				pursuits[e.DstID] = append(pursuits[e.DstID], *a)
-			}
-		case RelServes:
-			if flagged[e.SrcID] {
-				leadDirection[e.SrcID] = e.DstID
-			} else {
-				actionDirection[e.SrcID] = e.DstID
 			}
 		}
 	}
@@ -257,10 +248,6 @@ func deriveLeads(observations, actions []Node, edges []Edge) []Lead {
 	for i := range leads {
 		lead := &leads[i]
 		lead.ProducerID = producer[lead.ID]
-		lead.DirectionID = leadDirection[lead.ID]
-		if lead.DirectionID == "" {
-			lead.DirectionID = actionDirection[lead.ProducerID]
-		}
 		if closure, ok := lead.LeadClosure(); ok {
 			lead.Closure = &closure
 			continue

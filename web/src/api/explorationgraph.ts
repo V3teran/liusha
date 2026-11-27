@@ -34,7 +34,7 @@ export interface GraphNode {
 export interface GraphEdge {
   src_id: string
   dst_id: string
-  /** generates 推导链 / triggers 发现滋生 / supersedes 目标吸收（新 → 旧）/ serves 推进方向 / pursues 跟进线索 / attaches 挂接到线索；后端约束小写，容忍历史大写数据 */
+  /** generates 推导链 / triggers 发现滋生 / supersedes 目标吸收（新 → 旧）/ pursues 跟进线索 / covers 在办动作覆盖线索；后端约束小写，容忍历史大写数据 */
   rel: string
   created_at: string
 }

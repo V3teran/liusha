@@ -104,36 +104,29 @@ describe('边的画法', () => {
       generates: '推导',
       triggers: '滋生',
       supersedes: '吸收',
-      serves: '推进',
       pursues: '跟进',
-      attaches: '挂接',
+      covers: '覆盖',
     })
   })
 
-  it('推进、跟进、挂接各按自己的线型画；跟进与挂接同色，靠线型分主次', () => {
+  it('跟进、覆盖各按自己的线型画；两者同色，靠线型分主次', () => {
     const graph: ExplorationGraph = {
-      nodes: [
-        ...GRAPH.nodes,
-        node({ id: 'n-dir', kind: 'objective', source_type: 'planner', content: { description: '换一个登录入口' } }),
-        node({ id: 'n-lead', kind: 'observation', content: { statement: '探通了一条路' } }),
-      ],
+      nodes: [...GRAPH.nodes, node({ id: 'n-lead', kind: 'observation', content: { statement: '探通了一条路' } })],
       edges: [
-        { src_id: 'n-act-b', dst_id: 'n-dir', rel: 'serves', created_at: '' },
         { src_id: 'n-act-b', dst_id: 'n-lead', rel: 'pursues', created_at: '' },
-        { src_id: 'n-act-a', dst_id: 'n-lead', rel: 'attaches', created_at: '' },
+        { src_id: 'n-act-a', dst_id: 'n-lead', rel: 'covers', created_at: '' },
       ],
     }
     const { edges } = buildFlowGraph(graph, 'all', 'all', new Map())
     const byRel = (rel: string) => edges.find((e) => e.id.includes(`-${rel}-`))!
-    expect(byRel('serves').style).toMatchObject({ stroke: EDGE_LOOKS.serves.color, strokeDasharray: EDGE_LOOKS.serves.dash })
     expect(byRel('pursues').style).toMatchObject({ stroke: EDGE_LOOKS.pursues.color })
     expect(byRel('pursues').style?.strokeDasharray).toBeUndefined()
-    expect(byRel('attaches').style).toMatchObject({ stroke: EDGE_LOOKS.attaches.color, strokeDasharray: EDGE_LOOKS.attaches.dash })
-    expect(EDGE_LOOKS.attaches.width).toBeLessThan(EDGE_LOOKS.pursues.width)
-    expect(EDGE_LOOKS.attaches.color).not.toBe(EDGE_LOOKS.ownership.color)
+    expect(byRel('covers').style).toMatchObject({ stroke: EDGE_LOOKS.covers.color, strokeDasharray: EDGE_LOOKS.covers.dash })
+    expect(EDGE_LOOKS.covers.width).toBeLessThan(EDGE_LOOKS.pursues.width)
+    expect(EDGE_LOOKS.covers.color).not.toBe(EDGE_LOOKS.ownership.color)
   })
 
-  it('只看方向关系：收缩到滋生、吸收、推进三种边及它们两端的节点；跟进与挂接不入内', () => {
+  it('只看方向关系：收缩到滋生与吸收两种边及它们两端的节点；跟进不入内', () => {
     const graph: ExplorationGraph = {
       ...GRAPH,
       nodes: [
@@ -144,18 +137,17 @@ describe('边的画法', () => {
       edges: [
         ...GRAPH.edges,
         { src_id: 'n-res', dst_id: 'n-dir', rel: 'triggers', created_at: '' },
-        { src_id: 'n-act-b', dst_id: 'n-dir', rel: 'serves', created_at: '' },
         { src_id: 'n-act-b', dst_id: 'n-lead', rel: 'pursues', created_at: '' },
       ],
     }
     const all = buildFlowGraph(graph, 'all', 'all', new Map())
     expect(all.nodes).toHaveLength(7)
-    expect(all.stats.directionEdgeCount).toBe(3)
+    expect(all.stats.directionEdgeCount).toBe(2)
 
     const { nodes, edges } = buildFlowGraph(graph, 'all', 'all', new Map(), true)
-    // 剩下结果、两个目标与为方向出力的那个动作；只连着推导与归属的动作、观测，以及只被跟进的线索不在内
-    expect(nodes.map((n) => n.id).sort()).toEqual(['n-act-b', 'n-dir', 'n-obj', 'n-res'])
-    expect(edges.map((e) => e.id)).toEqual(['n-res-n-obj-triggers-0', 'n-res-n-dir-triggers-1', 'n-act-b-n-dir-serves-2'])
+    // 只剩结果与两个目标；动作、观测（只连着推导、归属与跟进）不在内
+    expect(nodes.map((n) => n.id).sort()).toEqual(['n-dir', 'n-obj', 'n-res'])
+    expect(edges.map((e) => e.id)).toEqual(['n-res-n-obj-triggers-0', 'n-res-n-dir-triggers-1'])
     // 统计仍是全量：筛选只影响画布可见性
     expect(buildFlowGraph(graph, 'all', 'all', new Map(), true).stats.total).toBe(7)
   })

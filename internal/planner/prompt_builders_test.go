@@ -176,23 +176,15 @@ func TestBuildPendingHypothesesSection(t *testing.T) {
 	}
 }
 
-// 进行中的工作每条带短号（线索可以挂到它上）与它推进的方向；不推进任何在列方向的不标。
-func TestBuildPendingActionsSection_MarksDirection(t *testing.T) {
+// 进行中的工作每条带短号（线索可以声明由它覆盖）。
+func TestBuildPendingActionsSection_MarksHandles(t *testing.T) {
 	open := explorationgraph.StateOpen
-	ctx := &PlanningContext{
-		Directions:      []Direction{{ID: "d1", Goal: "摸清配置面"}},
-		PendingActions:  []explorationgraph.Node{{ID: "a1", State: &open}, {ID: "a2", State: &open}},
-		actionDirection: map[string]string{"a1": "d1", "a2": "d-settled"},
-	}
+	ctx := &PlanningContext{PendingActions: []explorationgraph.Node{{ID: "a1", State: &open}, {ID: "a2", State: &open}}}
 	got := buildPendingActionsSection(ctx)
-	if !strings.Contains(got, "[A1] [进行中] [推进 D1] [ID: a1]") {
-		t.Fatalf("推进方向的动作应标出方向的短号:\n%s", got)
-	}
-	if !strings.Contains(got, "[A2] [进行中] [ID: a2]") {
-		t.Fatalf("方向已收敛或没有方向的动作不标:\n%s", got)
-	}
-	if strings.Contains(got, "d-settled") {
-		t.Fatalf("不在进行中的清单里的方向不出现:\n%s", got)
+	for _, want := range []string{"[A1] [进行中] [ID: a1]", "[A2] [进行中] [ID: a2]"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("在办动作应带短号，缺 %q:\n%s", want, got)
+		}
 	}
 	if buildPendingActionsSection(&PlanningContext{}) != "" {
 		t.Fatal("没有在办动作时不应渲染")
@@ -224,14 +216,13 @@ func TestBuildOpenLeadsSection(t *testing.T) {
 	}
 	now := time.Unix(1700000100, 0)
 	ctx := &PlanningContext{
-		Directions:     []Direction{{ID: "d1", Goal: "摸清配置面"}},
 		PendingActions: []explorationgraph.Node{{ID: "producer"}},
 		Now:            now,
 		OpenLeads: []OpenLead{
-			{ID: "o1", Statement: "管理入口未鉴权", DirectionID: "d1", ProducerID: "producer", CreatedAt: now.Add(-12 * time.Minute)},
+			{ID: "o1", Statement: "管理入口未鉴权", ProducerID: "producer", CreatedAt: now.Add(-12 * time.Minute)},
 			{ID: "o2", Statement: "参数可注入", Truncated: 2, TruncationStreak: 2, Vetoes: 1, LastVetoReason: "重复",
 				CreatedAt: now.Add(-90 * time.Minute)},
-			{ID: "o3", Statement: "管理入口未鉴权", DirectionID: "d1", ProducerID: "producer", CreatedAt: now.Add(-12 * time.Minute)},
+			{ID: "o3", Statement: "管理入口未鉴权", ProducerID: "producer", CreatedAt: now.Add(-12 * time.Minute)},
 			{ID: "o4", Statement: "另一条路", Progressed: 1, Faults: 1, CreatedAt: now.Add(-30 * time.Second)},
 		},
 	}
@@ -240,7 +231,7 @@ func TestBuildOpenLeadsSection(t *testing.T) {
 		t.Fatalf("应有小节标题，得:\n%s", got)
 	}
 	for _, want := range []string{
-		"- [L1、L3] 管理入口未鉴权（由在办的 A1 产出；属于 D1；已挂 12 分钟）\n",
+		"- [L1、L3] 管理入口未鉴权（由在办的 A1 产出；已挂 12 分钟）\n",
 		"- [L2] 参数可注入（已挂 1 小时 30 分钟；没做完 2 次；连续没做完 2 次；被否决 1 次：重复）\n",
 		"- [L4] 另一条路（已挂不到 1 分钟；执行故障 1 次；跟进过 1 次、推进了但没到结论）\n",
 	} {
@@ -255,7 +246,7 @@ func TestBuildOpenLeadsSection(t *testing.T) {
 	// 同一行上的线索处境不同：逐条标出短号。
 	ctx.OpenLeads[2].ProducerID = ""
 	got = buildOpenLeadsSection(ctx)
-	if !strings.Contains(got, "- [L1、L3] 管理入口未鉴权（L1：由在办的 A1 产出；属于 D1；已挂 12 分钟；L3：属于 D1；已挂 12 分钟）\n") {
+	if !strings.Contains(got, "- [L1、L3] 管理入口未鉴权（L1：由在办的 A1 产出；已挂 12 分钟；L3：已挂 12 分钟）\n") {
 		t.Fatalf("处境不同时逐条标出，得:\n%s", got)
 	}
 }
@@ -291,11 +282,14 @@ func TestBuildClosedLeadsSection(t *testing.T) {
 	}
 }
 
-// 进行中的方向带短号列出，动作据它声明归属。
-func TestBuildObjectiveSection_listsDirectionsWithHandles(t *testing.T) {
-	got := buildObjectiveSection("摸清目标", []Direction{{ID: "d1", Goal: "摸清配置面"}, {ID: "d2", Goal: "验证注入"}})
-	if !strings.Contains(got, "## 任务目标\n摸清目标\n\n### 进行中的方向\n- [D1] 摸清配置面\n- [D2] 验证注入\n") {
-		t.Fatalf("方向带短号逐条列出，得:\n%s", got)
+// 进行中的派生目标逐条列出，供规划者分组与取舍。
+func TestBuildObjectiveSection_listsLiveObjectives(t *testing.T) {
+	got := buildObjectiveSection("摸清目标", []explorationgraph.Node{
+		{ID: "d1", Kind: core.KindObjective, Content: []byte(`{"description":"摸清配置面"}`)},
+		{ID: "d2", Kind: core.KindObjective, Content: []byte(`{"description":"验证注入"}`)},
+	})
+	if !strings.Contains(got, "## 任务目标\n摸清目标\n\n### 进行中的方向\n- 摸清配置面\n- 验证注入\n") {
+		t.Fatalf("进行中的派生目标逐条列出，得:\n%s", got)
 	}
 	if got := buildObjectiveSection("摸清目标", nil); strings.Contains(got, "进行中的方向") {
 		t.Fatalf("没有进行中的方向时不出现该小节，得:\n%s", got)

@@ -185,9 +185,9 @@ func TestGatherContext_Leads(t *testing.T) {
 	}
 }
 
-// 线索的处境与归属都从图上带进规划视野：所属方向沿来源链推导、产出它的动作是否在办、几次
-// 跟进而没做完；进行中的方向带短号列出，在办动作记下它推进的方向与是否在跟进线索。
-func TestGatherContext_LeadStandingAndAttribution(t *testing.T) {
+// 线索的处境从图上带进规划视野：产出它的动作、几次跟进而没做完；进行中的派生目标列出；
+// 哪些动作在跟进线索由 pursues 边记下。
+func TestGatherContext_LeadStanding(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
 	ctx := context.Background()
 	chained := planFactLead("chained", time.Second)
@@ -202,12 +202,9 @@ func TestGatherContext_LeadStandingAndAttribution(t *testing.T) {
 		require.NoError(t, err)
 	}
 	running, exhausted := explorationgraph.StateRunning, explorationgraph.StateExhausted
-	// producer 在办、推进 d1，产出了线索 chained。
+	// producer 在办，产出了线索 chained。
 	require.NoError(t, store.CreateNodeWithEdges(ctx, revisionNode("producer", core.KindAction, explorationgraph.SourcePlanner, &running, 3*time.Second),
-		[]explorationgraph.Edge{
-			{TaskID: revisionTask, SrcID: "producer", Rel: explorationgraph.RelGenerates, DstID: "chained"},
-			{TaskID: revisionTask, SrcID: "producer", Rel: explorationgraph.RelServes, DstID: "d1"},
-		}))
+		[]explorationgraph.Edge{{TaskID: revisionTask, SrcID: "producer", Rel: explorationgraph.RelGenerates, DstID: "chained"}}))
 	// cutter 跟进线索 cut，迭代预算耗尽而没做完。
 	require.NoError(t, store.CreateNodeWithEdges(ctx, revisionNode("cutter", core.KindAction, explorationgraph.SourcePlanner, &exhausted, 4*time.Second),
 		[]explorationgraph.Edge{{TaskID: revisionTask, SrcID: "cutter", Rel: explorationgraph.RelPursues, DstID: "cut"}}))
@@ -215,19 +212,17 @@ func TestGatherContext_LeadStandingAndAttribution(t *testing.T) {
 	planCtx, err := (&Engine{}).gatherContext(ctx, store, revisionTask)
 	require.NoError(t, err)
 
-	assert.Equal(t, []Direction{{ID: "d1", Goal: "d1"}}, planCtx.Directions, "只列进行中的方向")
+	require.Len(t, planCtx.Directions, 1, "只列进行中的派生目标")
+	assert.Equal(t, "d1", planCtx.Directions[0].ID)
 	require.Len(t, planCtx.OpenLeads, 2)
 	byID := map[string]OpenLead{}
 	for _, lead := range planCtx.OpenLeads {
 		byID[lead.ID] = lead
 	}
-	assert.Equal(t, "d1", byID["chained"].DirectionID, "线索的方向取产出它的动作的方向")
 	assert.Equal(t, "producer", byID["chained"].ProducerID)
 	assert.Equal(t, 1, byID["cut"].Truncated, "没做完的次数带进规划视野")
 	assert.Equal(t, 1, byID["cut"].TruncationStreak)
-	assert.Empty(t, byID["cut"].DirectionID)
 
-	assert.Equal(t, "d1", planCtx.actionDirection["producer"])
 	assert.False(t, planCtx.claiming["producer"], "产出线索不等于跟进线索")
 	assert.True(t, planCtx.claiming["cutter"])
 }

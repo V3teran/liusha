@@ -28,7 +28,7 @@ type PlanRevision struct {
 	AddedObjectives     []ObjectiveDraft      // 新提出的派生目标
 	CompletedObjectives []ObjectiveCompletion // 宣告达成的派生目标
 	AddedActions        []ActionDraft         // 常规规划新增的动作
-	Pursuits            []Pursuit             // 线索的跟进：新动作认领，或在办动作挂接
+	Pursuits            []Pursuit             // 线索的跟进：新动作认领，或在办动作覆盖
 	ClosedLeads         []LeadClosing         // 规划层关闭的线索
 }
 
@@ -49,17 +49,12 @@ type ObjectiveCompletion struct {
 type ActionDraft struct {
 	Node        Node     // 动作节点：kind=action、state=open、source=planner、属本任务
 	TriggeredBy []string // 催生它的 result（落 triggers 边）
-	// Serves 是本动作推进的方向（进行中的派生目标 ID，可空），落一条 serves 边
-	// （action → 方向）。动作只有一个归属：它认领线索（见 Pursuit）时挂在线索下，Serves
-	// 改为写在线索上——规划者据此改写这条线索的方向归属，一条线索只改一次。
-	// 引用的不是可修订的派生目标时剔除该引用（不拖垮修订）。
-	Serves string
 }
 
 // Pursuit 是一条跟进关系：动作的结局结算这条线索。动作为跟进它而排出（同在本次修订里
-// 新增）落 pursues 边，执行者据它知道自己接手的是哪条线索；图上在办的动作落 attaches
-// 边——线索出现得比动作晚，把在办动作挂到它上只记账，不改这个动作的范围。只能挂到
-// 在办（open / running）的动作上：想说明之前已完成的动作已经覆盖了它，走关闭。
+// 新增）落 pursues 边，执行者据它知道自己接手的是哪条线索；图上在办的动作落 covers
+// 边——线索出现得比动作晚，在办动作覆盖它只记账，不改这个动作的范围。只能由在办
+// （open / running）的动作覆盖：想说明之前已完成的动作已经覆盖了它，走关闭。
 type Pursuit struct {
 	ActionID string
 	LeadID   string
@@ -81,7 +76,6 @@ const (
 	FieldEvidence    RevisionField = "evidence_ids"
 	FieldTriggeredBy RevisionField = "triggered_by"
 	FieldSupersedes  RevisionField = "supersedes"
-	FieldServes      RevisionField = "serves"
 	FieldPursues     RevisionField = "pursues"
 	FieldLeads       RevisionField = "leads"
 )
@@ -98,7 +92,7 @@ type RejectedReference struct {
 type RevisionReport struct {
 	AddedObjectives      []string            // 新建的派生目标
 	AddedActions         []string            // 新建的动作
-	AttachedLeads        []string            // 挂到在办动作上的线索
+	CoveredLeads         []string            // 被在办动作覆盖的线索
 	ClosedLeads          []string            // 被规划层关闭的线索
 	CompletedObjectives  []string            // 转 completed 的派生目标
 	SupersededObjectives []string            // 转 superseded 的派生目标
@@ -165,7 +159,6 @@ func (s *Store) RevisePlan(ctx context.Context, taskID string, rev PlanRevision)
 	for _, pursuit := range rev.Pursuits {
 		b.pursue(pursuit)
 	}
-	b.settleDirections(rev.AddedActions)
 
 	if err := s.graphStore.ApplyChangeSet(ctx, b.changes); err != nil {
 		if errors.Is(err, core.ErrVersionMismatch) {
@@ -176,16 +169,14 @@ func (s *Store) RevisePlan(ctx context.Context, taskID string, rev PlanRevision)
 	return b.report, nil
 }
 
-// leadSnapshot 是修订开始时与线索有关的图快照：待深挖的线索、可被挂接的在办动作，
-// 以及已经改写过方向归属的线索。
+// leadSnapshot 是修订开始时与线索有关的图快照：待深挖的线索、可覆盖它们的在办动作。
 type leadSnapshot struct {
-	leads      map[string]Node // 待深挖的线索（供 pursues 与 leads 校验）
-	inFlight   map[string]Node // 在办（open / running）的动作（供挂接校验）
-	redirected map[string]bool // 已改写过方向归属的线索
+	leads    map[string]Node // 待深挖的线索（供 pursues 与 leads 校验）
+	inFlight map[string]Node // 在办（open / running）的动作（供覆盖校验）
 }
 
 // readLeadSnapshot 读取线索快照。本次修订不碰线索时跳过加载——纯结果分析修订与不碰
-// 线索的常规规划不为此多查；在办动作与既有归属只在修订确实用到时读。
+// 线索的常规规划不为此多查；在办动作只在修订确实要覆盖时读。
 func (s *Store) readLeadSnapshot(ctx context.Context, taskID string, rev PlanRevision) (leadSnapshot, error) {
 	snap := leadSnapshot{}
 	if len(rev.ClosedLeads) == 0 && len(rev.Pursuits) == 0 {
@@ -199,18 +190,14 @@ func (s *Store) readLeadSnapshot(ctx context.Context, taskID string, rev PlanRev
 	for _, lead := range open {
 		snap.leads[lead.ID] = lead.Node
 	}
-	newActions := make(map[string]string, len(rev.AddedActions))
+	newActions := make(map[string]bool, len(rev.AddedActions))
 	for _, d := range rev.AddedActions {
-		newActions[d.Node.ID] = d.Serves
+		newActions[d.Node.ID] = true
 	}
-	needInFlight, needRedirected := false, false
+	needInFlight := false
 	for _, p := range rev.Pursuits {
-		serves, isNew := newActions[p.ActionID]
-		if !isNew {
+		if !newActions[p.ActionID] {
 			needInFlight = true
-		}
-		if isNew && serves != "" {
-			needRedirected = true
 		}
 	}
 	if needInFlight {
@@ -222,18 +209,6 @@ func (s *Store) readLeadSnapshot(ctx context.Context, taskID string, rev PlanRev
 		for _, a := range actions {
 			if a.State != nil && (*a.State == StateOpen || *a.State == StateRunning) {
 				snap.inFlight[a.ID] = a
-			}
-		}
-	}
-	if needRedirected {
-		edges, err := s.graphStore.ListEdges(ctx, core.GraphEdgeQuery{TaskID: taskID, Relation: string(RelServes)})
-		if err != nil {
-			return snap, fmt.Errorf("读取 serves 边: %w", err)
-		}
-		snap.redirected = make(map[string]bool)
-		for _, e := range edges {
-			if _, isLead := snap.leads[e.From]; isLead {
-				snap.redirected[e.From] = true
 			}
 		}
 	}
@@ -249,15 +224,13 @@ type revisionBuilder struct {
 	results    map[string]Node
 	leads      map[string]Node // 修订开始时待深挖的线索
 	inFlight   map[string]Node // 修订开始时在办的动作
-	redirected map[string]bool // 已改写过方向归属的线索
 	now        time.Time
 
-	newActions map[string]string // 本次修订的新动作 → 它声明的方向（可空）
-	completed  map[string]bool   // 本次宣告达成的目标
-	superseded map[string]bool   // 本次被吸收的目标
-	closed     map[string]bool   // 本次关闭的线索
-	pursued    map[string]bool   // 本次修订里已被跟进的线索
-	following  map[string]bool   // 本次修订里认领了线索的新动作
+	newActions map[string]bool // 本次修订新增的动作（它们认领的线索落 pursues 边）
+	completed  map[string]bool // 本次宣告达成的目标
+	superseded map[string]bool // 本次被吸收的目标
+	closed     map[string]bool // 本次关闭的线索
+	pursued    map[string]bool // 本次修订里已被跟进的线索
 
 	changes core.GraphChangeSet
 	report  RevisionReport
@@ -270,14 +243,13 @@ func newRevisionBuilder(s *Store, taskID string, objectives []Node, results map[
 	}
 	return &revisionBuilder{
 		store: s, taskID: taskID, objectives: objectives, objective: byID, results: results,
-		leads: snap.leads, inFlight: snap.inFlight, redirected: snap.redirected,
+		leads: snap.leads, inFlight: snap.inFlight,
 		now:        time.Now(),
-		newActions: make(map[string]string),
+		newActions: map[string]bool{},
 		completed:  map[string]bool{},
 		superseded: map[string]bool{},
 		closed:     map[string]bool{},
 		pursued:    map[string]bool{},
-		following:  map[string]bool{},
 	}
 }
 
@@ -359,8 +331,7 @@ func (b *revisionBuilder) absorb(oldID string) bool {
 	return true
 }
 
-// addActions 新动作：归属根目标 + 溯源边。动作声明的方向先记下，认领了线索的动作由
-// pursue 把它写在线索上，其余的由 settleDirections 写在动作上。
+// addActions 新动作：归属根目标 + 溯源边。
 func (b *revisionBuilder) addActions(drafts []ActionDraft) error {
 	if len(drafts) == 0 {
 		return nil
@@ -376,33 +347,14 @@ func (b *revisionBuilder) addActions(drafts []ActionDraft) error {
 		for _, resultID := range b.validResults(FieldTriggeredBy, d.TriggeredBy) {
 			b.edge(resultID, RelTriggers, d.Node.ID)
 		}
-		b.newActions[d.Node.ID] = d.Serves
+		b.newActions[d.Node.ID] = true
 	}
 	return nil
 }
 
-// settleDirections 给没有认领线索的新动作落方向归属（serves 边，action → 方向）。
-func (b *revisionBuilder) settleDirections(drafts []ActionDraft) {
-	for _, d := range drafts {
-		if d.Serves != "" && !b.following[d.Node.ID] {
-			b.serve(d.Node.ID, d.Serves)
-		}
-	}
-}
-
-// serve 为节点落一条 serves 边（node → 方向）。引用的不是可修订的派生目标（幻觉 ID、
-// 已收敛的方向、根目标）即剔除并如实报告，不拖垮修订——与 result 引用的剔除同口径。
-func (b *revisionBuilder) serve(nodeID, directionID string) {
-	if ok, reason := b.revisable(directionID); !ok {
-		b.reject(FieldServes, directionID, reason)
-		return
-	}
-	b.edge(nodeID, RelServes, directionID)
-}
-
-// pursue 落一条跟进关系。新动作认领线索落 pursues 边；图上在办的动作落 attaches 边
+// pursue 落一条跟进关系。新动作认领线索落 pursues 边；图上在办的动作落 covers 边
 // （只记账）。引用失效（不是本任务待深挖的线索、同一修订里已被关闭或已有动作跟进、
-// 挂接的对象不是在办动作）即剔除并报告，不拖垮修订。
+// 覆盖它的不是在办动作）即剔除并报告，不拖垮修订。
 func (b *revisionBuilder) pursue(p Pursuit) {
 	switch {
 	case b.closed[p.LeadID]:
@@ -416,39 +368,17 @@ func (b *revisionBuilder) pursue(p Pursuit) {
 		b.reject(FieldPursues, p.LeadID, "不是本任务待深挖的线索")
 		return
 	}
-	serves, isNew := b.newActions[p.ActionID]
-	if isNew {
-		b.following[p.ActionID] = true
+	if b.newActions[p.ActionID] {
 		b.edge(p.ActionID, RelPursues, p.LeadID)
 	} else {
 		if _, ok := b.inFlight[p.ActionID]; !ok {
-			b.reject(FieldPursues, p.ActionID, "只能挂到本任务在办的动作上")
+			b.reject(FieldPursues, p.ActionID, "只能由本任务在办的动作覆盖")
 			return
 		}
-		b.edge(p.ActionID, RelAttaches, p.LeadID)
-		b.report.AttachedLeads = append(b.report.AttachedLeads, p.LeadID)
+		b.edge(p.ActionID, RelCovers, p.LeadID)
+		b.report.CoveredLeads = append(b.report.CoveredLeads, p.LeadID)
 	}
 	b.pursued[p.LeadID] = true
-	// 认领线索的动作挂在线索下：它声明的方向是这条线索的方向归属。
-	if serves != "" {
-		b.redirect(p.LeadID, serves)
-	}
-}
-
-// redirect 把一条线索的方向归属改写到另一个方向（serves 边，线索 → 方向）。一条线索
-// 只改一次：此前改写过（图上已有，或同一修订里刚改过）即剔除并报告——归属来回改，
-// 按方向分组就失去了意义。
-func (b *revisionBuilder) redirect(leadID, directionID string) {
-	if b.redirected[leadID] {
-		b.reject(FieldServes, leadID, "这条线索的方向归属已改过")
-		return
-	}
-	if ok, reason := b.revisable(directionID); !ok {
-		b.reject(FieldServes, directionID, reason)
-		return
-	}
-	b.redirected[leadID] = true
-	b.edge(leadID, RelServes, directionID)
 }
 
 // closeLeads 关闭线索：类别与理由批注在线索上，它从此退出待跟进清单。引用的不是修订
