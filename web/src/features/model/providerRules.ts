@@ -1,4 +1,4 @@
-import type { ProviderConfig, ProviderType } from '@/api/types'
+import type { ProviderConfig, ProviderProbeTarget, ProviderType } from '@/api/types'
 
 // provider 配置的纯规则：与后端同名规则一一对应（llmconfig.NormalizeBaseURL /
 // llmconfig.ProviderParams.Validate / framework/llm.OperationURL），前端用于实时预览
@@ -108,8 +108,38 @@ export function blankProvider(): ProviderConfig {
   }
 }
 
-/** 协议的标准鉴权方式（选协议时作为初值，运行诊断可改写）。 */
+/** 协议的标准鉴权方式（选协议时作为初值，测试连接可改写）。 */
 export function defaultAuthScheme(protocol: ProviderType): ProviderConfig['auth_scheme'] {
   return protocol === 'anthropic' ? 'x-api-key' : 'bearer'
 }
 
+
+/**
+ * 实测（测试连接、拉取模型列表）的共同前置：缺了就发不出请求。点击时就地给出原因，
+ * 不禁用按钮静默拦截。
+ */
+export function probeTargetMissing(d: ProviderConfig): string | undefined {
+  if (!d.type) return '请先选择协议'
+  if (!d.base_url.trim() || baseUrlError(d.base_url)) return '请先填写完整的 Base URL'
+  if (!d.api_key && !d.key_present) return '请先填写 API Key'
+  return undefined
+}
+
+/** 表单 → 实测目标（调用方已过 probeTargetMissing：协议必已选）。api_key 留空 = 用已存密钥。 */
+export function probeTarget(d: ProviderConfig): ProviderProbeTarget {
+  return {
+    code: d.code || undefined,
+    type: d.type as ProviderType,
+    base_url: d.base_url,
+    api_key: d.api_key || undefined,
+    auth_scheme: d.auth_scheme,
+  }
+}
+
+/**
+ * 连接标识：协议、归一后的地址与密钥来源。它变了，此前的实测结果（拉到的模型列表、测试
+ * 连接的结论）就不再属于当前连接。鉴权方式不在其中：它只决定协商的先后，连到的还是同一个服务。
+ */
+export function connectionKey(d: ProviderConfig): string {
+  return [d.type, normalizeBaseUrl(d.type, d.base_url), d.code, d.api_key ?? ''].join('\u0000')
+}

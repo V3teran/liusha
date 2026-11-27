@@ -297,7 +297,7 @@ export interface ToolDetail {
 // 只认协议、不认服务：官方、各家兼容端点、中转网关都按所用协议接入。
 export type ProviderType = 'openai_compat' | 'anthropic'
 
-// 鉴权方式：密钥的携带方式，与协议正交（同一协议的不同服务可能只认其一），由连接诊断识别。
+// 鉴权方式：密钥的携带方式，与协议正交（同一协议的不同服务可能只认其一），由测试连接识别。
 export type AuthScheme = 'bearer' | 'x-api-key'
 
 // 输出上限字段（OpenAI 兼容协议）：多数服务认 max_tokens，部分推理模型只认 max_completion_tokens。
@@ -314,8 +314,8 @@ export interface ProviderConfig {
   display_name: string // 显示名称：界面上唯一可读的标识（code 是 UUID）；必填、不区分大小写唯一，可随时改
   key_present: boolean // 是否已设置密钥（加密落库）
   key_last4?: string // 已存密钥末 4 位（脱敏辨识用，非机密）；未设置密钥时为空
-  auth_scheme: AuthScheme // 鉴权方式（运行诊断识别后回填）
-  output_limit_param: OutputLimitParam // 输出上限字段（仅 OpenAI 兼容协议生效；运行诊断识别后回填）
+  auth_scheme: AuthScheme // 鉴权方式（测试连接识别后回填）
+  output_limit_param: OutputLimitParam // 输出上限字段（仅 OpenAI 兼容协议生效；测试连接识别后回填）
   // 数字字段是编辑期草稿：键入中可短暂为 ''（数字框清空态），保存被
   // providerInvalid 拦截，落库/网络载荷永远是 number。
   max_tokens: number | ''
@@ -358,23 +358,30 @@ export const COMPLEXITY_MEDIUM = 'medium'
 export const COMPLEXITY_COMPLEX = 'complex'
 
 /* ============================================================
-   provider 连接诊断（POST /models/providers/diagnose）：实测并协商请求画像，不落库。
+   provider 实测（不落库），两个操作各管一件事：
+     测试连接 POST /models/providers/diagnose：以默认模型发对话请求，协商请求画像；
+     拉取模型列表 POST /models/providers/models：只取可选模型，供选择默认模型。
    密钥来源：api_key 明文优先（新建/更换密钥）；留空则据 code 用后端已存密钥。
    ============================================================ */
 
-// ProviderDiagnoseRequest 是 POST /models/providers/diagnose 的请求体（表单当前值）。
-export interface ProviderDiagnoseRequest {
+// ProviderProbeTarget 是两个实测操作共有的目标（表单当前值）。
+export interface ProviderProbeTarget {
   code?: string // 已存 provider code；api_key 留空时后端据此取已存密钥
   type: ProviderType
   base_url: string
-  default_model?: string // 留空时以模型列表验证端点与鉴权，模型项跳过
   api_key?: string // 前端直填明文（优先于已存密钥）
   auth_scheme?: AuthScheme // 当前记录值，协商时优先尝试
+}
+
+// ProviderDiagnoseRequest 是测试连接的请求体：可用性只能由对话请求证明，模型必填。
+export interface ProviderDiagnoseRequest extends ProviderProbeTarget {
+  default_model: string
   output_limit_param?: OutputLimitParam
 }
 
-// 诊断检查项与状态。后端按依赖顺序返回（端点 → 鉴权 → 模型列表 → 模型 → 工具调用），前端按返回顺序渲染。
-export type DiagnosisStepKey = 'endpoint' | 'auth' | 'models' | 'model' | 'tools' | 'embedding' | 'rerank'
+// 测试连接的检查项与状态。后端按依赖顺序返回（端点 → 鉴权 → 模型 → 工具调用），前端按返回顺序渲染；
+// 检索模型的实测复用同一套状态（向量、重排两项）。
+export type DiagnosisStepKey = 'endpoint' | 'auth' | 'model' | 'tools' | 'embedding' | 'rerank'
 export type DiagnosisStepStatus = 'ok' | 'fail' | 'warn' | 'skip'
 
 export interface DiagnosisStep {
@@ -411,10 +418,10 @@ export interface RetrievalDiagnosis {
   steps: DiagnosisStep[]
 }
 
-// DiagnosisProfile 是实测得到的请求画像（回填表单，保存后运行期按此发请求）。
+// DiagnosisProfile 是测试连接得到的请求画像（回填表单，保存后运行期按此发请求）。
 export interface DiagnosisProfile {
   auth_scheme: AuthScheme
-  output_limit_param?: OutputLimitParam // 未发对话请求时缺省（无从判断）
+  output_limit_param: OutputLimitParam
   supports_tools?: boolean // 未测出结论时缺省
 }
 
@@ -426,16 +433,22 @@ export interface DiagnosisSuggestion {
   reason: string
 }
 
-// Diagnosis 是一次连接诊断的完整结果。
+// Diagnosis 是一次测试连接的完整结果。
 export interface Diagnosis {
   ok: boolean // 对话请求成功（配置可用）
   steps: DiagnosisStep[]
   profile: DiagnosisProfile | null // 打通后的请求画像；未打通为 null
   suggestion?: DiagnosisSuggestion
   base_url: string // 归一后的 Base URL
+}
+
+// ProviderModelList 是一次拉取模型列表的结果。status：ok 取到了列表；warn 端点不提供列表或
+// 返回空列表（可直接填写模型名，不是错误）；fail 拉取失败（鉴权被拒、限流、网络等）。
+export interface ProviderModelList {
   models: string[]
-  models_supported: boolean
-  auto_model?: string // 未填模型时诊断自动选用的模型（列表第一个）；配置可用时回填为默认模型
+  status: Exclude<DiagnosisStepStatus, 'skip'>
+  detail?: string // 列表来自旁路来源，或为何没有列表
+  request: string // 产出该结果的实际请求，如 "GET https://…/models"
 }
 
 /**

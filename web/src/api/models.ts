@@ -13,6 +13,8 @@ import type {
   Diagnosis,
   ProviderConfig,
   ProviderDiagnoseRequest,
+  ProviderModelList,
+  ProviderProbeTarget,
   RetrievalDiagnosis,
   RetrievalModelConfig,
   RoleRouteConfig,
@@ -67,16 +69,23 @@ export async function deleteProvider(code: string): Promise<void> {
   await del(`/models/providers/${encodeURIComponent(code)}`)
 }
 
-// ── 连接诊断 ─────────────────────────────────────────────────────────────
+// ── provider 实测（不落库）──────────────────────────────────────────────
 
 /**
- * 连接诊断：按表单当前值实测端点、鉴权、模型、工具调用与模型列表，协商出请求画像，
- * 并在「换个写法能通」时给出建议。不落库——结果由调用方回填表单，保存时才生效。
- * 上游的任何失败都在结果的检查项里；只有无法发起（已存 provider 不存在、密钥未配置、
- * 请求不合法）才抛错。
+ * 测试连接：以默认模型发对话请求，实测端点、鉴权、模型、工具调用，协商出请求画像，
+ * 并在「换个写法能通」时给出建议。结果由调用方回填表单，保存时才生效。上游的任何失败
+ * 都在结果的检查项里；只有无法发起（已存 provider 不存在、密钥未配置、请求不合法）才抛错。
  */
 export async function diagnoseProvider(req: ProviderDiagnoseRequest): Promise<Diagnosis> {
   return post<Diagnosis>('/models/providers/diagnose', req)
+}
+
+/**
+ * 拉取上游的模型列表（供选择默认模型），不改写任何配置。端点不提供或拉取失败体现在
+ * 结果的 status / detail 里；只有无法发起才抛错（同测试连接）。
+ */
+export async function listProviderModels(target: ProviderProbeTarget): Promise<ProviderModelList> {
+  return post<ProviderModelList>('/models/providers/models', target)
 }
 
 // ── 检索模型配置（单行；向量与重排共用一把密钥）──────────────────────

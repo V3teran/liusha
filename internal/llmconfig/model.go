@@ -30,7 +30,7 @@ const (
 )
 
 // 鉴权方式（与 llm_provider.auth_scheme CHECK、framework/llm.AuthScheme 一致）：
-// 密钥的携带方式，与协议正交，由连接诊断实测后记录。
+// 密钥的携带方式，与协议正交，由测试连接实测后记录。
 const (
 	AuthBearer  = "bearer"    // Authorization: Bearer <key>（OpenAI 兼容协议的标准方式）
 	AuthXAPIKey = "x-api-key" // x-api-key: <key>（Anthropic 协议的标准方式）

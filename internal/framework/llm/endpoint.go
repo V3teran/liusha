@@ -2,7 +2,7 @@ package llm
 
 import "strings"
 
-// Operation 是协议上的一个操作（连接诊断与地址预览关心的两个）。
+// Operation 是协议上的一个操作（provider 实测与地址预览关心的两个）。
 type Operation string
 
 // 协议操作。

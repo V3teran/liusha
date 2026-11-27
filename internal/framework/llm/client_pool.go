@@ -178,7 +178,7 @@ func (p *ClientPool) newHTTPClient(apiKey string, scheme AuthScheme) *http.Clien
 	return c
 }
 
-// Close 释放池内全部 client 并关闭其空闲连接。用于生命周期有界的池（如单次连接诊断）：
+// Close 释放池内全部 client 并关闭其空闲连接。用于生命周期有界的池（如单次 provider 实测）：
 // 池里的 client 以明文密钥为复用键，用完即弃，不让临时输入的凭据驻留在进程里。
 func (p *ClientPool) Close() {
 	p.mu.Lock()

@@ -19,7 +19,7 @@ const STEP_LABEL: Record<string, string> = { embedding: '向量', rerank: '重�
 
 // 检索模型分区：与「对话模型」同构的配置表单——服务地址、向量模型、重排模型、一把密钥。
 // 空字段 = 出厂默认（占位提示展示默认值）。换模型的硬约束写进提示与实测：
-// 向量维度须与库结构一致（1024，测试实测校验）；更换向量模型会作废全部旧向量并立即重建。
+// 向量维度须与库结构一致（1024，测试连接实测校验）；更换向量模型会作废全部旧向量并立即重建。
 // 未配置密钥时知识库自动字面检索、不阻塞；清除只清密钥，保留地址与模型名的自定义。
 export function RetrievalView() {
   const { data: model, isLoading, isError, error, refetch } = useRetrievalModel()
@@ -76,7 +76,7 @@ export function RetrievalView() {
     setActionError('')
     diagnoseMutation.mutate(draftBody, {
       onSuccess: (res) => setDiagnosis(res),
-      onError: (e) => setActionError(errorText(e, '测试失败')),
+      onError: (e) => setActionError(errorText(e, '测试连接失败')),
     })
   }
 
@@ -193,16 +193,16 @@ export function RetrievalView() {
                 </p>
               )}
               <p className="text-xs text-text-tertiary">
-                向量维度须与库结构一致（1024 维，「测试」会实测）；更换向量模型会作废全部旧向量并立即重建。
+                向量维度须与库结构一致（1024 维，「测试连接」会实测）；更换向量模型会作废全部旧向量并立即重建。
               </p>
             </div>
           </div>
         )}
 
-        {/* 操作行：测试按表单当前值实测（不落库），保存整行落库 */}
+        {/* 操作行：测试连接按表单当前值实测（不落库），保存整行落库 */}
         <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
           <Button size="sm" variant="ghost" disabled={busy} onClick={onTest}>
-            {diagnoseMutation.isPending ? '测试中…' : '测试'}
+            {diagnoseMutation.isPending ? '测试中…' : '测试连接'}
           </Button>
           {configured && !rotating && (
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onClearKey()}>

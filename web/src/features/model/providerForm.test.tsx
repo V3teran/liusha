@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { useState } from 'react'
-import { render, screen } from '@testing-library/react'
+import { useState, type ReactNode } from 'react'
+import { render as rtlRender, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
 import { ProviderFormBody } from './providerForm'
 import {
@@ -27,6 +28,12 @@ const draft = (over: Partial<ProviderConfig> = {}): ProviderConfig => ({
   max_tokens: 4096,
   ...over,
 })
+
+// 表单里的模型字段带「拉取模型列表」（TanStack mutation），渲染需要 QueryClient。
+function render(ui: ReactNode) {
+  const client = new QueryClient()
+  return rtlRender(ui, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> })
+}
 
 function renderForm(over: Partial<ProviderConfig> = {}, patchSpy = vi.fn()) {
   render(

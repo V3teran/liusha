@@ -233,6 +233,16 @@ FORBIDDEN=(
   "'attaches'"
   "RelAttaches"
   '挂接'
+  # provider 实测拆成「测试连接」（对话实测、回填画像）与「拉取模型列表」两个操作后，界面不再有
+  #   「运行诊断 / 连接诊断」：诊断不再顺带拉列表、未填模型时也不再自动挑模型（auto_model 删除）。
+  #   后端接口仍叫 diagnose（逐项诊断），不在此列。
+  '运行诊断'
+  '连接诊断'
+  'auto_model'
+  'AutoModel'
+  'models_supported'
+  'ModelsSupported'
+  'ProviderDiagnoser([^A-Za-z]|$)'
 )
 
 # 术语豁免：某条术语在含「豁免串」的行里不算残留。写法是「术语||豁免串」——分隔符用两个竖线，

@@ -1,9 +1,16 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useImperativeHandle, useRef, useState, type KeyboardEvent, type Ref } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { controlClass } from './control'
 
+/** 供调用方在选项就绪后展开列表（如点击「拉取」取回选项之后）。 */
+export interface ComboboxHandle {
+  /** 聚焦输入框并列出全部选项。 */
+  open: () => void
+}
+
 interface ComboboxProps {
+  ref?: Ref<ComboboxHandle>
   /** 输入框 id（供外部 <label htmlFor> 关联）。 */
   id?: string
   value: string
@@ -27,6 +34,7 @@ type ListMode = 'all' | 'filter'
  * 键盘：↓/↑ 展开并移动高亮，Enter 选中，Esc 收起；展开按钮不进 Tab 序（焦点留在输入框）。
  */
 export function Combobox({
+  ref,
   id,
   value,
   options,
@@ -52,6 +60,17 @@ export function Combobox({
     const el = listRef.current?.children[active] as HTMLElement | undefined
     el?.scrollIntoView?.({ block: 'nearest' })
   }, [expanded, active])
+
+  // 调用方展开时选项可能与本次状态更新同批到达：不按（可能过期的）选项定位高亮，
+  // 由方向键从第一项开始。
+  useImperativeHandle(ref, () => ({
+    open: () => {
+      inputRef.current?.focus()
+      setMode('all')
+      setActive(-1)
+      setOpen(true)
+    },
+  }), [])
 
   const showAll = () => {
     setMode('all')

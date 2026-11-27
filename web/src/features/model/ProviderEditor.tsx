@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { AlertTriangle, RotateCcw, X, XCircle } from 'lucide-react'
 import type { ProviderConfig } from '@/api/types'
 import { Badge } from '@/components/ui/Badge'
@@ -23,7 +22,7 @@ interface ProviderEditorProps {
   onDismissError: () => void
 }
 
-// 行内下拉展开的 provider 编辑面板：单页分组表单（连接 → 连接诊断 → 能力）+ 底部工具条。
+// 行内下拉展开的 provider 编辑面板：单页分组表单（连接 → 测试连接 → 能力）+ 底部工具条。
 // 工具条：重置（dirty 时出现）· 取消 · 保存。面板的空白布局层标记为
 // data-editor-surface：点在这些空白处与点在列表外一样视为「点别处」（见 ProvidersView）。
 // 保存/删除失败与 dirty 收起确认都在面板内回显；表单字段限宽保持可读密度。
@@ -43,9 +42,6 @@ export function ProviderEditor({
   onKeepEditing,
   onDismissError,
 }: ProviderEditorProps) {
-  // 运行诊断拉到的模型列表（供默认模型下拉）；编辑面板重挂载（切换行）即清空。
-  const [models, setModels] = useState<string[]>([])
-
   return (
     <div data-editor-surface className="border-t border-border-subtle bg-surface-2/30 px-4 py-4">
       <div data-editor-surface className="mb-3 flex items-center justify-between gap-3">
@@ -63,8 +59,7 @@ export function ProviderEditor({
           draft={draft}
           patch={onPatch}
           isNew={isNew}
-          models={models}
-          diagnosis={<DiagnosisPanel draft={draft} onApply={onPatch} onModels={setModels} />}
+          diagnosis={<DiagnosisPanel draft={draft} onApply={onPatch} />}
         />
       </div>
 

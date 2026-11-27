@@ -112,7 +112,7 @@ func Models(cfg Config) corpus.Models {
 	return corpus.Models{Embedder: c, Reranker: c, EmbeddingModel: c.model, RerankModel: c.rerankModel}
 }
 
-// EmbedURL / RerankURL 是本客户端实际请求的两个端点（连接诊断展示实际请求地址）。
+// EmbedURL / RerankURL 是本客户端实际请求的两个端点（测试连接展示实际请求地址）。
 func (c *Client) EmbedURL() string  { return c.embedURL }
 func (c *Client) RerankURL() string { return c.rerankURL }
 

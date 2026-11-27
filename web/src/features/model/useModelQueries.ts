@@ -10,6 +10,8 @@ import {
   saveRetrievalModel,
   clearRetrievalKey,
   diagnoseRetrievalModel,
+  diagnoseProvider,
+  listProviderModels,
 } from '@/api/models'
 import { listAgents, patchAgent } from '@/api/config'
 import type { ProviderConfig, RetrievalModelDraft } from '@/api/types'
@@ -59,6 +61,16 @@ export function useDiagnoseRetrievalModel() {
   return useMutation({
     mutationFn: (p: RetrievalModelDraft & { api_key?: string }) => diagnoseRetrievalModel(p),
   })
+}
+
+/** 测试连接（表单当前值）；结果由调用方就地渲染并回填表单，不进缓存。 */
+export function useDiagnoseProvider() {
+  return useMutation({ mutationFn: diagnoseProvider })
+}
+
+/** 拉取上游模型列表（表单当前值）；结果只供选择默认模型，不进缓存。 */
+export function useListProviderModels() {
+  return useMutation({ mutationFn: listProviderModels })
 }
 
 /** 全量 provider（含 disabled，路由绑定选择器一次拉全）。 */

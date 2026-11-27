@@ -222,7 +222,7 @@ func Run(ctx context.Context, cfg config.AppConfig, version string) error {
 			SandboxInventory:    sandbox.NewClient(cfg.Sandbox.URL, cfg.Sandbox.Token),
 			Models:              llmStore,
 			KeyEncrypter:        llmKeyCipher,
-			ProviderDiagnoser:   llmprobe.New(llmStore, llmKeyCipher),
+			ProviderProber:      llmprobe.New(llmStore, llmKeyCipher),
 			RetrievalDiagnoser:  retrievalDiagnoser{models: llmStore, cipher: llmKeyCipher},
 			RetrievalModelIndex: retrievalIndex{kb: kb, logger: logger},
 			Settings:            settingStore,
@@ -401,11 +401,11 @@ func (d retrievalDiagnoser) DiagnoseRetrieval(ctx context.Context, spec httpapi.
 		})
 	}
 	step(httpapi.StepEmbedding, "POST "+client.EmbedURL(), func(ctx context.Context) error {
-		_, err := client.EmbedQuery(ctx, "连接诊断")
+		_, err := client.EmbedQuery(ctx, "测试连接")
 		return err
 	})
 	step(httpapi.StepRerank, "POST "+client.RerankURL(), func(ctx context.Context) error {
-		_, err := client.Rerank(ctx, "连接诊断", []string{"连接诊断文档"}, 1)
+		_, err := client.Rerank(ctx, "测试连接", []string{"测试连接文档"}, 1)
 		return err
 	})
 	diag.OK = diag.Steps[0].Status == httpapi.StepOK && diag.Steps[1].Status == httpapi.StepOK

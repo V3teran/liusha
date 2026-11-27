@@ -10,8 +10,9 @@ vi.mock('@/api/models', () => ({
   listProviders: vi.fn(),
   saveProvider: vi.fn(),
   deleteProvider: vi.fn(),
-  // 编辑面板挂载即引用 diagnoseProvider（连接诊断），mock 掉避免真发请求。
+  // 编辑面板里的测试连接与拉取模型列表，mock 掉避免真发请求。
   diagnoseProvider: vi.fn(),
+  listProviderModels: vi.fn(),
 }))
 
 const mList = listProviders as unknown as ReturnType<typeof vi.fn>
@@ -253,27 +254,27 @@ describe('ProvidersView（对话模型分区，行内下拉展开编辑）', () 
     await waitFor(() => expect(mDelete).toHaveBeenCalledWith('deepseek'))
   })
 
-  it('连接诊断缺前置时点击即给原因（不禁用按钮静默拦截）', async () => {
+  it('测试连接缺前置时点击即给原因（不禁用按钮静默拦截）', async () => {
     mList.mockResolvedValue([prov()])
     renderView()
     await screen.findByText('deepseek')
     await userEvent.click(screen.getByRole('button', { name: '新建' }))
     await userEvent.click(await screen.findByRole('radio', { name: /OpenAI 兼容/ }))
-    await userEvent.click(await screen.findByRole('button', { name: /运行诊断/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /测试连接/ }))
     expect(await screen.findByText('请先填写完整的 Base URL')).toBeTruthy()
     expect(mSave).not.toHaveBeenCalled()
   })
 
-  it('诊断后保存：面板收起，再展开时诊断从头开始（不带旧结果）', async () => {
+  it('测试后保存：面板收起，再展开时测试从头开始（不带旧结果）', async () => {
     mDiagnose.mockResolvedValue({
-      ok: true, base_url: 'https://api.deepseek.com', models: [], models_supported: false,
-      profile: { auth_scheme: 'bearer' },
+      ok: true, base_url: 'https://api.deepseek.com',
+      profile: { auth_scheme: 'bearer', output_limit_param: 'max_tokens' },
       steps: [{ key: 'endpoint', status: 'ok', detail: '' }],
     })
     await openEdit({ updated_at: 't1' })
     await userEvent.click(await screen.findByRole('button', { name: /更换密钥/ }))
     await userEvent.type(screen.getByPlaceholderText('粘贴新密钥…'), 'sk-new')
-    await userEvent.click(screen.getByRole('button', { name: /运行诊断/ }))
+    await userEvent.click(screen.getByRole('button', { name: /测试连接/ }))
     expect(await screen.findByText('配置可用')).toBeTruthy()
 
     mSave.mockResolvedValue(prov({ updated_at: 't2', key_last4: '-new' }))
@@ -281,7 +282,7 @@ describe('ProvidersView（对话模型分区，行内下拉展开编辑）', () 
     await waitFor(() => expect(mSave).toHaveBeenCalled())
     await waitFor(() => expect(screen.queryByText('配置可用')).toBeNull())
     await userEvent.click(screen.getByRole('button', { name: /^deepseek/ }))
-    expect(await screen.findByRole('button', { name: /运行诊断/ })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /测试连接/ })).toBeTruthy()
     expect(screen.queryByText('配置可用')).toBeNull()
     expect(screen.queryByText(/配置已改动/)).toBeNull()
   })
