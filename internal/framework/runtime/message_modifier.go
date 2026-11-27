@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -182,18 +183,29 @@ func CompactionTimeoutsFor(stepLLM time.Duration) CompactionTimeouts {
 	return CompactionTimeouts{Distill: distill, Chain: distill + chainSlack}
 }
 
+// MaxMessageBytes 是单条消息内容的字节上限：校验哨兵按它拒绝超长消息（len 按字节计，
+// 中文为主的文本三万多字就越线）。压缩管的是历史——只裁最旧的整条消息，从不裁一条消息
+// 内部的内容，只有一条消息时原样放行——所以代码拼装的输入（各 agent 的首条输入）必须
+// 自己设预算，不能指望压缩兜底。
+const MaxMessageBytes = 100000
+
+// ErrMessageTooLong 表示一条消息的内容超过 MaxMessageBytes。同一条消息重试多少次都一样：
+// 调用方应当立刻以明确的原因失败，而不是把它当成瞬时故障反复重试。
+var ErrMessageTooLong = errors.New("消息超过单条长度上限")
+
 // NewCompactionChain 构建默认消息修改链：上下文压缩（token 预算 + 蒸馏纪要）
 // → 长度校验哨兵。
 //
-// 压缩在前：超预算的臃肿前缀先被裁掉，校验只看裁后的窗口——单条超长消息在
-// 正常路径下由压缩解决，越线即真不变量（工具输出另有运行时钳制兜底）。
+// 压缩在前：超预算的臃肿前缀先被裁掉，校验只看裁后的窗口。哨兵是最后的不变量：单条
+// 超长的消息说明拼装它的输入没有设预算（工具输出另有运行时钳制兜底），越线即以
+// ErrMessageTooLong 失败，调用方据此立刻终止而不是重试。
 // budgetTokens 是历史总预算（比例 × provider.context_window，引擎侧解析）；
 // role 是角色名（蒸馏 prompt 定侧重）；d 可空（降级纯截断）；timeouts 见 CompactionTimeoutsFor。
 func NewCompactionChain(budgetTokens int, role string, d Distiller, timeouts CompactionTimeouts) *MessageModifierChain {
 	return NewMessageModifierChain(
 		[]MessageModifier{
 			NewContextCompactor(budgetTokens, role, d, timeouts.Distill),
-			NewValidateModifier(100000),
+			NewValidateModifier(MaxMessageBytes),
 		},
 		ErrorStrategyFailFast,
 		DefaultRetryConfig(),
@@ -210,10 +222,10 @@ type ValidateModifier struct {
 	maxContentLength int
 }
 
-// NewValidateModifier 构造校验修饰器（maxContentLength<=0 用默认 100k 字符）。
+// NewValidateModifier 构造校验修饰器（maxContentLength<=0 用默认 MaxMessageBytes）。
 func NewValidateModifier(maxContentLength int) *ValidateModifier {
 	if maxContentLength <= 0 {
-		maxContentLength = 100000 // 默认 100k 字符
+		maxContentLength = MaxMessageBytes
 	}
 	return &ValidateModifier{maxContentLength: maxContentLength}
 }
@@ -222,7 +234,7 @@ func NewValidateModifier(maxContentLength int) *ValidateModifier {
 func (m *ValidateModifier) Modify(_ context.Context, messages []llm.Message) ([]llm.Message, error) {
 	for i, msg := range messages {
 		if len(msg.Content) > m.maxContentLength {
-			return nil, fmt.Errorf("message %d exceeds max length: %d > %d", i, len(msg.Content), m.maxContentLength)
+			return nil, fmt.Errorf("message %d exceeds max length: %d > %d: %w", i, len(msg.Content), m.maxContentLength, ErrMessageTooLong)
 		}
 		if msg.Role == "" {
 			return nil, fmt.Errorf("message %d has empty role", i)
