@@ -22,6 +22,7 @@ import './exploration.css'
 import { ExplorationNodeCard } from './nodes/ExplorationNodeCard'
 import { kindProfile } from './kindTheme'
 import { EDGE_LOOKS, EDGE_LOOK_LABELS, EDGE_LOOK_ORDER, NODE_HEIGHT, type ExplorationFlowNode } from './layout'
+import { LeadMark } from './LeadMark'
 import { CHAIN_MARGIN, anyOutside, detailReserve, frameNodes } from './viewport'
 
 const nodeTypes = { exploration: ExplorationNodeCard }
@@ -221,8 +222,9 @@ function GraphCanvasInner({
             执行中
           </span>
           <span className="mx-0.5 h-3 w-px bg-border" aria-hidden />
+          {/* 图例里的线索样例就是立在卡片右上角的那串脚印：同一个组件 */}
           <span className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: EDGE_LOOKS.pursues.color }} />
+            <LeadMark aria-hidden title="执行者已踩通、尚未推进到结论的路径" />
             线索
           </span>
         </div>
