@@ -294,13 +294,15 @@ export interface ToolDetail {
 
 // provider 协议类型：厂商 + 接口名——同一家有多种协议时只写厂商分不清。只认协议、不认服务：
 // 官方、各家兼容端点、中转网关都按所用协议接入。
-export type ProviderType = 'openai_chat_completions' | 'anthropic_messages'
+export type ProviderType = 'openai_chat_completions' | 'openai_responses' | 'anthropic_messages'
 
 // 鉴权方式：密钥的携带方式，与协议正交（同一协议的不同服务可能只认其一），由测试连接识别。
 export type AuthScheme = 'bearer' | 'x-api-key'
 
-// 输出上限字段（OpenAI Chat Completions 协议）：多数服务认 max_tokens，部分推理模型只认 max_completion_tokens。
-export type OutputLimitParam = 'max_tokens' | 'max_completion_tokens'
+// 输出上限字段：协议声明单次输出上限所用的请求字段。OpenAI Chat Completions 下多数服务认 max_tokens，
+// 部分推理模型只认 max_completion_tokens——由测试连接实测后记录；其余协议只有一个字段（Anthropic
+// Messages 的 max_tokens、OpenAI Responses 的 max_output_tokens），随协议落定。
+export type OutputLimitParam = 'max_tokens' | 'max_completion_tokens' | 'max_output_tokens'
 
 // 思考深度（推理模型投入多少推理），由低到高四档。各协议按自己的字段下发，取值是各家的通行叫法；
 // 「最高」在个别模型上叫 xhigh，由适配器映射。
@@ -318,7 +320,7 @@ export interface ProviderConfig {
   key_present: boolean // 是否已设置密钥（加密落库）
   key_last4?: string // 已存密钥末 4 位（脱敏辨识用，非机密）；未设置密钥时为空
   auth_scheme: AuthScheme // 鉴权方式（测试连接识别后回填）
-  output_limit_param: OutputLimitParam // 输出上限字段（仅 OpenAI Chat Completions 协议生效；测试连接识别后回填）
+  output_limit_param: OutputLimitParam // 输出上限字段（OpenAI Chat Completions 由测试连接识别后回填；其余协议随协议落定）
   // 数字字段是编辑期草稿：键入中可短暂为 ''（数字框清空态），保存被
   // providerInvalid 拦截，落库/网络载荷永远是 number。
   max_tokens: number | ''

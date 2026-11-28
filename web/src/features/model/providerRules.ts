@@ -5,7 +5,7 @@ import type { ProviderConfig, ProviderProbeTarget, ProviderType, ReasoningEffort
 // 「实际请求」与就地校验。只认协议，不认任何具体服务。
 
 /** 用户常把完整端点粘进 Base URL 时带上的操作路径——由 SDK 自行拼接，不属于 Base URL。 */
-const OPERATION_SUFFIXES = ['/chat/completions', '/completions', '/messages', '/models']
+const OPERATION_SUFFIXES = ['/chat/completions', '/completions', '/responses', '/messages', '/models']
 
 /**
  * 按协议规则归一 Base URL：去首尾空白与末尾斜杠、去掉误粘的操作路径；Anthropic Messages 协议
@@ -32,8 +32,12 @@ export function normalizeBaseUrl(protocol: ProviderType | '', raw: string): stri
 /** 协议对话操作的实际请求地址（与 SDK 拼接规则一致）。 */
 export function chatRequestUrl(protocol: ProviderType, baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, '')
-  return protocol === 'anthropic_messages' ? `${base}/v1/messages` : `${base}/chat/completions`
+  if (protocol === 'anthropic_messages') return `${base}/v1/messages`
+  if (protocol === 'openai_responses') return `${base}/responses`
+  return `${base}/chat/completions`
 }
+
+export { outputLimitParamOf } from '@/api/models'
 
 /** Base URL 必须是带主机名的完整 http(s) 地址；空值不报（必填由 providerInvalid 兜）。 */
 export function baseUrlError(raw: string): string | undefined {

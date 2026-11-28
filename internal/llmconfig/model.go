@@ -33,6 +33,7 @@ import (
 // Provider type 常量（与 llm_provider.type CHECK 一致）。
 const (
 	ProviderTypeOpenAIChatCompletions = fwllm.ProviderTypeOpenAIChatCompletions
+	ProviderTypeOpenAIResponses       = fwllm.ProviderTypeOpenAIResponses
 	ProviderTypeAnthropicMessages     = fwllm.ProviderTypeAnthropicMessages
 )
 
@@ -44,6 +45,8 @@ func ProtocolLabel(protocol string) string {
 	switch protocol {
 	case ProviderTypeOpenAIChatCompletions:
 		return "OpenAI Chat Completions"
+	case ProviderTypeOpenAIResponses:
+		return "OpenAI Responses"
 	case ProviderTypeAnthropicMessages:
 		return "Anthropic Messages"
 	}
@@ -69,6 +72,7 @@ func DefaultAuthScheme(protocol string) string {
 const (
 	OutputLimitMaxTokens           = string(fwllm.OutputLimitMaxTokens)
 	OutputLimitMaxCompletionTokens = string(fwllm.OutputLimitMaxCompletionTokens)
+	OutputLimitMaxOutputTokens     = string(fwllm.OutputLimitMaxOutputTokens)
 )
 
 // Provider 是一个 LLM provider（连接参数 + 能力标志）。SupportsVision/ContextWindow
@@ -83,7 +87,7 @@ type Provider struct {
 	EncryptedAPIKey  []byte // AES-256-GCM 密文（nonce||ciphertext）；空 = 尚未设置密钥
 	APIKeyLast4      string // 明文末 4 位（脱敏辨识用，非密钥值）
 	AuthScheme       string // 鉴权方式（AuthBearer / AuthXAPIKey）
-	OutputLimitParam string // 输出上限字段（OutputLimitMaxTokens / OutputLimitMaxCompletionTokens）
+	OutputLimitParam string // 输出上限字段（max_tokens / max_completion_tokens / max_output_tokens，按协议落定）
 	MaxTokens        int
 	SupportsTools    bool
 	SupportsVision   bool
@@ -129,8 +133,9 @@ func conflictf(format string, args ...any) error {
 }
 
 // Normalize 把配置归一为规范形态（HTTP 写入、启动种子、落库共用，幂等）：Base URL 按
-// 协议规则归一（见 NormalizeBaseURL），鉴权方式缺省取协议标准方式，输出上限字段缺省
-// max_tokens（Anthropic Messages 协议恒为 max_tokens——该协议只有这一个字段），没填的上下文窗口与
+// 协议规则归一（见 NormalizeBaseURL），鉴权方式缺省取协议标准方式，输出上限字段按协议落定
+// （只有一个字段的协议随协议定；OpenAI Chat Completions 由实测决定，未记录时按多数服务认的
+// max_tokens），没填的上下文窗口与
 // 单次最大输出落成缺省值。缺省在入口落定：落库的行恒为正数，库里没有「未设置」的行，
 // 各级缓存读到的都是同一个确定的值。
 func (p *ProviderParams) Normalize() {
@@ -140,9 +145,7 @@ func (p *ProviderParams) Normalize() {
 	if p.AuthScheme == "" {
 		p.AuthScheme = DefaultAuthScheme(p.Type)
 	}
-	if p.OutputLimitParam == "" || p.Type == ProviderTypeAnthropicMessages {
-		p.OutputLimitParam = OutputLimitMaxTokens
-	}
+	p.OutputLimitParam = string(fwllm.OutputLimitParamOf(p.Type, fwllm.OutputLimitParam(p.OutputLimitParam)))
 	if p.ContextWindow == 0 {
 		p.ContextWindow = DefaultContextWindow
 	}
@@ -151,9 +154,9 @@ func (p *ProviderParams) Normalize() {
 	}
 }
 
-// operationSuffixes 是用户常把完整端点粘进 Base URL 时带上的操作路径——它们由 SDK
+// operationSuffixes 是用户常把完整端点粘进 Base URL 时带上的操作路径——它们由适配器
 // 自行拼接，任何协议下都不属于 Base URL。
-var operationSuffixes = []string{"/chat/completions", "/completions", "/messages", "/models"}
+var operationSuffixes = []string{"/chat/completions", "/completions", "/responses", "/messages", "/models"}
 
 // NormalizeBaseURL 按协议规则归一 Base URL：去首尾空白与末尾斜杠、去掉误粘的操作路径；
 // Anthropic 协议再去掉末尾的 /v1（SDK 自行拼 /v1/messages）。规则只由协议规范推出，
@@ -200,8 +203,8 @@ func (p ProviderParams) Validate() error {
 	if p.AuthScheme != AuthBearer && p.AuthScheme != AuthXAPIKey {
 		return invalidf("非法鉴权方式 %q（应为 bearer 或 x-api-key）", p.AuthScheme)
 	}
-	if p.OutputLimitParam != OutputLimitMaxTokens && p.OutputLimitParam != OutputLimitMaxCompletionTokens {
-		return invalidf("非法输出上限字段 %q（应为 max_tokens 或 max_completion_tokens）", p.OutputLimitParam)
+	if want := fwllm.OutputLimitParamOf(p.Type, fwllm.OutputLimitParam(p.OutputLimitParam)); p.OutputLimitParam != string(want) {
+		return invalidf("协议 %s 的输出上限字段应为 %s，实际 %q", ProtocolLabel(p.Type), want, p.OutputLimitParam)
 	}
 	if p.MaxTokens <= 0 {
 		return invalidf("单次最大输出 tokens 必须大于 0")
@@ -262,7 +265,7 @@ type ProviderParams struct {
 	APIKeyLast4      string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
 	KeepExistingKey  bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）
 	AuthScheme       string // 鉴权方式；空 = 协议标准方式（Normalize 填充）
-	OutputLimitParam string // 输出上限字段；空 = max_tokens（Normalize 填充；Anthropic Messages 恒为 max_tokens）
+	OutputLimitParam string // 输出上限字段；Normalize 按协议落定（Chat Completions 未记录时按 max_tokens）
 	DisplayName      string // 显示名称：必填、不区分大小写唯一（见 Provider.DisplayName）
 	MaxTokens        int
 	SupportsTools    bool

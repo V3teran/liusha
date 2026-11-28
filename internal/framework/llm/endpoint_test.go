@@ -65,3 +65,30 @@ func TestAnthropic_UnexpectedResponseOnlyWhenNotAMessageStream(t *testing.T) {
 		}
 	}
 }
+
+// Responses 适配器直接发 HTTP：对话请求落在 Base URL 后的 /responses，与 OperationURL 一致。
+func TestResponses_OperationURLMatchesRequests(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		_, _ = w.Write([]byte(responsesOK))
+	}))
+	defer srv.Close()
+	gen, err := BuildGeneratorWithKey(context.Background(), ProviderSpec{
+		Code: "p", Type: ProviderTypeOpenAIResponses, BaseURL: srv.URL + "/v1", Model: "m", APIKey: "k",
+		MaxTokens: 8, OutputLimitParam: OutputLimitMaxOutputTokens,
+	}, NewClientPool())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gen.Generate(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := OperationURL(ProviderTypeOpenAIResponses, srv.URL+"/v1", OpChat)
+	if len(paths) != 1 || want != "http://"+strings.TrimPrefix(srv.URL, "http://")+"/v1/responses" || paths[0] != "POST "+"/v1/responses" {
+		t.Fatalf("适配器请求 %v，OperationURL 给出 %s", paths, want)
+	}
+	if got := OperationURL(ProviderTypeOpenAIResponses, srv.URL+"/v1", OpModels); got != srv.URL+"/v1/models" {
+		t.Fatalf("Responses 的模型列表地址应为 %s，实际 %s", srv.URL+"/v1/models", got)
+	}
+}

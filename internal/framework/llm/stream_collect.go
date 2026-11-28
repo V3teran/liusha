@@ -54,6 +54,12 @@ func CollectStream(ctx context.Context, ch <-chan StreamEvent, onText func(chunk
 			if resp.Thinking != nil {
 				resp.Thinking.Signature = ev.Signature
 			}
+			if len(ev.ReasoningItem) > 0 {
+				if resp.Thinking == nil {
+					resp.Thinking = &ThinkingBlock{}
+				}
+				resp.Thinking.ReasoningItem = ev.ReasoningItem
+			}
 		case StreamError:
 			if ev.Err != nil {
 				return Response{}, fmt.Errorf("stream error: %w", ev.Err)

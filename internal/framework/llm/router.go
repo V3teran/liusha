@@ -297,6 +297,17 @@ func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool
 			SupportsVision: p.SupportsVision, OutputLimitParam: p.OutputLimitParam,
 			ReasoningEffort: p.ReasoningEffort,
 		}, cli)
+	case ProviderTypeOpenAIResponses:
+		cli, err := pool.GetOrCreateHTTP(p.BaseURL, p.APIKey, p.AuthScheme)
+		if err != nil {
+			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
+		}
+		return NewOpenAIResponses(ctx, p.Code, OpenAIResponsesConfig{
+			BaseURL: p.BaseURL, Model: p.Model,
+			Limit:           pool.OutputLimitFor(p.BaseURL, p.APIKey, p.Model, p.MaxTokens),
+			SupportsVision:  p.SupportsVision,
+			ReasoningEffort: p.ReasoningEffort,
+		}, cli)
 	}
 	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: %s）", p.Code, p.Type, strings.Join(ProviderTypes, " / "))
 }

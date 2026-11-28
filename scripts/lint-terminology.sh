@@ -291,6 +291,8 @@ FORBIDDEN_EXEMPT=(
   'get_global_state|| `get_global_state` | `task_survey` |'
   'publish_decision|| `publish_decision` | `decision_publish` |'
   'replay_for_verification|| `replay_for_verification` | `repro_replay` |'
+  'openai_compat|| `openai_compat` | `openai_chat_completions` |'
+  'thinking_budget|| `thinking_budget_tokens` | `reasoning_effort` |'
   # 升级文档里的接口与页面地址对照表（旧地址带反引号写在表里）：只豁免表里的行本身。
   #   每条写「术语||豁免串」。
   'llm/invocations/search|| `GET /llm/invocations/search'

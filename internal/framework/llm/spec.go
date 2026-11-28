@@ -39,11 +39,12 @@ type ProviderSpec struct {
 // 唯一出处：库表 CHECK、业务侧（llmconfig）与前端的取值都以它为准，不在别处再抄一份。
 const (
 	ProviderTypeOpenAIChatCompletions = "openai_chat_completions"
+	ProviderTypeOpenAIResponses       = "openai_responses"
 	ProviderTypeAnthropicMessages     = "anthropic_messages"
 )
 
 // ProviderTypes 是全部协议取值（校验与提示共用这一个出处）。
-var ProviderTypes = []string{ProviderTypeOpenAIChatCompletions, ProviderTypeAnthropicMessages}
+var ProviderTypes = []string{ProviderTypeOpenAIChatCompletions, ProviderTypeOpenAIResponses, ProviderTypeAnthropicMessages}
 
 // ReasoningEffort 是推理模型的思考深度：模型在回答前投入多少推理。它是档位而不是 token 预算——
 // 各家都已从「给思考分配多少 token」转向「给一个档位，由模型自己决定想多少」。按 token 的旧参数
@@ -102,15 +103,33 @@ func DefaultAuthScheme(protocol string) AuthScheme {
 	return AuthBearer
 }
 
-// OutputLimitParam 是 OpenAI Chat Completions 协议声明单次输出上限所用的请求字段：多数服务认
-// max_tokens，部分推理模型只认 max_completion_tokens。
+// OutputLimitParam 是协议声明单次输出上限所用的请求字段。OpenAI Chat Completions 下多数服务
+// 认 max_tokens，部分推理模型只认 max_completion_tokens——由测试连接实测后记录；其余协议只有
+// 一个字段（Anthropic Messages 的 max_tokens、OpenAI Responses 的 max_output_tokens），随协议定。
 type OutputLimitParam string
 
 // 输出上限字段（wire 契约的唯一出处，业务侧经 llmconfig 取用）。
 const (
 	OutputLimitMaxTokens           OutputLimitParam = "max_tokens"
 	OutputLimitMaxCompletionTokens OutputLimitParam = "max_completion_tokens"
+	OutputLimitMaxOutputTokens     OutputLimitParam = "max_output_tokens"
 )
+
+// OutputLimitParamOf 返回协议声明的输出上限字段：只有一个字段的协议随协议定；OpenAI Chat
+// Completions 由实测决定，记录的不是它认的两个字段之一时（换了协议、留着他协议的值）按
+// 多数服务认的 max_tokens。幂等：归一与校验共用它。
+func OutputLimitParamOf(protocol string, recorded OutputLimitParam) OutputLimitParam {
+	switch protocol {
+	case ProviderTypeAnthropicMessages:
+		return OutputLimitMaxTokens
+	case ProviderTypeOpenAIResponses:
+		return OutputLimitMaxOutputTokens
+	}
+	if recorded == OutputLimitMaxTokens || recorded == OutputLimitMaxCompletionTokens {
+		return recorded
+	}
+	return OutputLimitMaxTokens
+}
 
 // RoutingSpec 是复杂度档位 → provider key 的路由表。
 type RoutingSpec struct {

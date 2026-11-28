@@ -12,6 +12,7 @@ package llm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 )
 
@@ -65,6 +66,8 @@ type StreamEvent struct {
 	// Anthropic 的 stop_reason）：输出被上限截断时是 length / max_tokens，调用方据此识别截断
 	// （HitOutputLimit）。适配器取不到时为空，聚合按 stop。
 	FinishReason string
+	// ReasoningItem 是需要原样回传的推理项原文，StreamDone 有效（见 ThinkingBlock.ReasoningItem）。
+	ReasoningItem json.RawMessage
 }
 
 // ErrStreamingUnsupported 表示底层 Generator 无流式能力（桥接层判定），
@@ -101,9 +104,10 @@ type Response struct {
 	Thinking     *ThinkingBlock `json:"thinking,omitempty"` // 扩展思考块（Text=增量聚合，Signature=收尾透出）
 }
 
-// HitOutputLimit 判定一个结束原因是不是「输出达到上限、被截断」：两种协议各有一个叫法
-// （OpenAI 兼容的 length、Anthropic 的 max_tokens），按原值比对。达到上限的输出不完整——
+// HitOutputLimit 判定一个结束原因是不是「输出达到上限、被截断」：三种协议各有一个叫法
+// （OpenAI Chat Completions 的 length、OpenAI Responses 的 max_output_tokens、Anthropic 的
+// max_tokens），按原值比对。达到上限的输出不完整——
 // JSON 会停在半截。与 ErrStreamTruncated 不是一回事：那是流在收尾之前断掉。
 func HitOutputLimit(finishReason string) bool {
-	return finishReason == "length" || finishReason == "max_tokens"
+	return finishReason == "length" || finishReason == "max_tokens" || finishReason == "max_output_tokens"
 }

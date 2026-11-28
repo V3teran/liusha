@@ -21,6 +21,7 @@ import { ModelField } from './ModelField'
 // 协议的展示名：厂商 + 接口名，与后端取值一一对应——同一家有多种协议时只写厂商分不清。
 export const TYPE_LABEL: Record<ProviderType, string> = {
   openai_chat_completions: 'OpenAI Chat Completions',
+  openai_responses: 'OpenAI Responses',
   anthropic_messages: 'Anthropic Messages',
 }
 
@@ -31,6 +32,12 @@ const PROTOCOLS: { value: ProviderType; title: string; desc: string; placeholder
     value: 'openai_chat_completions',
     title: 'OpenAI',
     desc: 'Chat Completions',
+    placeholder: 'https://api.example.com/v1',
+  },
+  {
+    value: 'openai_responses',
+    title: 'OpenAI',
+    desc: 'Responses',
     placeholder: 'https://api.example.com/v1',
   },
   {
@@ -46,7 +53,7 @@ const AUTH_SCHEME_LABEL: Record<AuthScheme, string> = {
   'x-api-key': 'x-api-key 头',
 }
 
-// 协议选择：两种协议并列单选。新建时不预设——协议决定报文格式与请求路径，选错是接入失败
+// 协议选择：三种协议并列单选。新建时不预设——协议决定报文格式与请求路径，选错是接入失败
 // 的头号原因，必须由用户明确选择；切换协议时鉴权方式回到该协议的标准方式（测试连接可改写）。
 function ProtocolPicker({
   value,
@@ -62,7 +69,7 @@ function ProtocolPicker({
       <span id="provider-protocol-label" className={FIELD_LABEL_CLASS}>
         协议
       </span>
-      <div role="radiogroup" aria-labelledby="provider-protocol-label" className="grid grid-cols-2 gap-2">
+      <div role="radiogroup" aria-labelledby="provider-protocol-label" className="grid gap-2 sm:grid-cols-3">
         {PROTOCOLS.map((p) => {
           const checked = value === p.value
           return (

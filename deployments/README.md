@@ -266,6 +266,31 @@ make dev-down             # 收工（-v 清数据）
 宿主上的组件由 `scripts/dev/env.sh` 按 `.env` 拼出连接串，经宿主端口访问容器；runner 经
 `127.0.0.1:58591` 调用容器里的沙盒，沙盒的浏览器流量回灌到 `host.docker.internal:8590`。
 
+## 从 0.15 升级到 0.16
+
+**模型接入（「模型」页与 `/api/models` 接口）**
+
+数据库迁移随启动自动执行，库里的 provider 由迁移自动改写，升级后不用处理数据。自己调
+`/api/models/providers` 写 provider 的脚本要跟着改：
+
+| 原取值 | 新取值 |
+|---|---|
+| `openai_compat` | `openai_chat_completions` |
+| `anthropic` | `anthropic_messages` |
+| `thinking_budget_tokens` | `reasoning_effort` |
+
+- 协议取值改为「厂商 + 接口名」，并新增 OpenAI Responses 协议（`openai_responses`）：对话请求发到
+  Base URL 后的 `/responses`。
+- 「扩展思考预算」（按 token 给思考分配多少）换成「思考深度」（给一个档位，由模型自己决定想多少）：
+  `reasoning_effort` 取 `low` / `medium` / `high` / `max`（界面：低 / 中 / 高 / 最高），不填为「按模型
+  默认」。旧的预算换算不成档位，迁移把存量的预算全部落为「按模型默认」——此前给某个 provider 配过
+  预算的，升级后到「模型」页给它选一档。
+- provider 的输出上限字段 `output_limit_param` 新增取值 `max_output_tokens`（OpenAI Responses 恒为此值），
+  随协议落定，不用手填。
+- 上下文窗口与单次最大输出的缺省改为 1,048,576 / 131,072（此前表单预填 65536 / 4096）。库里已有的
+  provider 不受影响；按旧预填建起的 provider 建议到「模型」页把这两项调大——推理模型的思考计入输出，
+  4096 会截断规划者的输出。
+
 ## 从 0.14 升级到 0.15
 
 **所有部署方式**

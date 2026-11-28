@@ -191,3 +191,14 @@ describe('检索模型 API 客户端', () => {
     expect(body.api_key).toBe(plaintextInput)
   })
 })
+
+describe('输出上限字段按协议落定', () => {
+  it('只有一个字段的协议随协议落定；Chat Completions 原样携带实测值', async () => {
+    const fn = mockFetch(200, { provider: PROV })
+    await saveProvider({ ...PROV, type: 'openai_responses', output_limit_param: 'max_output_tokens' }, false)
+    await saveProvider({ ...PROV, type: 'anthropic_messages', output_limit_param: 'max_tokens' }, false)
+    await saveProvider({ ...PROV, type: 'openai_chat_completions', output_limit_param: 'max_completion_tokens' }, false)
+    const bodies = fn.mock.calls.map((call) => JSON.parse(call[1].body))
+    expect(bodies.map((b) => b.output_limit_param)).toEqual(['max_output_tokens', 'max_tokens', 'max_completion_tokens'])
+  })
+})

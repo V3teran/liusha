@@ -51,8 +51,11 @@ func (u *upstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chat, models := u.prefix+"/chat/completions", u.prefix+"/models"
-	if u.protocol == llmconfig.ProviderTypeAnthropicMessages {
+	switch u.protocol {
+	case llmconfig.ProviderTypeAnthropicMessages:
 		chat, models = u.prefix+"/v1/messages", u.prefix+"/v1/models"
+	case llmconfig.ProviderTypeOpenAIResponses:
+		chat = u.prefix + "/responses"
 	}
 	switch {
 	case r.Method == http.MethodPost && r.URL.Path == chat && u.quotaExceeded != "":
@@ -77,7 +80,11 @@ func (u *upstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.","type":"invalid_request_error"}}`))
 			return
 		}
-		if u.protocol == llmconfig.ProviderTypeAnthropicMessages {
+		switch u.protocol {
+		case llmconfig.ProviderTypeOpenAIResponses:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"resp_1","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"pong"}]}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+		case llmconfig.ProviderTypeAnthropicMessages:
 			// Anthropic 适配器只走流式链路：对话应答是一条事件流。
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = w.Write([]byte(`event: message_start
@@ -98,7 +105,7 @@ data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":
 event: message_stop
 data: {"type":"message_stop"}
 `))
-		} else {
+		default:
 			_, _ = w.Write([]byte(`{"id":"x","object":"chat.completion","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"pong"},"finish_reason":"stop"}]}`))
 		}
 	case r.Method == http.MethodGet && r.URL.Path == models && u.emptyModels:
@@ -447,5 +454,45 @@ func TestSiblingListBases(t *testing.T) {
 		if got := siblingListBases(tc.protocol, tc.base); strings.Join(got, ",") != strings.Join(tc.want, ",") {
 			t.Fatalf("%s %s: want %v, got %v", tc.protocol, tc.base, tc.want, got)
 		}
+	}
+}
+
+// OpenAI Responses 协议：对话请求打在 /responses，输出上限字段随协议落定为 max_output_tokens，
+// 工具调用被接受；地址缺版本段时同样补 /v1。
+func TestDiagnose_ResponsesProtocol(t *testing.T) {
+	u := &upstream{protocol: llmconfig.ProviderTypeOpenAIResponses, prefix: "/v1"}
+	base := serve(t, u)
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIResponses, BaseURL: base + "/v1/responses", DefaultModel: "m", OutputLimitParam: "max_tokens"})
+	if !d.OK || d.Suggestion != nil {
+		t.Fatalf("应全部打通且无建议: %+v", d)
+	}
+	if stepOf(t, d, httpapi.StepEndpoint).Request != "POST "+base+"/v1/responses" {
+		t.Fatalf("应展示实际请求地址: %+v", stepOf(t, d, httpapi.StepEndpoint))
+	}
+	if d.Profile.OutputLimitParam != "max_output_tokens" || d.Profile.SupportsTools == nil || !*d.Profile.SupportsTools {
+		t.Fatalf("画像错误: %+v", d.Profile)
+	}
+	for i, p := range u.requestedPath {
+		if i == 0 && p != "POST /v1/responses" {
+			t.Fatalf("首个请求应打在 /responses: %v", u.requestedPath)
+		}
+	}
+
+	d = diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIResponses, BaseURL: base, DefaultModel: "m"})
+	if !d.OK || d.Suggestion == nil || d.Suggestion.BaseURL != base+"/v1" {
+		t.Fatalf("地址缺版本段时应补 /v1: %+v", d.Suggestion)
+	}
+}
+
+// Responses 适配器直接发 HTTP：上游的错误说明文字取自它的错误体。
+func TestDiagnose_ResponsesUpstreamMessage(t *testing.T) {
+	u := &upstream{protocol: llmconfig.ProviderTypeOpenAIResponses, prefix: "/v1", knownModel: "m-real"}
+	base := serve(t, u)
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIResponses, BaseURL: base + "/v1", DefaultModel: "typo"})
+	if d.OK {
+		t.Fatal("模型不存在不应打通")
+	}
+	if got := stepOf(t, d, httpapi.StepModel).Detail; !strings.Contains(got, "Model Not Exist") {
+		t.Fatalf("应带上游的说明文字，实际 %q", got)
 	}
 }

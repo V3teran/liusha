@@ -9,6 +9,7 @@ import {
   blankProvider,
   chatRequestUrl,
   normalizeBaseUrl,
+  outputLimitParamOf,
   providerInvalid,
   REASONING_EFFORT_OPTIONS,
   reasoningEffortLabel,
@@ -128,7 +129,7 @@ describe('providerForm 校验（与后端 llmconfig.Validate 同口径）', () =
 
   // 思考深度是模型的能力，不属于哪个协议：每种协议下都有同一个下拉，四档由低到高，初值是
   // 「按模型默认」（没设置，不下发这个参数）。
-  for (const type of ['openai_chat_completions', 'anthropic_messages'] as const) {
+  for (const type of ['openai_chat_completions', 'openai_responses', 'anthropic_messages'] as const) {
     it(`思考深度：${type} 下四档由低到高，初值是「按模型默认」`, () => {
       renderForm({ type })
       const select = screen.getByLabelText(/思考深度/) as HTMLSelectElement
@@ -197,6 +198,32 @@ describe('协议与 Base URL（只认协议规则，不认具体服务）', () =
 
   it('输出上限字段只在 OpenAI Chat Completions 协议下出现', () => {
     render(<Harness initial={{ ...draft(), type: 'anthropic_messages' }} />)
+    expect(screen.queryByLabelText(/输出上限字段/)).toBeNull()
+  })
+})
+
+describe('OpenAI Responses 协议（前端）', () => {
+  it('协议选单有三项，无障碍名称是厂商 + 接口名', async () => {
+    renderForm()
+    for (const name of ['OpenAI Chat Completions', 'OpenAI Responses', 'Anthropic Messages']) {
+      expect(screen.getByRole('radio', { name })).toBeTruthy()
+    }
+  })
+
+  it('地址归一去掉误粘的 /responses，请求地址预览落在 /responses', () => {
+    expect(normalizeBaseUrl('openai_responses', 'https://api.example.com/v1/responses')).toBe('https://api.example.com/v1')
+    expect(chatRequestUrl('openai_responses', 'https://api.example.com/v1/')).toBe('https://api.example.com/v1/responses')
+  })
+
+  it('输出上限字段随协议落定，Chat Completions 由实测决定', () => {
+    expect(outputLimitParamOf('openai_responses', 'max_tokens')).toBe('max_output_tokens')
+    expect(outputLimitParamOf('anthropic_messages', 'max_completion_tokens')).toBe('max_tokens')
+    expect(outputLimitParamOf('openai_chat_completions', 'max_completion_tokens')).toBe('max_completion_tokens')
+    expect(outputLimitParamOf('openai_chat_completions', 'max_output_tokens')).toBe('max_tokens')
+  })
+
+  it('选了 Responses 不出现「输出上限字段」（它只有一个字段）', () => {
+    renderForm({ type: 'openai_responses' })
     expect(screen.queryByLabelText(/输出上限字段/)).toBeNull()
   })
 })

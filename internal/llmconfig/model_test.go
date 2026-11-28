@@ -168,3 +168,42 @@ func TestReasoningEfforts(t *testing.T) {
 		}
 	}
 }
+
+// OpenAI Responses 协议：输出上限字段随协议落定为 max_output_tokens，别的写法被拒；
+// 地址归一去掉误粘的 /responses。
+func TestProviderParams_ResponsesProtocol(t *testing.T) {
+	p := ProviderParams{Type: ProviderTypeOpenAIResponses, BaseURL: "https://x/v1/responses", DisplayName: "n", DefaultModel: "m"}
+	p.Normalize()
+	if p.OutputLimitParam != OutputLimitMaxOutputTokens {
+		t.Fatalf("Responses 的输出上限字段应落定为 max_output_tokens，实际 %q", p.OutputLimitParam)
+	}
+	if p.BaseURL != "https://x/v1" {
+		t.Fatalf("误粘的 /responses 应去掉，实际 %q", p.BaseURL)
+	}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("应合法: %v", err)
+	}
+	for _, typ := range ProviderTypes {
+		q := p
+		q.Type = typ
+		q.Normalize()
+		if err := q.Validate(); err != nil {
+			t.Errorf("%s：归一后应合法，实际 %v", typ, err)
+		}
+	}
+	wrong := p
+	wrong.OutputLimitParam = OutputLimitMaxTokens
+	if err := wrong.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Responses 不接受 max_tokens，应被拒，实际 %v", err)
+	}
+	// 换了协议、留着他协议的字段：归一按新协议落回它认的值（Chat Completions 认的两个之一之外按 max_tokens）
+	switched := p
+	switched.Type, switched.OutputLimitParam = ProviderTypeOpenAIChatCompletions, OutputLimitMaxOutputTokens
+	switched.Normalize()
+	if switched.OutputLimitParam != OutputLimitMaxTokens {
+		t.Fatalf("换成 Chat Completions 后输出上限字段应落回 max_tokens，实际 %q", switched.OutputLimitParam)
+	}
+	if ProtocolLabel(ProviderTypeOpenAIResponses) != "OpenAI Responses" {
+		t.Fatalf("展示名应为 OpenAI Responses，实际 %q", ProtocolLabel(ProviderTypeOpenAIResponses))
+	}
+}

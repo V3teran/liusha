@@ -109,7 +109,7 @@ func (d *probeRun) diagnose(ctx context.Context, spec httpapi.ProviderProbeSpec,
 		baseURL:  llmconfig.NormalizeBaseURL(spec.Type, spec.BaseURL),
 		key:      key,
 		model:    spec.DefaultModel,
-		limit:    fwllm.OutputLimitParam(spec.OutputLimitParam),
+		limit:    fwllm.OutputLimitParamOf(spec.Type, fwllm.OutputLimitParam(spec.OutputLimitParam)),
 		effort:   fwllm.ReasoningEffort(spec.ReasoningEffort),
 	}
 	report := httpapi.Diagnosis{BaseURL: target.baseURL}
@@ -182,11 +182,11 @@ func (a attempt) offProtocol() bool {
 	return isPathMissing(a.status) || errors.Is(a.err, fwllm.ErrUnexpectedResponse)
 }
 
-// baseCandidates 返回所选协议下的候选地址：原地址；OpenAI 兼容且路径没有版本段时
-// 追加补 /v1 的候选（多数网关的 OpenAI 兼容接口挂在 /v1 下）。
+// baseCandidates 返回所选协议下的候选地址：原地址；OpenAI 两种协议且路径没有版本段时
+// 追加补 /v1 的候选（多数网关的 OpenAI 接口挂在 /v1 下）。
 func baseCandidates(t profileTarget) []string {
 	out := []string{t.baseURL}
-	if t.protocol != llmconfig.ProviderTypeOpenAIChatCompletions {
+	if t.protocol == llmconfig.ProviderTypeAnthropicMessages {
 		return out
 	}
 	u, err := url.Parse(t.baseURL)
@@ -258,7 +258,8 @@ func (d *probeRun) reach(ctx context.Context, t profileTarget, scheme fwllm.Auth
 	return res, a
 }
 
-// otherProtocol 用另一种协议实测同一地址（按该协议的规则归一），能通则返回建议。
+// otherProtocol 用另一种协议实测同一地址（按该协议的规则归一），能通则返回建议。Anthropic
+// 端点换 OpenAI Chat Completions（各家兼容端点里它最普遍），其余换 Anthropic Messages。
 func (d *probeRun) otherProtocol(ctx context.Context, t profileTarget, rawBase string) *httpapi.DiagnosisSuggestion {
 	other := llmconfig.ProviderTypeAnthropicMessages
 	if t.protocol == llmconfig.ProviderTypeAnthropicMessages {
@@ -503,7 +504,7 @@ func failureSteps(attempts []attempt) []httpapi.DiagnosisStep {
 	}
 }
 
-// outputLimitOf 取生成器自适应后的输出上限字段（Anthropic Messages 协议没有这一概念，恒为 max_tokens）。
+// outputLimitOf 取生成器自适应后的输出上限字段（只有一个字段的协议随协议落定，见 framework/llm.OutputLimitParamOf）。
 func outputLimitOf(gen fwllm.Generator, fallback fwllm.OutputLimitParam) fwllm.OutputLimitParam {
 	if g, ok := gen.(interface{ OutputLimitParam() fwllm.OutputLimitParam }); ok {
 		return g.OutputLimitParam()
@@ -588,6 +589,7 @@ func upstreamMessage(err error) string {
 	var oe *openai.APIError
 	var re *openai.RequestError
 	var ae *anthropic.Error
+	var ue *fwllm.UpstreamError // 适配器直接发 HTTP 时拿到的错误体（Responses）
 	switch {
 	case errors.As(err, &oe):
 		if oe.Message != "" {
@@ -597,6 +599,8 @@ func upstreamMessage(err error) string {
 		raw = string(re.Body)
 	case errors.As(err, &ae):
 		raw = ae.RawJSON()
+	case errors.As(err, &ue):
+		raw = string(ue.Body)
 	}
 	if raw == "" {
 		return ""
