@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import type { NodeProps } from '@xyflow/react'
 import type { GraphNode, LeadSpec } from '@/api/explorationgraph'
-import type { ExplorationFlowNode } from '../layout'
+import type { ExplorationFlowNode, ExplorationNodeData } from '../layout'
 import { LEAD_ACCENT } from '../kindTheme'
 
 // 连线端点要在 React Flow 的节点上下文里才能渲染，这里只看卡片本身
@@ -27,8 +27,8 @@ const fact = (o: Partial<GraphNode> = {}): GraphNode =>
     ...o,
   }) as GraphNode
 
-function renderCard(node: GraphNode) {
-  const props = { data: { node } } as unknown as NodeProps<ExplorationFlowNode>
+function renderCard(node: GraphNode, data: Partial<ExplorationNodeData> = {}) {
+  const props = { data: { node, ...data } } as unknown as NodeProps<ExplorationFlowNode>
   const { container } = render(<ExplorationNodeCard {...props} />)
   return { card: container.querySelector('.exp-card') as HTMLElement, container }
 }
@@ -55,7 +55,26 @@ describe('ExplorationNodeCard 的线索标记', () => {
     expect(lead.style.background).not.toContain(LEAD_ACCENT)
   })
 
-  it('已关闭的线索：脊线与徽章都撤掉，头部留「线索已关闭」并带原因', () => {
+  it('已关闭且被跟进过的线索：脚印保留但换中性色，描边还原——这条路走过了', () => {
+    const { card, container } = renderCard(
+      fact({ lead: SPEC, lead_closed: { kind: 'exhausted', reason: '之前的动作已做过' } }),
+      { leadFollowed: true },
+    )
+
+    expect(card.classList.contains('exp-card-lead')).toBe(false)
+    const mark = container.querySelector('.exp-lead-mark') as HTMLElement
+    expect(mark).not.toBeNull()
+    expect(card.contains(mark)).toBe(false)
+    expect(mark.classList.contains('text-text-secondary')).toBe(true)
+    const icon = mark.querySelector('svg') as SVGElement
+    expect(icon.style.color).toBe('')
+    expect(card.firstElementChild?.className).toContain('pr-9')
+    expect(screen.queryByText('线索已关闭')).toBeNull()
+    expect(mark.getAttribute('title')).toContain('已走过的线索')
+    expect(mark.getAttribute('title')).toContain('之前的动作已做过')
+  })
+
+  it('已关闭但没被跟进的线索：什么标记都没有——不值得走的东西不留脚印', () => {
     const { card, container } = renderCard(
       fact({ lead: SPEC, lead_closed: { kind: 'out_of_scope', reason: '不在本期范围' } }),
     )
@@ -63,7 +82,7 @@ describe('ExplorationNodeCard 的线索标记', () => {
     expect(card.classList.contains('exp-card-lead')).toBe(false)
     expect(container.querySelector('.exp-lead-mark')).toBeNull()
     expect(card.firstElementChild?.className).toContain('pr-3')
-    expect(screen.getByText('线索已关闭').getAttribute('title')).toBe('超出任务目标：不在本期范围')
+    expect(screen.queryByText('线索已关闭')).toBeNull()
   })
 
   it('不是线索的观测：什么标记都没有', () => {
