@@ -42,6 +42,7 @@ func (h *Handler) runCognition(
 
 		ToolCalls: h.ToolCalls,
 		Tasks:     h.Tasks,
+		Runs:      h.AgentRuns,
 
 		Findings:    h.Findings,
 		Corpus:      h.Corpus,

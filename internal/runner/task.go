@@ -67,13 +67,39 @@ func (h *Handler) executeTask(
 	}
 	// run 无论以何种原因结束（收敛、终止、暂停、停机中断、出错），都结束本任务在沙盒里遗留
 	// 的进程与浏览器会话：续跑的 run 从探索图恢复，不依赖上一 run 的进程。独立 ctx——任务
-	// ctx 此时可能已取消。
-	defer h.releaseSandbox(taskLogger, taskID)
+	// ctx 此时可能已取消。唯一的例外是被回收且任务已有后继 run：沙盒归它（见 sandboxHandedOver）。
+	handedOver := false
+	defer func() {
+		if !handedOver {
+			h.releaseSandbox(taskLogger, taskID)
+		}
+	}()
 
-	// 执行四Agent认知循环
-	report, err := h.runCognition(ctx, taskLogger, tk, p.AgentRunID, virtualHost, p.ConversationID, installed)
+	// 执行四Agent认知循环（测试以 runLoop 替身指定循环的结局）
+	loop := h.runLoop
+	if loop == nil {
+		loop = h.runCognition
+	}
+	report, err := loop(ctx, taskLogger, tk, p.AgentRunID, virtualHost, p.ConversationID, installed)
 
 	exit := classifyRunExit(ctx.Err(), err, report.StopReason)
+
+	// 终态回写的独立短超时 ctx——任务 ctx 可能已被上游超时收紧。
+	doneCtx, doneCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer doneCancel()
+
+	// 被回收：恢复监控判本 run 停摆（或任务暂停、终态）时已把 run 行落定，任务归后继 run。
+	// 本 run 只退出——不写 run 行与任务行；沙盒任务资源只在任务没有存活的后继 run 时才释放。
+	// 曾有一轮 run 被判停摆并重投之后继续在进程里跑了四十分钟，与四轮后继 run 同时在同一个
+	// 任务上规划。
+	if exit == runExitReclaimed {
+		handedOver = h.sandboxHandedOver(doneCtx, taskLogger, taskID, p.AgentRunID)
+		taskLogger.Info().Bool("sandbox_handed_over", handedOver).
+			Msg("本 run 已被回收：任务由后继 run 接手，收尾不写 run 行与任务行")
+		// 任务已被恢复监控终止时（中断达上限），会话身份照常回收；任务还在进行就不动。
+		h.reclaimIfEnded(taskLogger, taskID, virtualHost)
+		return nil
+	}
 
 	// 中断（进程停机 / asynq 租约丢失）：任务没有结束，只是本进程不再跑它。run 落
 	// aborted（不计入恢复监控的中断上限——那只数 error run），task 保持 active、
@@ -99,10 +125,6 @@ func (h *Handler) executeTask(
 	}
 
 	// agent_run 终态回写：审计面不残留 running 脏态。
-	// 独立短超时 ctx——任务 ctx 可能已被上游超时收紧。
-	doneCtx, doneCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer doneCancel()
-
 	if exit == runExitPaused {
 		// 暂停的 run 未抵达目标终点：落 aborted（区别于自然收敛的 done）；
 		// task 不迁移、时间线不落节点（「已暂停」节点由 api 的暂停操作落）。
@@ -169,6 +191,19 @@ func (h *Handler) completeTask(ctx context.Context, taskID string, report cognit
 		return h.Tasks.CompleteConverged(ctx, taskID, report.GoalBasis)
 	}
 	return h.Tasks.Complete(ctx, taskID)
+}
+
+// sandboxHandedOver 报告被回收的 run 退出时，任务在沙盒里的进程与浏览器会话是否已归后继 run：
+// 任务另有存活的 run（恢复监控重投的）就是。没有后继（任务已暂停或被终止，只回收了 run 行）
+// 时由本 run 释放。读不到时按已移交处理：两种错的代价不对称——多留的进程下次释放同一任务时
+// 一并清理，错释放会打断后继 run 正在跑的工具、在探索图上留下假失败。
+func (h *Handler) sandboxHandedOver(ctx context.Context, taskLogger zerolog.Logger, taskID, runID string) bool {
+	live, err := h.AgentRuns.LiveByTask(ctx, taskID)
+	if err != nil {
+		taskLogger.Warn().Err(err).Msg("读取任务的存活 run 失败：沙盒任务资源按已移交处理，本 run 不释放")
+		return true
+	}
+	return live != nil && live.ID != runID
 }
 
 // reclaimIfEnded 在 run 收尾落定任务状态之后回收会话身份：只回收确已结束的任务——收敛
@@ -298,6 +333,7 @@ const (
 	runExitCompleted   runExit = iota // 自然收敛：run completed，task completed
 	runExitTerminated                 // 任务行已被停止方写成终态（用户停止 / 判死）：run aborted，任务行不动
 	runExitTimedOut                   // run 超时：run aborted，task 由 runner 终止
+	runExitReclaimed                  // 被回收：run 行已被恢复监控落定、后继 run 接手——run 行与任务行都不写
 	runExitPaused                     // 用户暂停：run aborted，task 保持 active+paused
 	runExitInterrupted                // 进程停机 / 租约丢失：run aborted，task 保持 active，由恢复监控续跑
 	runExitFailed                     // 执行出错：failTask（run error，task aborted）
@@ -309,8 +345,12 @@ const (
 // 丢失——两者都是「本进程不再跑它」，不是任务结束。run 超时是 DeadlineExceeded，由 runner 终止
 // 任务。用户停止时任务行早已是终态（停止方写入，循环据此退出），收尾不再碰任务行：停止后
 // 紧接着续接会重开任务，旧 run 迟到的收尾若再写任务行，会把刚续接的任务又终止一次。
+// 被回收优先于一切：run 行已由恢复监控落定，再写只会被拒；恰逢停机也一样，没有可写的。
 // 暂停优先于中断：两者都不动任务，暂停还要保留 paused 标记交给继续操作。
 func classifyRunExit(ctxErr, err error, stopReason string) runExit {
+	if err == nil && stopReason == cognition.StopReasonReclaimed {
+		return runExitReclaimed
+	}
 	if err == nil && stopReason == cognition.StopReasonPaused {
 		return runExitPaused
 	}

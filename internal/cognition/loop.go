@@ -42,7 +42,8 @@ import (
 )
 
 // RunActivity 向所属 run 的存活心跳登记一个在途操作：until 是它最晚结束的时刻，返回的撤销函数
-// 在操作结束时调用。接口在使用方定义；*runner.Heartbeats 满足它。
+// 在操作结束时调用。恢复监控只凭心跳判定一轮 run 是否还在被推进，所以凡是有期限的等待——
+// 在途的工具调用、规划者失败后的冷却——都经它登记；接口在使用方定义，*runner.Heartbeats 满足它。
 type RunActivity interface {
 	Busy(runID string, until time.Time) (release func())
 }
@@ -76,6 +77,9 @@ type Deps struct {
 	// 遥测后端（toolRecordInterceptor 用）
 	ToolCalls *toolinvocation.Store
 	Tasks     *task.Store
+	// Runs 是 agent_run 的行面：任务行监视据此发现本 run 已被恢复监控回收（nil = 不监视，只供
+	// 不经 runner 的调用方测试使用）。
+	Runs RunStateReader
 
 	// 工具域存储
 	Findings *finding.Store
@@ -102,8 +106,8 @@ type Deps struct {
 	// 一起决定动作停摆的判定时长（executor.StallTimeout）。
 	StepLLMTimeout time.Duration
 
-	// RunActivity 把在途的工具调用登记到所属 run 的存活心跳（由 runner 提供；nil = 不登记）。
-	// 模型调用由 runner 在调用链上自行登记。
+	// RunActivity 把在途的工具调用与规划者的冷却登记到所属 run 的存活心跳（由 runner 提供；
+	// nil = 不登记）。模型调用由 runner 在调用链上自行登记。
 	RunActivity RunActivity
 
 	// ContextRatios 是各角色的上下文历史预算占比（DB compaction 组在任务开始时
@@ -220,10 +224,12 @@ func (d *Deps) run(
 	lifecycle.Start()
 	defer lifecycle.Stop()
 
-	// 任务行监视：终态 / 暂停 → 停 agents、携精确停止原因结束本 run。
+	// 任务行监视：终态 / 暂停 / 本 run 被回收 → 停 agents、携精确停止原因结束本 run。
 	stopWatch := (&taskWatcher{
 		taskID: taskID,
+		runID:  d.AgentRunID,
 		tasks:  d.Tasks,
+		runs:   d.Runs,
 		goal:   root.Goal(),
 		stopRun: func(reason string) {
 			lifecycle.Stop()
@@ -419,6 +425,7 @@ func (d *Deps) assembleStack(
 		Logger:        d.Logger.With().Str("component", "planner_agent").Logger(),
 		FunctionTools: cfgs.planner.FunctionTools,
 		OnConverged:   detector.Converge,
+		Activity:      d.RunActivity,
 	})
 
 	// monitor（LLM 档位 = agent.complexity；provider 每次评估现取，见 monitor.evaluate）

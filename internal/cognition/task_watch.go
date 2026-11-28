@@ -1,7 +1,9 @@
 // task_watch.go 任务行监视：认知循环观察任务生命周期的唯一接入点。
 //
 // 暂停 / 继续 / 停止只写任务行（与 API 响应同事务生效，没有投递失败一说）；循环按固定
-// 节奏读任务行，把终态与暂停转成进程内的停止信号。
+// 节奏读任务行，把终态与暂停转成进程内的停止信号。同一节奏也读自己这一轮 run 的行：恢复
+// 监控回收一轮 run 只写 run 行（标 error / aborted）并重投后继 run，旧 run 要从这里知道
+// 自己已被接手。
 
 package cognition
 
@@ -11,6 +13,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/V3teran/liusha/internal/agentrun"
 	"github.com/V3teran/liusha/internal/logx"
 	"github.com/V3teran/liusha/internal/task"
 )
@@ -24,6 +27,11 @@ type TaskStateReader interface {
 	GetByID(ctx context.Context, id string) (task.Task, error)
 }
 
+// RunStateReader 是监视需要的 run 行面（最小接口，*agentrun.Store 天然满足）。
+type RunStateReader interface {
+	GetByID(ctx context.Context, id string) (agentrun.Run, error)
+}
+
 // StopReasonPaused 是暂停退出的停止原因（导出供 runner 收尾分流）：
 // executeTask 据此识别——run 落 aborted、task 保持 active、目标保持 open、
 // 会话身份不回收（继续时复用）。
@@ -33,16 +41,25 @@ const StopReasonPaused = "user_paused"
 // （用户停止 / 判死），本 run 携此原因落 aborted，收尾不再写任务行。
 const StopReasonTerminated = "task_terminated"
 
-// taskWatcher 轮询任务行：终态或暂停即停 agents、携停止原因结束本 run；目标被调整即
-// 通知（规划者立即按新目标重规划、监察者立即复核在途动作）。通知只让变化更快生效，
-// 正确性不依赖它：规划结论以目标依据为前置落图（见 explorationgraph.GoalBasis）。
+// StopReasonReclaimed 是本 run 被回收的停止原因：run 行已不是 running——恢复监控判它停摆
+// （存活心跳停止续约）并重投了后继 run，或任务暂停、终态时只回收了 run 行。本 run 携此原因
+// 退出，收尾不写 run 行与任务行，沙盒任务资源跟随后继 run（见 runner 的 executeTask）。
+const StopReasonReclaimed = "run_reclaimed"
+
+// taskWatcher 轮询任务行与本 run 的行：终态、暂停或本 run 被回收即停 agents、携停止原因结束
+// 本 run；目标被调整即通知（规划者立即按新目标重规划、监察者立即复核在途动作）。通知只让
+// 变化更快生效，正确性不依赖它：规划结论以目标依据为前置落图（见 explorationgraph.GoalBasis）。
 type taskWatcher struct {
 	taskID        string
+	runID         string // 本轮认知循环的 agent_run.id
 	tasks         TaskStateReader
+	runs          RunStateReader
 	goal          string              // 上次看到的目标（run 开始时的根目标）
 	stopRun       func(reason string) // 停 agents 并以 reason 结束本 run
 	onGoalChanged func()              // 目标被调整
 	logger        zerolog.Logger
+	// interval 是轮询周期；零值取 taskWatchInterval（测试调小）。
+	interval time.Duration
 }
 
 // start 启动轮询，返回停止函数。只等 ctx 退出是不够的：run 被中止后 ctx 依然存活（它
@@ -53,7 +70,11 @@ func (w *taskWatcher) start(ctx context.Context) (stop func()) {
 	stopCh := make(chan struct{})
 	logx.Go(w.logger, "task-watch", func() {
 		defer close(done)
-		ticker := time.NewTicker(taskWatchInterval)
+		interval := w.interval
+		if interval <= 0 {
+			interval = taskWatchInterval
+		}
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -74,8 +95,22 @@ func (w *taskWatcher) start(ctx context.Context) (stop func()) {
 	}
 }
 
-// observe 读一次任务行并据此处置，返回本 run 是否已被结束。读失败记录后等下一轮。
+// observe 读一次 run 行与任务行并据此处置，返回本 run 是否已被结束。读失败记录后等下一轮。
+//
+// run 行先于任务行：回收一旦落定，再按任务状态收尾就多此一举（去写已被别人写过的 run 行、
+// 释放已归后继 run 的沙盒资源）。
 func (w *taskWatcher) observe(ctx context.Context) bool {
+	if w.runs != nil {
+		run, err := w.runs.GetByID(ctx, w.runID)
+		switch {
+		case err != nil:
+			w.logger.Warn().Err(err).Msg("读取 run 行失败（下轮重试）")
+		case run.Status != agentrun.StatusRunning:
+			w.logger.Info().Str("status", string(run.Status)).Msg("观察到本 run 已被回收，停止 agents 并结束本 run")
+			w.stopRun(StopReasonReclaimed)
+			return true
+		}
+	}
 	tk, err := w.tasks.GetByID(ctx, w.taskID)
 	if err != nil {
 		w.logger.Warn().Err(err).Msg("读取任务行失败（下轮重试）")

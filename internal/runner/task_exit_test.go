@@ -27,6 +27,9 @@ func TestClassifyRunExit(t *testing.T) {
 		{"用户停止（任务行已终态）", nil, nil, cognition.StopReasonTerminated, runExitTerminated},
 		{"run 超时（deadline）", context.DeadlineExceeded, nil, cognition.StopReasonCancelled, runExitTimedOut},
 		{"暂停", nil, nil, cognition.StopReasonPaused, runExitPaused},
+		// run 行已被恢复监控回收（后继 run 已接手任务）：run 行与任务行都不写，恰逢停机也一样
+		{"被回收", nil, nil, cognition.StopReasonReclaimed, runExitReclaimed},
+		{"被回收且恰逢停机", context.Canceled, nil, cognition.StopReasonReclaimed, runExitReclaimed},
 		{"执行出错", nil, errors.New("agent 故障"), "", runExitFailed},
 		{"进程停机：handler ctx 取消", context.Canceled, nil, "context_cancelled", runExitInterrupted},
 		{"进程停机且循环带出取消错误", context.Canceled, fmt.Errorf("cognition: %w", context.Canceled), "", runExitInterrupted},
