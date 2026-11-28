@@ -26,6 +26,9 @@ func TestOutputCapture_UnderThresholdKeepsEverythingInMemory(t *testing.T) {
 		got.stdoutBytes != 20 || got.stderrBytes != 10 || got.stdoutFile != "" || got.stderrFile != "" {
 		t.Fatalf("合计没超过阈值应原样返回、不落盘: %+v", got)
 	}
+	if got.stdoutUnsaved != 0 || got.stderrUnsaved != 0 {
+		t.Fatalf("没落盘的流没有「没写进文件」可言，不该报未留档: %+v", got)
+	}
 	if _, err := os.Stat(console); !os.IsNotExist(err) {
 		t.Fatal("没有落盘就不该有 console/ 目录")
 	}
@@ -223,6 +226,9 @@ func TestHandleExec_UnderThresholdDoesNotSave(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(h.root, "asg", "task", consoleDirName)); !os.IsNotExist(err) {
 		t.Fatal("没超过阈值不该有 console/ 目录")
 	}
+	if len(res.Warnings) != 0 {
+		t.Fatalf("没超过阈值不该有任何提示: %v", res.Warnings)
+	}
 }
 
 // 不带落盘阈值（browser_drive 这类调用方）：与过去一致——输出原样返回、不落盘。
@@ -237,6 +243,9 @@ func TestHandleExec_NoThresholdKeepsLegacyBehaviour(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(h.root, "asg", "legacy", consoleDirName)); !os.IsNotExist(err) {
 		t.Fatal("不带阈值不该有 console/ 目录")
+	}
+	if len(res.Warnings) != 0 {
+		t.Fatalf("不带阈值不该有任何提示: %v", res.Warnings)
 	}
 }
 
