@@ -164,7 +164,8 @@ func (c *streamCapture) finish() (text string, size int64, file string, unsaved 
 	if c.owner.hasSpilled() && c.file == nil && c.err == nil && len(c.keep.buf) > 0 && !c.keep.truncated() {
 		c.open()
 	}
-	if c.file != nil {
+	spilled := c.file != nil
+	if spilled {
 		if cerr := c.file.Close(); cerr != nil {
 			c.fail(cerr)
 		}
@@ -179,7 +180,12 @@ func (c *streamCapture) finish() (text string, size int64, file string, unsaved 
 	if c.err != nil {
 		return string(buf), c.total, "", 0, c.err
 	}
-	return string(buf), c.total, sandbox.AgentPath(c.path), c.total - c.saved, nil
+	// 「没写进文件」只对落了盘的流有意义：没落盘的流本来就没有文件，已写字节数是 0，相减会把
+	// 整个输出都报成未留档——一条假警报会挂在几乎每条命令的结果后面（落盘是少数情况）。
+	if spilled {
+		unsaved = c.total - c.saved
+	}
+	return string(buf), c.total, sandbox.AgentPath(c.path), unsaved, nil
 }
 
 // tailBuffer 保留最后写入的 limit 字节。内容没有超过 limit 时就是全部内容；一旦超过就转入一个
