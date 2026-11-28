@@ -9,20 +9,21 @@
  * 点选节点后的三个状态由上层写进包装类（选中 / 来路上 / 无关），样式在 exploration.css；
  * 那里用到的类别色相经 CSS 变量 --exp-accent 取自这里。
  *
- * 线索的标记有三态（线索是事实观察带的高价值延伸说明：意外发现、有希望带来重大进展的方向）：
- * 开着（待深挖）——四边橙色描边（.exp-card-lead）+ 右上角橙色脚印（LeadMark）；被跟进过且已
- * 关闭——脚印换正文色（LeadMarkFollowed）+ 同款正文色描边（.exp-card-lead-followed），「这条路
- * 走过了」的留痕；未被跟进就关闭——无任何标记，不值得走的东西不留脚印。脚印渲染在卡片外面：
- * 卡片裁切溢出内容，脚印要探出角上。描边与脚印的颜色由卡片写入的 --exp-lead 决定：开着的取
- * 线索的 LEAD_ACCENT，走过的取正文色。关闭的类别与理由在详情面板。
+ * 线索的标记有四态（线索是事实观察带的高价值延伸说明：意外发现、有希望带来重大进展的方向）：
+ * 待深挖（开着、没人认领）——四边橙色描边（.exp-card-lead）+ 右上角橙色脚印（LeadMark）；跟进
+ * 中（被开跑中的动作认领）——脚印与描边换跟进连线的青色（LeadMarkActive / .exp-card-lead-
+ * active）；已走过（关闭且曾被认领）——脚印与描边换灰色（LeadMarkFollowed / .exp-card-lead-
+ * followed，色取 --text-secondary）；没被认领就关闭——无任何标记，不值得走的东西不留脚印。脚印渲染在卡片外面：卡片
+ * 裁切溢出内容，脚印要探出角上。描边与脚印的颜色由卡片写入的 --exp-lead 决定。关闭的类别与
+ * 理由在详情面板。
  */
 
 import { memo, type CSSProperties } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { cn } from '@/lib/utils'
-import { kindProfile, leadHint, nodeChips, nodeTitle, LEAD_ACCENT } from '../kindTheme'
+import { kindProfile, leadHint, nodeChips, nodeTitle, LEAD_ACCENT, PURSUES_ACCENT } from '../kindTheme'
 import type { ExplorationFlowNode } from '../layout'
-import { LeadMarkFollowed, LeadMark } from '../LeadMark'
+import { LeadMarkActive, LeadMarkFollowed, LeadMark } from '../LeadMark'
 
 export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode>) => {
   const { node } = data
@@ -30,7 +31,15 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
   const Icon = profile.icon
   const title = nodeTitle(node) || '（无内容）'
   const chips = nodeChips(node)
-  const leadState = !chips.lead ? 'none' : !chips.lead.closed ? 'open' : data.leadFollowed ? 'followed' : 'none'
+  const leadState = !chips.lead
+    ? 'none'
+    : chips.lead.closed
+      ? data.leadFollowed
+        ? 'walked'
+        : 'none'
+      : data.leadActive
+        ? 'active'
+        : 'idle'
 
   return (
     <>
@@ -40,15 +49,17 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
           'pl-3 shadow-xs transition-[background-color,border-color,box-shadow] duration-150',
           'hover:border-border-strong hover:shadow-md',
           node.state === 'running' && 'exp-card-running',
-          leadState === 'open' && 'exp-card-lead',
-          leadState === 'followed' && 'exp-card-lead-followed',
+          leadState === 'idle' && 'exp-card-lead',
+          leadState === 'active' && 'exp-card-lead-active',
+          leadState === 'walked' && 'exp-card-lead-followed',
         )}
         style={
           {
             background: `color-mix(in srgb, ${profile.accent} 10%, var(--surface))`,
             '--exp-accent': profile.accent,
-            // 开着的线索描边取线索的暖橙；已走过的取正文色——脚印与描边同一颜色
-            '--exp-lead': leadState === 'followed' ? 'var(--text)' : LEAD_ACCENT,
+            // 描边与脚印永远同色：待深挖取线索的暖橙，跟进中取跟进连线的青，已走过取中性灰
+            '--exp-lead':
+              leadState === 'active' ? PURSUES_ACCENT : leadState === 'walked' ? 'var(--text)' : LEAD_ACCENT,
           } as CSSProperties
         }
       >
@@ -101,8 +112,9 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
           style={{ width: 7, height: 7, background: profile.accent, border: '2px solid var(--surface)' }}
         />
       </div>
-      {leadState === 'open' && <LeadMark title={leadHint({ closed: false, detail: '', spec: chips.lead!.spec })} />}
-      {leadState === 'followed' && <LeadMarkFollowed title={`已走过的线索（${chips.lead!.detail}）`} />}
+      {leadState === 'idle' && <LeadMark title={leadHint({ closed: false, detail: '', spec: chips.lead!.spec })} />}
+      {leadState === 'active' && <LeadMarkActive title={leadHint({ closed: false, detail: '', spec: chips.lead!.spec })} />}
+      {leadState === 'walked' && <LeadMarkFollowed title={`已走过的线索（${chips.lead!.detail}）`} />}
     </>
   )
 })

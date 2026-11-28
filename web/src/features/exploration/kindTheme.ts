@@ -115,6 +115,8 @@ export const OBSERVATION_CATEGORY_META: Record<string, string> = {
  * 走到头」，两件事不共用一个颜色。
  */
 export const LEAD_ACCENT = '#ea580c'
+/** 跟进连线的青色：被认领推进中的线索脚印与描边取它，与跟进线同色 */
+export const PURSUES_ACCENT = '#0d9488'
 
 /** 线索关闭类别的展示文案（与后端 explorationgraph.LeadClosureKind 同一词表） */
 export const LEAD_CLOSURE_META: Record<string, string> = {

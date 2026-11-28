@@ -22,7 +22,7 @@ import './exploration.css'
 import { ExplorationNodeCard } from './nodes/ExplorationNodeCard'
 import { kindProfile } from './kindTheme'
 import { EDGE_LOOKS, EDGE_LOOK_LABELS, EDGE_LOOK_ORDER, NODE_HEIGHT, type ExplorationFlowNode } from './layout'
-import { LeadMarkFollowed, LeadMark } from './LeadMark'
+import { LeadMark } from './LeadMark'
 import { CHAIN_MARGIN, anyOutside, detailReserve, frameNodes } from './viewport'
 
 const nodeTypes = { exploration: ExplorationNodeCard }
@@ -222,10 +222,15 @@ function GraphCanvasInner({
             执行中
           </span>
           <span className="mx-0.5 h-3 w-px bg-border" aria-hidden />
-          {/* 图例里的线索样例就是立在卡片右上角的那串脚印：同一个组件 */}
-          <span className="flex items-center gap-1.5">
-            <LeadMark aria-hidden title="执行者已踩通、尚未推进到结论的路径" />
-            <LeadMarkFollowed aria-hidden title="被动作认领推进过、随后关闭的线索" />
+          {/* 图例只教一个词汇：脚印 = 线索标记。三态（橙 = 待深挖、青 = 跟进中、灰 = 已走过）
+              不在图例里枚举——它们由图上节点的实际颜色即时呈现，完整颜色码在这条悬停说明里。
+              样例比卡片上的脚印小一号（h-5）：样本是文字的陪伴，不与文字争视觉 */}
+          <span className="flex items-center gap-1">
+            <LeadMark
+              aria-hidden
+              className="h-5 w-5"
+              title="线索标记：橙 = 待深挖，青 = 动作跟进中，灰 = 已走过（详情见各节点的悬停说明）"
+            />
             线索
           </span>
         </div>
