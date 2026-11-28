@@ -55,13 +55,15 @@ describe('ExplorationNodeCard 的线索标记', () => {
     expect(lead.style.background).not.toContain(LEAD_ACCENT)
   })
 
-  it('已关闭且被认领过的线索（图上有 pursues 边）：脚印保留但换正文色，描边还原——这条路走过了', () => {
+  it('已关闭且被认领过的线索（图上有 pursues 边）：脚印与描边都换正文色——这条路走过了', () => {
     const { card, container } = renderCard(
       fact({ lead: SPEC, lead_closed: { kind: 'exhausted', reason: '之前的动作已做过' } }),
       { leadFollowed: true },
     )
 
     expect(card.classList.contains('exp-card-lead')).toBe(false)
+    expect(card.classList.contains('exp-card-lead-followed')).toBe(true)
+    expect(card.style.getPropertyValue('--exp-lead').trim()).toBe('var(--text)')
     const mark = container.querySelector('.exp-lead-mark') as HTMLElement
     expect(mark).not.toBeNull()
     expect(card.contains(mark)).toBe(false)
