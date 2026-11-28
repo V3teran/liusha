@@ -240,7 +240,8 @@ function ApiKeyField({
           type="button"
           onClick={() => setReveal((v) => !v)}
           aria-label={reveal ? '隐藏密钥' : '显示密钥'}
-          className="absolute inset-y-0 right-2.5 flex items-center text-text-tertiary transition-colors hover:text-text-secondary"
+          // 点击区 32px 宽（图标只有 14px）：WCAG 2.2 要求点击目标至少 24×24
+          className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-text-tertiary transition-colors hover:text-text-secondary"
         >
           {reveal ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
