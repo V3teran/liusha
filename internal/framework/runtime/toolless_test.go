@@ -16,7 +16,7 @@ import (
 // 收尾。把失败回给模型再等它重试换不来东西——实测规划者被追问线索交代时连着两次去读探索图。
 func TestRun_ToolCallWithoutToolsEndsInWrapUp(t *testing.T) {
 	toolCall := llm.Response{ToolCalls: []llm.ToolCall{{ID: "c1", Name: "graph_read", Arguments: json.RawMessage(`{}`)}}}
-	provider := &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{toolCall, {Content: planJSON}}}}
+	provider := &limitedProvider{recordingProvider: &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{toolCall, {Content: planJSON}}}}, limit: 8192}
 	config := structuredConfig(provider)
 
 	result, err := NewReActRuntime().Run(context.Background(), config)
@@ -28,7 +28,7 @@ func TestRun_ToolCallWithoutToolsEndsInWrapUp(t *testing.T) {
 	assert.Equal(t, llm.RoleTool, messages[len(messages)-2].Role, "工具调用要有回执，历史才是合法的往来")
 	assert.Equal(t, "工具 graph_read 未执行：本次运行没有提供工具。", messages[len(messages)-2].Content)
 	assert.True(t, strings.HasPrefix(lastUserMessage(wrapUp), whyNoFinalAnswer))
-	assert.Equal(t, maxForcedOutputTokens, wrapUp.MaxTokens, "这是一次收尾，不是循环里的再一次调用")
+	assert.Equal(t, 8192, wrapUp.MaxTokens, "这是一次收尾：按 provider 的上限请求预算，不是循环里的再一次调用")
 	assert.Equal(t, planJSON, result.FinalAnswer)
 	assert.Nil(t, result.InternalError)
 }
@@ -54,11 +54,11 @@ func TestRun_UnregisteredToolInTooledRunIsBouncedBack(t *testing.T) {
 // 收尾调用自己的输出也被上限截断：验收取不出完整的输出，它是已知没写完的，不当终稿交付——
 // 放大输出预算再要一次，并如实说明上一次是被截断的。
 func TestRun_TruncatedRestatementIsAskedAgainWithBiggerBudget(t *testing.T) {
-	provider := &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{
+	provider := &limitedProvider{recordingProvider: &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{
 		{Content: truncatedPlan, FinishReason: "length", Usage: llm.Usage{OutTokens: 1500}},
 		{Content: truncatedPlan, FinishReason: "length", Usage: llm.Usage{OutTokens: 1500}},
 		{Content: planJSON, FinishReason: "stop", Usage: llm.Usage{OutTokens: 900}},
-	}}}
+	}}}, limit: 16384}
 	config := structuredConfig(provider)
 	config.MaxTokens = 1500
 

@@ -24,8 +24,6 @@ const draft = (over: Partial<ProviderConfig> = {}): ProviderConfig => ({
   base_url: 'https://x.example',
   default_model: 'm1',
   api_key: 'k',
-  context_window: 65536,
-  max_tokens: 4096,
   ...over,
 })
 
@@ -98,6 +96,13 @@ describe('providerForm 数字字段', () => {
   })
 })
 
+describe('上下文窗口与输出上限的缺省', () => {
+  it('新建的初值就是缺省，与后端唯一的出处同值：取当前旗舰模型的官方上限', () => {
+    expect(blankProvider().max_tokens).toBe(131072)
+    expect(blankProvider().context_window).toBe(1048576)
+  })
+})
+
 describe('providerInvalid', () => {
   it('context_window 为空串/0 时表单无效（保存禁用），>0 时有效', () => {
     expect(providerInvalid(draft({ context_window: '' as unknown as number }), true)).toBe(true)
@@ -120,14 +125,16 @@ describe('providerForm 校验（与后端 llmconfig.Validate 同口径）', () =
     expect(providerInvalid(draft({ base_url: 'u' }), true)).toBe(true)
   })
 
-  it('扩展思考预算：仅 Anthropic 生效，开启时 ≥1024 且小于 max_tokens（0 按 4096）', () => {
+  it('扩展思考预算：仅 Anthropic 生效，开启时 ≥1024 且小于 max_tokens（没填按缺省 131072，与后端同口径）', () => {
     const a = (budget: number | '', maxTokens: number | '' = 8192) =>
       draft({ type: 'anthropic', thinking_budget_tokens: budget, max_tokens: maxTokens })
     expect(thinkingBudgetError(a(0))).toBeUndefined()
     expect(thinkingBudgetError(a(4096))).toBeUndefined()
     expect(thinkingBudgetError(a(512))).toBeTruthy()
     expect(thinkingBudgetError(a(8192))).toBeTruthy()
-    expect(thinkingBudgetError(a(4096, 0))).toBeTruthy()
+    expect(thinkingBudgetError(a(65536, 0))).toBeUndefined()
+    expect(thinkingBudgetError(a(131072, 0))).toBeTruthy()
+    expect(thinkingBudgetError(a(131072, ''))).toBeTruthy()
     expect(thinkingBudgetError(draft({ type: 'openai_compat', thinking_budget_tokens: 512 }))).toBeUndefined()
     expect(providerInvalid(a(512), true)).toBe(true)
     expect(providerInvalid(a(4096), true)).toBe(false)

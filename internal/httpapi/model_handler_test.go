@@ -211,7 +211,8 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 		{"缺 base_url", map[string]any{"type": "openai_compat", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1}},
 		{"base_url 非完整地址", map[string]any{"type": "openai_compat", "base_url": "u", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1}},
 		{"新建缺 api_key", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "context_window": 1}},
-		{"context_window<=0", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 0}},
+		{"context_window 为负", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": -1}},
+		{"max_tokens 为负", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "max_tokens": -1}},
 		{"思考预算用于非 anthropic", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": 2048}},
 		{"思考预算过小", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 8192, "thinking_budget_tokens": 512}},
 		{"思考预算不小于 max_tokens", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 4096, "thinking_budget_tokens": 4096}},
@@ -252,6 +253,28 @@ func TestSaveProvider_WiresParams(t *testing.T) {
 	}
 	if string(fm.savedProvider.EncryptedAPIKey) != "sealed:sk-real-secret" {
 		t.Fatalf("api_key 应经加密器处理，不应是明文: %v", fm.savedProvider.EncryptedAPIKey)
+	}
+}
+
+// TestSaveProvider_FillsLimitDefaults：没填上下文窗口与单次最大输出 → 落成缺省后保存（缺省在
+// 入口落定，落库的行恒为正数；响应里带回的就是保存的值）。
+func TestSaveProvider_FillsLimitDefaults(t *testing.T) {
+	fm := &fakeModel{}
+	srv := newTestServer(t, Deps{Models: fm, KeyEncrypter: fakeEncrypter{}})
+	defer srv.Close()
+
+	code, body := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
+		"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k",
+	})
+	if code != 200 {
+		t.Fatalf("status=%d (%v)", code, body)
+	}
+	if fm.savedProvider.MaxTokens != llmconfig.DefaultMaxTokens || fm.savedProvider.ContextWindow != llmconfig.DefaultContextWindow {
+		t.Fatalf("没填的上限应落成缺省，实际 %+v", fm.savedProvider)
+	}
+	provider, _ := body["provider"].(map[string]any)
+	if provider["max_tokens"] != float64(llmconfig.DefaultMaxTokens) || provider["context_window"] != float64(llmconfig.DefaultContextWindow) {
+		t.Fatalf("响应应带回落成缺省后的值: %v", provider)
 	}
 }
 

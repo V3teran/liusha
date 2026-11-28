@@ -8,11 +8,6 @@ import (
 	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
-// maxForcedOutputTokens 是强制收尾请求输出预算的固定封顶：provider 没标自己的上限、调用方
-// 也没给预算时按它请求；调用方给了更小的预算时，翻倍放大到它为止。再高的值上游未必接受，
-// 把「截断重试」变成「请求报错」。provider 配置了更大的上限时以配置为准（见 completeForced）。
-const maxForcedOutputTokens = 16384
-
 // completeForced 执行收尾的 LLM 调用，输出没写完时自适应重试。
 //
 // 收尾调用的输入是整轮消息历史（含全部思考块），扩展思考对新预算的消耗随
@@ -20,10 +15,10 @@ const maxForcedOutputTokens = 16384
 // 重试没有意义。这里按 2× 逐次放大输出预算，并在重试间注入纠偏指令、如实说明
 // 上一次为什么没写完。返回最后一次响应与错误；err 非 nil 时响应不可用。
 //
-// 起始预算与封顶：调用方给了预算（如判定的 1500）按它起；没给按 provider 配置的单次最大
-// 输出（Router 标在 provider 上）——收尾不该比常规调用更容易被截断；两者都没有（测试替身）
-// 按 maxForcedOutputTokens。封顶取三者中最大的：不低于 provider 配置的上限，也不越过
-// maxForcedOutputTokens 去要上游未必接受的值。
+// 预算只有一个上界：provider 配置的单次最大输出（Router 标在 provider 上，llm.OutputLimitOf）。
+// 调用方给了更小的预算（如判定的 1500）从它起、翻倍放大到这个上界；没给就按它——收尾不该
+// 比常规调用更容易被截断。两者都没有（没经 Router 的 provider，如测试替身）就不设预算，
+// 走模型配置。运行时不另设固定封顶：缺省只有一个出处，不在这里再放一个数。
 func (r *reactRuntime) completeForced(
 	ctx context.Context,
 	config *ReActConfig,
@@ -43,10 +38,9 @@ func (r *reactRuntime) completeForced(
 	}
 
 	limit := llm.OutputLimitOf(config.LLMProvider)
-	ceiling := max(limit, config.MaxTokens, maxForcedOutputTokens)
-	budget := max(config.MaxTokens, limit)
-	if budget <= 0 {
-		budget = maxForcedOutputTokens
+	budget, ceiling := limit, max(limit, config.MaxTokens)
+	if config.MaxTokens > 0 {
+		budget = config.MaxTokens
 	}
 	const (
 		emptyDraft     = "正文为空——生成被截断"

@@ -48,10 +48,14 @@ export function baseUrlError(raw: string): string | undefined {
   return '需填完整地址，以 http:// 或 https:// 开头'
 }
 
-// 扩展思考预算的协议约束（与后端同口径）：开启时 ≥ 1024，且小于单次最大输出 tokens
-// （max_tokens 为 0/空时运行期按 4096 发送）。
+// 扩展思考预算的协议约束（与后端同口径）：开启时 ≥ 1024，且小于单次最大输出 tokens。
 const MIN_THINKING_BUDGET = 1024
-const DEFAULT_MAX_TOKENS = 4096
+
+// 上下文窗口与单次最大输出的缺省，与后端唯一的出处（llmconfig.DefaultContextWindow /
+// DefaultMaxTokens）同值：取当前旗舰模型的官方上限（上下文 1M、单次输出 128K）。它们只是上限，
+// 不多花钱；上限低于缺省的模型，上游拒绝输出上限时运行期自动下调。
+export const DEFAULT_CONTEXT_WINDOW = 1048576
+export const DEFAULT_MAX_TOKENS = 131072
 
 /** 扩展思考预算校验：仅 Anthropic 协议生效；0 = 关闭。 */
 export function thinkingBudgetError(d: ProviderConfig): string | undefined {
@@ -85,7 +89,11 @@ export function providerInvalid(d: ProviderConfig | null, isNew: boolean): boole
   )
 }
 
-/** 新建 provider 的空白初值：协议不预设（必须由用户选择），能力取保守值。 */
+/**
+ * 新建 provider 的空白初值：协议不预设（必须由用户选择），能力取保守值；上下文窗口与单次
+ * 最大输出取缺省（与后端同值）。此前预填的是 65536 / 4096——远低于旗舰模型的上限，推理模型
+ * 的思考计入输出，思考加正文轻易超过 4096，实测一个 provider 上 19% 的规划输出被截断。
+ */
 export function blankProvider(): ProviderConfig {
   return {
     code: '',
@@ -97,11 +105,11 @@ export function blankProvider(): ProviderConfig {
     key_present: false,
     auth_scheme: 'bearer',
     output_limit_param: 'max_tokens',
-    max_tokens: 4096,
+    max_tokens: DEFAULT_MAX_TOKENS,
     thinking_budget_tokens: 0,
     supports_tools: true,
     supports_vision: false,
-    context_window: 65536,
+    context_window: DEFAULT_CONTEXT_WINDOW,
     description: '',
     sort_order: 0,
     enabled: true,

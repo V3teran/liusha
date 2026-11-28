@@ -23,14 +23,12 @@ import (
 type AnthropicConfig struct {
 	BaseURL   string // 空 = 官方 https://api.anthropic.com
 	Model     string // 如 claude-sonnet-4-6
-	MaxTokens int    // Anthropic 这个字段必填，0 时本包默认填 4096
+	MaxTokens int    // 单次最大输出，协议必填：必须大于 0，由调用方按 provider 配置给值
 	// ThinkingBudget 是扩展思考预算（thinking.budget_tokens）。>0 时请求开启
 	// 扩展思考：模型先流式产出 thinking block（内部 CoT），再产出正文/tool_use。
 	// 0 = 不开启。必须 < MaxTokens。
 	ThinkingBudget int64
 }
-
-const anthropicDefaultMaxTokens = 4096
 
 // anthropicGen 实现 Generator。
 //
@@ -47,6 +45,8 @@ type anthropicGen struct {
 // NewAnthropic 构造无状态 Generator。
 //
 // client 由调用方从 ClientPool 取（共享 HTTP 连接池）；tools 不在此绑定。
+// maxTokens 必须大于 0：协议要求这个字段必填，框架不替调用方猜一个缺省——缺省只有一个出处
+// （业务侧 llmconfig.DefaultMaxTokens），在配置入口落定，这里拿不到值就是调用方的错。
 func NewAnthropic(_ context.Context, providerCode string, c AnthropicConfig, client *anthropic.Client) (Generator, error) {
 	if client == nil {
 		return nil, errors.New("anthropic: client 必填（从 ClientPool 取）")
@@ -54,17 +54,16 @@ func NewAnthropic(_ context.Context, providerCode string, c AnthropicConfig, cli
 	if c.Model == "" {
 		return nil, errors.New("anthropic: model 必填")
 	}
-	maxTokens := c.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = anthropicDefaultMaxTokens
+	if c.MaxTokens <= 0 {
+		return nil, errors.New("anthropic: max_tokens 必须大于 0（协议必填，由调用方按 provider 配置给值）")
 	}
-	if c.ThinkingBudget > 0 && c.ThinkingBudget >= int64(maxTokens) {
-		return nil, fmt.Errorf("anthropic: thinking budget %d 必须小于 max_tokens %d", c.ThinkingBudget, maxTokens)
+	if c.ThinkingBudget > 0 && c.ThinkingBudget >= int64(c.MaxTokens) {
+		return nil, fmt.Errorf("anthropic: thinking budget %d 必须小于 max_tokens %d", c.ThinkingBudget, c.MaxTokens)
 	}
 	return &anthropicGen{
 		client:         *client,
 		model:          c.Model,
-		maxTokens:      int64(maxTokens),
+		maxTokens:      int64(c.MaxTokens),
 		thinkingBudget: c.ThinkingBudget,
 		provider:       providerCode,
 	}, nil
