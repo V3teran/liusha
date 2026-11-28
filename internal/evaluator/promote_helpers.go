@@ -67,16 +67,23 @@ func (g *PromotionGate) checkMachineGuard(
 	return nil, true, nil
 }
 
-// executeLLMJudge 执行 LLM 判定
+// executeLLMJudge 执行 LLM 判定：输入带上本任务已坐实的结果，评估者据它判定本次坐实是不是
+// 其中某一条的再次确认。
 func (g *PromotionGate) executeLLMJudge(
 	ctx context.Context,
 	a Claim,
 	hyp string,
 	res Result,
 	replay func(context.Context, string) (Result, error),
+	confirmed []ConfirmedResult,
 ) (Verdict, error) {
-	verdict, err := g.judge.Judge(ctx, hyp, a.Repro, res.Evidence,
-		func(rctx context.Context) (Result, error) { return replay(rctx, "judge") })
+	verdict, err := g.judge.Judge(ctx, JudgeInput{
+		Hypothesis: hyp,
+		Recipe:     a.Repro,
+		Evidence:   res.Evidence,
+		Replay:     func(rctx context.Context) (Result, error) { return replay(rctx, "judge") },
+		Confirmed:  confirmed,
+	})
 	if err != nil {
 		return Verdict{}, fmt.Errorf("%w: verifier: LLM 判定失败（本次未出结论，不回退机器）: %w",
 			ErrJudgeUnavailable, err)

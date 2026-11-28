@@ -11,9 +11,10 @@
 //	    → Promote(attempt)
 //	    → 按信封 kind 选复现通道采证（recipe/assert 对本包不透明，形状归各配方形状；
 //	      没有通道的形状回显配方，由评估者自主取证）
-//	    → LLMJudge 终判（机器采证，LLM 持判定权）
+//	    → LLMJudge 终判（机器采证，LLM 持判定权；输入带着本任务已坐实的结果）
 //	    → RecordVerification(confirmed/refuted)  // 审计链：replays[] 含预跑+评估者每次复放
-//	    → confirmed: CreateNode(result) 进图 + 写 finding 表
+//	    → confirmed: 是既有结果的再次确认（评估者指明，或指纹规范键相同）→ 折叠为它的佐证
+//	    → confirmed: 否则 CreateNode(result) 进图 + 写 finding 表
 //	    └ refuted:   不进图（证据留 exploration_verification 供审计）
 //
 // 配方怎么执行归各配方形状的复现通道（装配时经 WithReplayer 注册），门只认 Replayer
@@ -112,6 +113,7 @@ type Verdict struct {
 	Reasoning    string          // 一句话评估理由（引用亲见差分）
 	RefuteReason string          // refuted 时评估者给出的反驳原因原文；合法性由 judgeRefuteReason 判定
 	Fingerprint  json.RawMessage // 主张指纹原文；空或形状损坏 = 不参与语义去重
+	DuplicateOf  string          // confirmed 且是既有结果的再次确认时为那条结果节点的 ID；空 = 独立主张
 }
 
 // claimFingerprintMetadataKey 是 result 节点 metadata 中指纹规范键的落库键。
@@ -303,8 +305,12 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 		return node, err
 	}
 
-	// 6. LLM 判定
-	verdict, err := g.executeLLMJudge(ctx, a, hyp, res, replay)
+	// 6. LLM 判定。本任务已坐实的结果交给评估者对照：它认得出换了说法的同一主张。
+	existing, err := g.graph.ListResults(ctx, a.TaskID)
+	if err != nil {
+		return nil, fmt.Errorf("verifier: 读取既有 result 失败: %w", err)
+	}
+	verdict, err := g.executeLLMJudge(ctx, a, hyp, res, replay, confirmedResults(existing))
 	if err != nil {
 		return nil, err
 	}
@@ -312,24 +318,31 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 	// 7. 聚合证据
 	final, evaluation := aggregateEvidence(res, tier, verdict.Verdict, verdict.Reasoning, replays)
 
-	// 8. 坐实先查语义去重：同一主张（同指纹规范键）的再次确认折叠为既有
-	// 结果的佐证。指纹缺失或形状损坏则不折叠。
+	// 8. 坐实先定归属：是既有结果的再次确认就折叠为它的佐证。评估者的指明优先——它对照过
+	// 既有结果的陈述；没有指明再按指纹规范键精确匹配（指纹缺失或形状损坏则不折叠）。
+	// 对照集在判定之后重读：并行的验证会在这次判定期间坐实别的主张。
+	existing, err = g.graph.ListResults(ctx, a.TaskID)
+	if err != nil {
+		return nil, fmt.Errorf("verifier: 读取既有 result 失败: %w", err)
+	}
 	fingerprintKey, class := "", ""
+	var duplicate *explorationgraph.Node
+	var basis string
 	if verdict.Verdict == VerdictConfirmed {
 		if key, ok := canonicalFingerprint(verdict.Fingerprint); ok {
 			fingerprintKey = key
 		}
 		class = claimClass(verdict.Fingerprint)
-	}
-	var duplicate *explorationgraph.Node
-	if fingerprintKey != "" {
-		duplicate, err = g.findConfirmedDuplicate(ctx, a.TaskID, fingerprintKey)
-		if err != nil {
-			return nil, err
+		if node := resultByID(existing, verdict.DuplicateOf); node != nil {
+			duplicate, basis = node, duplicateBasisJudge
+		} else if key := fingerprintKey; key != "" {
+			if node := resultByFingerprint(existing, key); node != nil {
+				duplicate, basis = node, duplicateBasisFingerprint
+			}
 		}
 	}
 	if duplicate != nil {
-		evaluation = withDuplicateInfo(evaluation, duplicate.ID, fingerprintKey)
+		evaluation = withDuplicateInfo(evaluation, duplicate.ID, basis, fingerprintKey)
 	}
 
 	// 9. 处理判定结果并记录验证到审计链
@@ -356,13 +369,14 @@ func (g *PromotionGate) Promote(ctx context.Context, a Claim) (*explorationgraph
 	case duplicate != nil:
 		// 12. 语义重复：既有发现即归属——不新建节点，返回既有节点让上游事件指向它
 		// （新证据已在审计链 replays 里）。重放交付：补齐既有节点此前可能失败的交付，
-		// finding 按结果节点幂等，不会重复或改写已有记录。归属记在审计链（withDuplicateInfo）。
+		// finding 按结果节点幂等，不会重复或改写已有记录。归属与依据记在审计链（withDuplicateInfo）。
 		if g.logger != nil {
 			g.logger.Info().
 				Str("node_id", a.NodeID).
 				Str("duplicate_of", duplicate.ID).
+				Str("duplicate_basis", basis).
 				Str("fingerprint", fingerprintKey).
-				Msg("同指纹发现已存在，本次确认折叠为佐证")
+				Msg("本次确认是既有结果的再次确认，折叠为佐证")
 		}
 		if err := g.deliverClaim(ctx, a, *duplicate, verID, final, tier); err != nil {
 			return nil, err
@@ -486,36 +500,46 @@ func Redeliver(ctx context.Context, graph ConfirmedResultReader, sink ClaimSink,
 	return nil
 }
 
-// findConfirmedDuplicate 在既有 verified result 中查找同指纹主张。
-// 对照键是归一后的指纹规范键；未带指纹的 result 不参与对照
-// （缺失指纹的发现保持原样，不影响其地位）。
-func (g *PromotionGate) findConfirmedDuplicate(ctx context.Context, taskID, key string) (*explorationgraph.Node, error) {
-	results, err := g.graph.ListResults(ctx, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("verifier: 语义去重查询既有 result 失败: %w", err)
+// resultByID 在既有结果里找指明的那一条（评估者指明的归属只认本任务图上确实存在的结果）。
+func resultByID(results []explorationgraph.Node, id string) *explorationgraph.Node {
+	if id == "" {
+		return nil
 	}
+	for i := range results {
+		if results[i].ID == id {
+			return &results[i]
+		}
+	}
+	return nil
+}
+
+// resultByFingerprint 在既有结果里找指纹规范键相同的那一条。未带指纹的结果不参与对照
+// （缺失指纹的发现保持原样，不影响其地位）。
+func resultByFingerprint(results []explorationgraph.Node, key string) *explorationgraph.Node {
 	for i := range results {
 		var m struct {
 			Fingerprint string `json:"claim_fingerprint"`
 		}
-		if json.Unmarshal(results[i].Metadata, &m) != nil || m.Fingerprint == "" {
+		if json.Unmarshal(results[i].Metadata, &m) != nil || m.Fingerprint != key {
 			continue
 		}
-		if m.Fingerprint == key {
-			return &results[i], nil
-		}
+		return &results[i]
 	}
-	return nil, nil
+	return nil
 }
 
-// withDuplicateInfo 把语义去重归属并入审计 JSON（解析失败退回原证据）。
-func withDuplicateInfo(evaluation json.RawMessage, existingID, key string) json.RawMessage {
+// withDuplicateInfo 把语义去重归属并入审计 JSON（解析失败退回原证据）：归属指向既有结果，
+// 依据写明是评估者的判定还是指纹相同；这次的指纹有就一并记下。
+func withDuplicateInfo(evaluation json.RawMessage, existingID, basis, key string) json.RawMessage {
 	merged := map[string]interface{}{}
 	if json.Unmarshal(evaluation, &merged) != nil {
 		return evaluation
 	}
 	merged["duplicate_of"] = existingID
-	merged["claim_fingerprint"] = key
+	merged["duplicate_basis"] = basis
+	if key != "" {
+		merged["claim_fingerprint"] = key
+	}
 	if b, err := json.Marshal(merged); err == nil {
 		return b
 	}

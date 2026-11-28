@@ -15,16 +15,19 @@
 
 {"verdict": "confirmed|refuted", "confidence": 0.0-1.0, "reasoning": "一句话评估理由（引用你亲见的证据）",
  "refute_reason": "not_reproducible|assert_not_discriminative|claim_invalid",
- "finding": {"class": "主张类别", "target": "主张作用的对象", "point": "对象上的具体作用点"}}
+ "finding": {"class": "主张类别", "target": "主张作用的对象", "point": "对象上的具体作用点"},
+ "duplicate_of": "R3"}
 
 - `verdict` 只有 `confirmed` / `refuted` 两个取值（系统按两态落图）
+- `confidence`：对结论的把握，0–1
 - `reasoning` 随结论落图：坐实时进结果的证据链，证伪时与反驳原因一起交给规划者
 - `refute_reason` 是证伪的类别：**refuted 时必填**，confirmed 时省略。规划者据它决定这个方向还能不能再试
   - `not_reproducible`：没取得主张成立的证据——复现不出、只偶尔出现、受外部干扰，或证据不足以判断；主张未被否定
   - `assert_not_discriminative`：配方的断言在正常情况下也会成立，构不成证据
   - `claim_invalid`：证据已取得，但它不支持主张（与对照没有差异、证据呈现的情况与主张相反，或所述内容不构成可交付的主张）
-- `finding` 是主张指纹，系统据此把同一主张的再次确认折叠为一条结果：**confirmed 时必填**，refuted 时省略
+- `finding` 是主张指纹，系统按它精确对照既有的结果：**confirmed 时必填**，refuted 时省略
   - `class`：主张类别（小写 snake_case），任务场景给出了类别词表就取其中最贴切的一个；没有词表时自拟，同一类主张始终用同一取值
   - `target`：主张作用的对象。http 配方写验证请求的「方法 + 不带查询串的 URL」（如 `GET http://host.local/items`）；steps 配方写步骤操作的对象
   - `point`：对象上主张生效的具体位置（如某个输入项的名字）；没有明确位置时留空字符串
   - 任务场景规定了某类主张的指纹写法时，`target` 与 `point` 按场景写、不按上面的配方规则：同一主张经不同配方确认，也必须落成同一个指纹
+- `duplicate_of`：本次坐实是「本任务已坐实的结果」里某一条的再次确认时，填那条结果的编号（如 `R3`），系统把这次确认折叠为它的佐证；是独立的主张、或 refuted 时省略

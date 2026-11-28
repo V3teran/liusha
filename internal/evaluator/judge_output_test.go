@@ -1,9 +1,13 @@
 package evaluator
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	evaluatorcontract "github.com/V3teran/liusha/internal/evaluator/contract"
 )
 
 // 判定终稿的验收就是判定解析器本身：说明文字夹着 JSON 也认——模型在 JSON 前后写的说明不是
@@ -23,6 +27,17 @@ func TestVerdictOutputCheck(t *testing.T) {
 			assert.NoError(t, err, answer)
 		} else {
 			assert.Error(t, err, answer)
+		}
+	}
+}
+
+// 判定契约逐一讲到判定 JSON 的每个字段：契约是评估者填写判定的唯一依据，与解析形状不得漂移。
+func TestContractDescribesVerdictFields(t *testing.T) {
+	typ := reflect.TypeOf(verdictJSON{})
+	for i := range typ.NumField() {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		if !strings.Contains(evaluatorcontract.Text, "`"+name+"`") {
+			t.Errorf("判定契约缺少判定字段 %s", name)
 		}
 	}
 }

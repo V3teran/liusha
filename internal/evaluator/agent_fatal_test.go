@@ -24,7 +24,8 @@ type fatalJudge struct {
 	slowDone    atomic.Bool
 }
 
-func (j *fatalJudge) Judge(ctx context.Context, hypothesis string, _, _ json.RawMessage, _ ReplayFunc) (Verdict, error) {
+func (j *fatalJudge) Judge(ctx context.Context, in JudgeInput) (Verdict, error) {
+	hypothesis := in.Hypothesis
 	if strings.Contains(hypothesis, "bad") {
 		<-j.slowStarted // 保证在途验证已开始，再触发致命错误
 		return Verdict{}, fmt.Errorf("judge: %w", llm.ErrNotConfigured)

@@ -29,9 +29,19 @@ import (
 // ReplayFunc 是评估者可调用的机器重放（由 PromotionGate 注入，绑定本 Claim 配方）。
 type ReplayFunc func(ctx context.Context) (Result, error)
 
+// JudgeInput 是一次判定的输入：被验证的假设、它的复现配方、机器预跑证据、评估者可调用的重放，
+// 以及本任务已坐实的结果——评估者据它判断本次坐实是不是其中某一条的再次确认。
+type JudgeInput struct {
+	Hypothesis string          // 被验证的假设陈述
+	Recipe     json.RawMessage // 复现配方（信封）
+	Evidence   json.RawMessage // 机器预跑证据
+	Replay     ReplayFunc      // 评估者可调用的机器重放（nil = 没有通道）
+	Confirmed  []ConfirmedResult
+}
+
 // LLMJudge 是晋升门的语义判定器接口（ReAct 实现 + 测试 stub）。
 type LLMJudge interface {
-	Judge(ctx context.Context, hypothesis string, recipe, initialEvidence json.RawMessage, replay ReplayFunc) (Verdict, error)
+	Judge(ctx context.Context, in JudgeInput) (Verdict, error)
 }
 
 // RouterJudge 经 ReAct runtime 跑语义判定：工具（repro_replay）+ 终判 JSON。
@@ -166,12 +176,7 @@ func (j *RouterJudge) WithExtraTools(ts []registry.Tool) *RouterJudge {
 }
 
 // Judge 实现 LLMJudge：ReAct 循环内 LLM 自主调重放工具采证，FinalAnswer 为判定 JSON。
-func (j *RouterJudge) Judge(
-	ctx context.Context,
-	hypothesis string,
-	recipe, initialEvidence json.RawMessage,
-	replay ReplayFunc,
-) (Verdict, error) {
+func (j *RouterJudge) Judge(ctx context.Context, in JudgeInput) (Verdict, error) {
 	// 一轮 = 一条假设的验证：本轮的工具过程事件与终稿带同一个轮次标识（评估者并行验证多条假设）
 	ctx = reasoning.BeginRound(ctx)
 	provider, err := j.router.For(ctx, j.complexity)
@@ -180,8 +185,8 @@ func (j *RouterJudge) Judge(
 	}
 
 	react := runtime.NewReActRuntime()
-	if replay != nil && allowlist.Allows(j.functionTools, "repro_replay") {
-		replayTool := registry.Tool(newReplayTool(replay))
+	if in.Replay != nil && allowlist.Allows(j.functionTools, "repro_replay") {
+		replayTool := registry.Tool(newReplayTool(in.Replay))
 		if j.toolWrap != nil {
 			replayTool = j.toolWrap(replayTool)
 		}
@@ -213,7 +218,7 @@ func (j *RouterJudge) Judge(
 		onThinkingDelta = j.thoughts.ThinkingDelta
 	}
 	result, err := react.Run(ctx, &runtime.ReActConfig{
-		Objective:                  j.buildObjective(hypothesis, recipe, initialEvidence),
+		Objective:                  j.buildObjective(in),
 		SystemPrompt:               j.systemPrompt(),
 		LLMProvider:                provider,
 		MaxIterations:              j.maxIt, // 迭代上限 = agent.max_iterations（配置即事实；0=不设限）
@@ -240,6 +245,7 @@ func (j *RouterJudge) Judge(
 	v, verr := parseVerdict(result.FinalAnswer)
 	round := reasoning.RoundOf(result)
 	if verr == nil {
+		v = settleDuplicate(v, in.Confirmed, j.logger)
 		round.Summary = verdictNarrative(v)
 	}
 	if j.thoughts != nil {
@@ -248,7 +254,8 @@ func (j *RouterJudge) Judge(
 	return v, verr
 }
 
-// verdictNarrative 把判定协议转成时间线人读叙述：结论 + 置信度 + 理由。
+// verdictNarrative 把判定协议转成时间线人读叙述：结论 + 置信度 + 理由；再次确认写明它折叠成了
+// 既有结果的佐证。
 func verdictNarrative(v Verdict) string {
 	ruling := v.Verdict
 	switch v.Verdict {
@@ -258,26 +265,33 @@ func verdictNarrative(v Verdict) string {
 		ruling = "证伪"
 	}
 	head := fmt.Sprintf("评估结论：%s（置信度 %.0f%%）", ruling, v.Confidence*100)
+	if v.DuplicateOf != "" {
+		head += "，既有结果的再次确认——折叠为那条结果的佐证"
+	}
 	if v.Reasoning == "" {
 		return head
 	}
 	return head + "\n\n理由：" + v.Reasoning
 }
 
-// buildObjective 组装判定输入：只陈述被验证的事实——假设陈述、复现配方与机器预跑证据。
-// 怎样取证、证据怎样读、怎样判由章程与判定契约说明。
-func (j *RouterJudge) buildObjective(hypothesis string, recipe, initialEvidence json.RawMessage) string {
+// buildObjective 组装判定输入：只陈述被验证的事实——假设陈述、复现配方、机器预跑证据，以及
+// 本任务已坐实的结果。怎样取证、证据怎样读、怎样判由章程与判定契约说明。
+func (j *RouterJudge) buildObjective(in JudgeInput) string {
 	var sb strings.Builder
 	sb.WriteString("## 待验证的假设\n")
-	if hypothesis != "" {
-		sb.WriteString(hypothesis)
+	if in.Hypothesis != "" {
+		sb.WriteString(in.Hypothesis)
 	} else {
 		sb.WriteString("（陈述缺失，从配方与证据推断）")
 	}
 	sb.WriteString("\n\n## 复现配方\n")
-	sb.WriteString(stringOrEmpty(recipe))
+	sb.WriteString(stringOrEmpty(in.Recipe))
 	sb.WriteString("\n\n## 机器预跑证据\n")
-	sb.WriteString(stringOrEmpty(initialEvidence))
+	sb.WriteString(stringOrEmpty(in.Evidence))
+	if confirmed := renderConfirmedResults(in.Confirmed); confirmed != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(confirmed)
+	}
 	return sb.String()
 }
 
@@ -315,13 +329,15 @@ func (j *RouterJudge) systemPrompt() string {
 	return scenario.Append(sb.String(), j.scenario)
 }
 
-// verdictJSON 是判定契约的形状：verdict 的取值合法与否见 verdictOutputCheck。
+// verdictJSON 是判定契约的形状：verdict 的取值合法与否见 verdictOutputCheck；duplicate_of 是
+// 评估者写的既有结果短号，落定成结果节点 ID 见 settleDuplicate。
 type verdictJSON struct {
 	Verdict      string          `json:"verdict"`
 	Confidence   float64         `json:"confidence"`
 	Reasoning    string          `json:"reasoning"`
 	RefuteReason string          `json:"refute_reason"`
 	Fingerprint  json.RawMessage `json:"finding"`
+	DuplicateOf  string          `json:"duplicate_of"`
 }
 
 // verdictOutputCheck 是判定终稿的验收：终稿里取得到的 JSON 必须带合法的 verdict（confirmed /
