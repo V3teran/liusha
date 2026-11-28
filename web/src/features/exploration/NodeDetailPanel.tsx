@@ -141,6 +141,7 @@ export function NodeDetailPanel({
         {title && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text">{title}</p>}
 
         <div className="flex flex-wrap gap-1.5">
+          {node.urgent && <MetaChip label="派发" value="加急" />}
           {priorityMeta(node.priority) && (
             <MetaChip
               label="优先级"

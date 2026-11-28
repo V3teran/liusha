@@ -5,7 +5,6 @@
  */
 
 import { API_BASE, get, patch, post } from './client'
-import type { Priority } from '@/lib/priority'
 import type {
   TaskCreateRequest,
   TaskCreateResponse,
@@ -68,9 +67,9 @@ export async function adjustTaskGoal(taskID: string, goal: string): Promise<Task
   return patch<TaskSummary>(`/tasks/${encodeURIComponent(taskID)}`, { goal })
 }
 
-/** 指派动作：在任务目标下新建一个用户指派的动作。只有用户指派的动作带优先级：决定它与规划者排出的动作谁先占用空位。 */
-export async function assignTaskAction(taskID: string, instruction: string, priority: Priority): Promise<{ id: string }> {
-  return post<{ id: string }>(`/tasks/${encodeURIComponent(taskID)}/actions`, { instruction, priority })
+/** 指派动作：在任务目标下新建一个用户指派的动作，先于规划者排出的动作被执行。 */
+export async function assignTaskAction(taskID: string, instruction: string): Promise<{ id: string }> {
+  return post<{ id: string }>(`/tasks/${encodeURIComponent(taskID)}/actions`, { instruction })
 }
 
 /** 否决动作：待执行或执行中的动作落「已否决」，执行中的立即中断，规划者不再重提等效动作。 */

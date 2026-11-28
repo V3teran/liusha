@@ -34,6 +34,7 @@ var typedMetadataKeys = map[string]bool{
 	metaVerification: true,
 	metaLead:         true,
 	metaLeadClosed:   true,
+	metaUrgent:       true,
 }
 
 // metaVerification 是验证状态在 graph metadata 中的键。evaluator 回写验证结论时以

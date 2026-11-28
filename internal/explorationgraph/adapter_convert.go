@@ -63,6 +63,8 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 		node.VerificationStatus = &v
 	}
 
+	node.Urgent, _ = graphNode.Metadata[metaUrgent].(bool)
+
 	// 线索与其关闭批注（仅事实观察）：存的是对象，经 JSON 往返还原成类型
 	node.Lead = typedFromMetadata[LeadSpec](graphNode.Metadata[metaLead])
 	node.LeadClosed = typedFromMetadata[LeadClosure](graphNode.Metadata[metaLeadClosed])

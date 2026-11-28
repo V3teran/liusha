@@ -42,7 +42,6 @@ func TestTaskIsolation(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"测试 taskA 的目标"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -57,7 +56,6 @@ func TestTaskIsolation(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"测试 taskB 的目标"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -102,7 +100,6 @@ func TestCompleteDataFlow(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"扫描目标端点"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		Priority:   PriorityHigh,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -193,7 +190,6 @@ func TestListOpenActions_ExcludesSettled(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"第一步：扫描"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}
@@ -207,7 +203,6 @@ func TestListOpenActions_ExcludesSettled(t *testing.T) {
 		Content:    json.RawMessage(`{"instruction":"第二步：利用"}`),
 		State:      &stateOpen,
 		Complexity: &complexity,
-		Priority:   PriorityMedium,
 		CreatedAt:  time.Now(),
 		UpdatedAt:  time.Now(),
 	}

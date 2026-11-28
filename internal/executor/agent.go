@@ -139,10 +139,16 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 }
 
-// dispatch 按「优先级高 → 创建早」把 open 动作派到空位上，每个动作一个协程执行。
-// 优先级只有用户指派的动作带（缺省 high）：它排在规划者排出的动作前面；规划者排出的
-// 动作不带优先级，彼此按创建先后。
-// 认领在执行协程里以 CAS 完成，派发只占位防同一动作重复派发。
+// dispatch 把 open 动作按派发的先后派到空位上，每个动作一个协程执行。
+//
+// 先后由规则定，不要模型给动作打分（模型自评的优先级七成以上落在最高两档，等于没标）：
+//  1. 用户指派的动作——人在运行中的纠偏，排在规划者排出的全部动作之前；
+//  2. 规划者标了加急的那一个（Node.Urgent，一轮至多一个）；
+//  3. 认领了线索的动作——深挖的边际收益高于再摸一个对象面；
+//  4. 其余。
+//
+// 同一档里按创建先后（同一时刻创建的按 ID 定序，结果确定）。认领在执行协程里以 CAS 完成，
+// 派发只占位防同一动作重复派发。
 func (a *Agent) dispatch(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
@@ -153,8 +159,12 @@ func (a *Agent) dispatch(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list open actions: %w", err)
 	}
+	claimants, err := a.graph.LeadClaimants(ctx, a.taskID)
+	if err != nil {
+		return fmt.Errorf("list lead claimants: %w", err)
+	}
 	sort.SliceStable(open, func(i, j int) bool {
-		return priorityRank(open[i].Priority) < priorityRank(open[j].Priority)
+		return dispatchOrder(open[i], open[j], claimants)
 	})
 	for _, action := range open {
 		taken, full := a.reserveSlot(action.ID)
@@ -179,17 +189,29 @@ func (a *Agent) dispatch(ctx context.Context) error {
 	return nil
 }
 
-// priorityRank 把优先级映射为认领次序（越小越先）；不带优先级的动作按「中」。
-func priorityRank(p explorationgraph.Priority) int {
-	switch p {
-	case explorationgraph.PriorityCritical:
+// dispatchOrder 报告动作 a 是否排在 b 前面派发：先比档位（见 dispatchRank），同档比创建
+// 先后，再比 ID。
+func dispatchOrder(a, b explorationgraph.Node, claimants map[string]bool) bool {
+	if ra, rb := dispatchRank(a, claimants), dispatchRank(b, claimants); ra != rb {
+		return ra < rb
+	}
+	if byTime := a.CreatedAt.Compare(b.CreatedAt); byTime != 0 {
+		return byTime < 0
+	}
+	return a.ID < b.ID
+}
+
+// dispatchRank 是派发先后的档位（小者先）：用户指派、加急、认领线索、其余。
+func dispatchRank(action explorationgraph.Node, claimants map[string]bool) int {
+	switch {
+	case action.SourceType == explorationgraph.SourceUser:
 		return 0
-	case explorationgraph.PriorityHigh:
+	case action.Urgent:
 		return 1
-	case explorationgraph.PriorityLow:
-		return 3
-	default:
+	case claimants[action.ID]:
 		return 2
+	default:
+		return 3
 	}
 }
 
@@ -239,7 +261,7 @@ func (a *Agent) executeAction(
 ) error {
 	a.logger.Info().
 		Str("action_id", action.ID).
-		Str("priority", string(action.Priority)).
+		Bool("urgent", action.Urgent).
 		Msg("开始执行 Action")
 
 	ok, err := a.graph.ClaimAction(ctx, a.taskID, action.ID, a.agentRunID)

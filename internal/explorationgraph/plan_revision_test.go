@@ -245,12 +245,12 @@ func TestRevisePlan_AnalyzedWatermarkCommitsWithTheRevision(t *testing.T) {
 	assert.Error(t, err, "水位只能落在本任务的结果上")
 }
 
-// 否决只合并 state_reason / rejected_by，节点身份字段（来源/优先级）不丢。
+// 否决只合并 state_reason / rejected_by，节点身份字段（来源/加急）不丢。
 func TestRejectAction_KeepsNodeIdentity(t *testing.T) {
 	store := revisionFixture(t)
 	ctx := context.Background()
 	seedNode(t, store, Node{ID: "a1", Kind: core.KindAction, State: stateOf(StateOpen),
-		SourceType: SourcePlanner, Priority: PriorityHigh})
+		SourceType: SourcePlanner, Urgent: true})
 
 	reason := "偏离目标"
 	ok, err := store.RejectAction(ctx, revTask, "a1", SourceMonitor, RejectStep, reason)
@@ -262,7 +262,7 @@ func TestRejectAction_KeepsNodeIdentity(t *testing.T) {
 	assert.Equal(t, StateRejected, *a1.State)
 	assert.Equal(t, reason, *a1.StateReason)
 	assert.Equal(t, SourcePlanner, a1.SourceType)
-	assert.Equal(t, PriorityHigh, a1.Priority)
+	assert.True(t, a1.Urgent)
 	assert.Equal(t, revTask, a1.TaskID)
 }
 

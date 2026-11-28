@@ -61,6 +61,14 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
               {chips.priority.code}
             </span>
           )}
+          {chips.urgent && (
+            <span
+              className="ml-auto rounded border border-border-strong px-1.5 py-px text-2xs font-semibold text-text"
+              title="加急：规划者判定这一步不做、同批其余动作都做不成或白做；空位不够时先派"
+            >
+              加急
+            </span>
+          )}
           {chips.lead?.closed && (
             <LeadClosedChip title={chips.lead.detail || undefined} className={!chips.priority ? 'ml-auto' : undefined} />
           )}

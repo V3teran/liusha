@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import type { NodeProps } from '@xyflow/react'
 import type { GraphNode, LeadSpec } from '@/api/explorationgraph'
 import type { ExplorationFlowNode } from '../layout'
@@ -73,3 +73,21 @@ describe('ExplorationNodeCard 的线索标记', () => {
     expect(screen.queryByText('线索已关闭')).toBeNull()
   })
 })
+
+// 加急：规划者标的动作在卡片头部标「加急」；其余动作没有。
+describe('ExplorationNodeCard 的加急标记', () => {
+  const action = (over: Partial<GraphNode>): GraphNode =>
+    ({ ...fact(), kind: 'action', state: 'open', source_type: 'planner', content: { instruction: '先续会话' }, ...over }) as GraphNode
+
+  it('加急的动作标「加急」，悬停说明它为什么先派', () => {
+    const { card } = renderCard(action({ urgent: true }))
+    const mark = within(card).getByText('加急')
+    expect(mark.getAttribute('title')).toContain('空位不够时先派')
+  })
+
+  it('没有加急的动作没有这个标记', () => {
+    const { card } = renderCard(action({}))
+    expect(within(card).queryByText('加急')).toBeNull()
+  })
+})
+

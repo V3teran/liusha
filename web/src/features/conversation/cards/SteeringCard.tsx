@@ -1,6 +1,5 @@
 import { Ban, ListPlus, MessageSquarePlus, PencilLine, type LucideIcon } from 'lucide-react'
 import type { Message } from '@/api/types'
-import { priorityMeta } from '@/lib/priority'
 
 interface SteeringCardProps {
   msg: Message
@@ -37,8 +36,6 @@ export function SteeringCard({ msg }: SteeringCardProps) {
   const Icon = shape.icon
   const notes: string[] = []
   if (md?.withdrawn && md.withdrawn > 0) notes.push(`撤回 ${md.withdrawn} 个未开始的规划动作`)
-  const prio = priorityMeta(md?.priority)
-  if (prio) notes.push(`${prio.code} ${prio.label}`)
   return (
     <div className="flex justify-center py-1.5" data-card="steering">
       <div className="flex max-w-[85%] flex-col items-center gap-1 rounded-xl border border-border bg-surface-2/60 px-4 py-2 text-xs" role="status">

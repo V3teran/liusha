@@ -26,7 +26,6 @@ type fakeSteering struct {
 	goal     string
 	assigned struct {
 		instruction string
-		priority    explorationgraph.Priority
 	}
 	rejectReason string
 }
@@ -46,11 +45,11 @@ func (f *fakeSteering) AdjustGoal(_ context.Context, taskID, goal string) error 
 	return nil
 }
 
-func (f *fakeSteering) AssignAction(_ context.Context, taskID, instruction string, priority explorationgraph.Priority) (string, error) {
+func (f *fakeSteering) AssignAction(_ context.Context, taskID, instruction string) (string, error) {
 	if err := f.check(taskID); err != nil {
 		return "", err
 	}
-	f.assigned.instruction, f.assigned.priority = instruction, priority
+	f.assigned.instruction = instruction
 	return steerAction, nil
 }
 
@@ -115,14 +114,11 @@ func TestAssignTaskAction(t *testing.T) {
 		body any
 		err  error
 		want int
-		prio explorationgraph.Priority
 	}{
-		{"缺指令", map[string]any{}, nil, http.StatusBadRequest, ""},
-		{"超长指令", map[string]any{"instruction": strings.Repeat("测", maxInstructionRunes+1)}, nil, http.StatusBadRequest, ""},
-		{"非法优先级", map[string]any{"instruction": "x", "priority": "urgent"}, nil, http.StatusBadRequest, ""},
-		{"任务已结束", map[string]any{"instruction": "x"}, task.ErrNotActive, http.StatusConflict, ""},
-		{"缺省优先级为高", map[string]any{"instruction": " 复测登录 "}, nil, http.StatusCreated, explorationgraph.PriorityHigh},
-		{"指定优先级", map[string]any{"instruction": "复测登录", "priority": "critical"}, nil, http.StatusCreated, explorationgraph.PriorityCritical},
+		{"缺指令", map[string]any{}, nil, http.StatusBadRequest},
+		{"超长指令", map[string]any{"instruction": strings.Repeat("测", maxInstructionRunes+1)}, nil, http.StatusBadRequest},
+		{"任务已结束", map[string]any{"instruction": "x"}, task.ErrNotActive, http.StatusConflict},
+		{"成功", map[string]any{"instruction": " 复测登录 "}, nil, http.StatusCreated},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -134,7 +130,7 @@ func TestAssignTaskAction(t *testing.T) {
 				t.Fatalf("want %d got %d (%v)", tc.want, code, body)
 			}
 			if code == http.StatusCreated {
-				if body["id"] != steerAction || fake.assigned.instruction != "复测登录" || fake.assigned.priority != tc.prio {
+				if body["id"] != steerAction || fake.assigned.instruction != "复测登录" {
 					t.Fatalf("指派参数或响应不符: %v %+v", body, fake.assigned)
 				}
 			}
