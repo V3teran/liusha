@@ -245,11 +245,14 @@ type PlanningContext struct {
 	RefutedHypotheses []RefutedHypothesis     // 已被复现门证伪的假设（含反驳原因，防止复读）
 	PendingHypotheses []string                // 待验证的假设陈述（复现门验证中，不必为它们安排动作）
 	OpenLeads         []OpenLead              // 待深挖的线索，创建序；第 i 个的短号是 L{i+1}
-	ClosedLeads       []ClosedLead            // 已关闭的线索（带原因）
-	Facts             []Fact                  // 已确认的世界状态（规划基底，直接消费）
-	ReplanReasons     []string                // 强制重规划的理由（常规规划为空）
-	KnowledgeQueries  []string                // 本次运行已发出的知识库查询
-	Now               time.Time               // 读取图面的时刻（线索挂了多久从它算）；零值取当前时间
+	// lateLeads 是规划开始之后才补进 OpenLeads 的线索（见 refreshRound）：模型这一轮的输入里没有
+	// 它们，交代不要求它们——没提到就是留待下一轮。
+	lateLeads        map[string]bool
+	ClosedLeads      []ClosedLead // 已关闭的线索（带原因）
+	Facts            []Fact       // 已确认的世界状态（规划基底，直接消费）
+	ReplanReasons    []string     // 强制重规划的理由（常规规划为空）
+	KnowledgeQueries []string     // 本次运行已发出的知识库查询
+	Now              time.Time    // 读取图面的时刻（线索挂了多久从它算）；零值取当前时间
 
 	// claiming 是认领了线索的动作（pursues 边），由图上的边推导：深挖与铺开各用了多少动作据此统计。
 	claiming map[string]bool
@@ -456,12 +459,15 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		return PlanOutcome{Stop: true}, nil
 	}
 
-	// 6. 待深挖的线索逐条交代。规划进行期间图面可能已经变了，先把新出现的线索补进清单，再
-	//    核对交代；没交代或不成立的，就着这份对话追问一次
+	// 6. 待深挖的线索逐条交代。规划进行期间图面可能已经变了，先把新出现的线索补进清单（它们
+	//    不要求交代），再核对交代；开轮时就在清单里、却没交代或不成立的，就着这份对话追问一次
 	added := e.refreshRound(ctx, graph, taskID, planCtx)
+	if len(added) > 0 {
+		e.logger.Info().Int("count", len(added)).Msg("规划期间出现了新的待深挖线索，留待下一轮交代")
+	}
 	plan := accountLeads(planCtx, response)
 	if len(plan.problems) > 0 {
-		response, result, plan, err = e.completeLeadAccounting(ctx, provider, systemPrompt, result, response, plan, planCtx, added)
+		response, result, plan, err = e.completeLeadAccounting(ctx, provider, systemPrompt, result, response, plan, planCtx)
 		if err != nil {
 			e.finishRound(ctx, result, response)
 			return PlanOutcome{}, err
@@ -649,10 +655,13 @@ func newOpenLead(lead explorationgraph.Lead) (OpenLead, bool) {
 // refreshRound 把规划进行期间图上新出现的待深挖线索补进本轮的清单。
 //
 // 规划是一段几分钟的推理：模型读图、思考的这会儿，执行者的新线索照样落图。模型经
-// graph_read 看得到它们，清单里却没有它们的短号——想认领也引用不上，而按开轮时的旧清单
-// 核对交代，又会把一条明明有人在追的线索算成没人管。所以首轮对话一结束就重读一遍：新
-// 出现的接在清单末尾（原有短号不变，模型上一版输出里的引用照旧成立），返回新补进来的线索
-// 供追问时列出来。读失败不影响这一轮，只是按开轮时的清单核对。
+// graph_read 看得到它们，清单里却没有它们的短号——想认领也引用不上。所以首轮对话一结束
+// 就重读一遍：新出现的接在清单末尾（原有短号不变，模型上一版输出里的引用照旧成立），并记
+// 为「规划开始之后才出现」——模型这一轮的输入里没有它们，交代不要求它们，没提到就是留待
+// 下一轮。曾为它们追问：实测 25 次追问里 19 次只是因为规划期间冒出了新线索，而追问是把
+// 整份规划重新生成一遍，已经排好的动作因此晚落图几十秒；落图之后只要没有待执行的动作，
+// 10 秒内就有下一轮，这些线索在那一轮的输入里。返回新补进来的线索。读失败不影响这一轮，
+// 只是按开轮时的清单核对交代。
 func (e *Engine) refreshRound(ctx context.Context, graph *explorationgraph.Store, taskID string, planCtx *PlanningContext) []OpenLead {
 	pending, err := graph.OpenLeads(ctx, taskID)
 	if err != nil {
@@ -670,6 +679,10 @@ func (e *Engine) refreshRound(ctx context.Context, graph *explorationgraph.Store
 		}
 		if open, ok := newOpenLead(lead); ok {
 			planCtx.OpenLeads = append(planCtx.OpenLeads, open)
+			if planCtx.lateLeads == nil {
+				planCtx.lateLeads = make(map[string]bool)
+			}
+			planCtx.lateLeads[open.ID] = true
 			added = append(added, open)
 		}
 	}

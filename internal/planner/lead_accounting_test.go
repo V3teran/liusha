@@ -146,7 +146,7 @@ func TestAccountLeads_InvalidEntryDoesNotCoverTheLead(t *testing.T) {
 }
 
 // 规划进行期间图上出现的新线索补进本轮清单：短号接在末尾，原有的不变（模型上一版输出里
-// 的引用照旧成立）；已经在清单里的不重复。
+// 的引用照旧成立），并记为「规划开始之后才出现」——交代不要求它们；已经在清单里的不重复。
 func TestRefreshRound_AppendsWhatAppearedDuringPlanning(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
 	ctx := context.Background()
@@ -168,27 +168,44 @@ func TestRefreshRound_AppendsWhatAppearedDuringPlanning(t *testing.T) {
 	assert.Equal(t, []string{"L1", "L2"}, []string{ordinal(leadPrefix, 0), ordinal(leadPrefix, 1)})
 	_, ok := planCtx.leadIDs("L1")
 	require.True(t, ok, "新线索可以用短号引用")
+	assert.Equal(t, map[string]bool{"late-lead": true, "late-twin": true}, planCtx.lateLeads, "补进来的记为规划开始之后才出现")
 
 	assert.Empty(t, followUpEngine().refreshRound(ctx, store, revisionTask, planCtx), "已经在清单里的不重复补")
+	assert.Len(t, planCtx.lateLeads, 2)
 }
 
-// 追问的输入把规划期间新出现的线索连同短号、处境列出来，再列交代上的问题。
-func TestLeadFollowUp_ListsLeadsAppearedDuringPlanning(t *testing.T) {
+// 规划开始之后才出现的线索不要求交代：模型这一轮没有见过它们，没提到就是留待下一轮（落图之后
+// 只要没有待执行的动作，10 秒内就有下一轮）。提到了但交代不成立的照常报出——引用得出的短号
+// 就是给模型认领用的。开轮时就在清单里的线索，没交代照旧报。
+func TestAccountLeads_LeadsAppearedDuringPlanningAreNotRequired(t *testing.T) {
 	planCtx := leadAccountingContext()
-	newLead := OpenLead{ID: "lead-9", Statement: "丁", ProducerID: "run-1", CreatedAt: time.Unix(1700000000, 0)}
-	planCtx.OpenLeads = append(planCtx.OpenLeads, newLead)
-	planCtx.Now = newLead.CreatedAt.Add(5 * time.Minute)
+	planCtx.OpenLeads = append(planCtx.OpenLeads, OpenLead{ID: "lead-9", Statement: "丁"})
+	planCtx.lateLeads = map[string]bool{"lead-9": true}
 
-	got := leadFollowUp(planCtx, []leadProblem{{"L1、L3", "还没有交代"}, {"L5", "还没有交代"}}, []OpenLead{newLead})
+	plan := accountLeads(planCtx, &PlanningResponse{})
+	assert.Equal(t, []string{"L1、L3：还没有交代", "L2：还没有交代", "L4：还没有交代"}, plan.describe(), "规划期间出现的 L5 不算没有交代")
+
+	plan = accountLeads(planCtx, &PlanningResponse{
+		Actions: []ActionProposal{{Instruction: "沿丁深挖", Pursues: []string{"L5"}}},
+		Leads:   []LeadDecisionProposal{{ID: "L4", Decision: "leave"}},
+	})
+	assert.Equal(t, []string{"L1、L3：还没有交代", "L2：还没有交代"}, plan.describe())
+	assert.Equal(t, []string{"lead-9"}, plan.claims[0], "模型经 graph_read 看到并认领了它，引用成立")
+
+	plan = accountLeads(planCtx, &PlanningResponse{
+		Leads: []LeadDecisionProposal{{ID: "L5", Decision: "close", Kind: "dry", Reason: "想写推导出来的类别"}},
+	})
+	assert.Equal(t, []string{"L5：close 的 kind 不在契约列出的类别里", "L1、L3：还没有交代", "L2：还没有交代", "L4：还没有交代"},
+		plan.describe(), "提到了但交代不成立，照常报出")
+}
+
+// 追问的输入只列交代上的问题：规划期间新出现的线索不要求交代，也就不出现在追问里。
+func TestLeadFollowUp_ListsOnlyTheProblems(t *testing.T) {
+	got := leadFollowUp([]leadProblem{{"L1、L3", "还没有交代"}, {"L2", "被重复交代"}})
 	want := "上一版规划没有把「待深挖的线索」逐条交代完。" +
-		"规划进行期间图上又出现了待深挖的线索，编号接在输入清单之后：\n" +
-		"- [L5] 丁（已挂 5 分钟）\n" +
 		"按「输出契约」重新输出完整的规划 JSON（不是只补差额）：\n" +
-		"- L1、L3：还没有交代\n- L5：还没有交代\n"
+		"- L1、L3：还没有交代\n- L2：被重复交代\n"
 	assert.Equal(t, want, got)
-
-	got = leadFollowUp(planCtx, []leadProblem{{"L2", "还没有交代"}}, nil)
-	assert.Equal(t, "上一版规划没有把「待深挖的线索」逐条交代完。按「输出契约」重新输出完整的规划 JSON（不是只补差额）：\n- L2：还没有交代\n", got)
 }
 
 // scriptedProvider 按调用次序返回预设响应的模型替身，记下每一次请求。
@@ -259,7 +276,7 @@ func TestCompleteLeadAccounting_TakesTheCompletedAnswer(t *testing.T) {
 
 	provider := &scriptedProvider{responses: []llm.Response{{Content: nudgedPlanJSON, Usage: llm.Usage{InTokens: 1500, OutTokens: 300}}}}
 	response, merged, plan, err := followUpEngine().completeLeadAccounting(
-		context.Background(), provider, "章程与契约", firstRound(), response, plan, planCtx, nil)
+		context.Background(), provider, "章程与契约", firstRound(), response, plan, planCtx)
 	require.NoError(t, err)
 
 	assert.Equal(t, "补全线索的交代", response.Reasoning, "交下去的是补全后的输出")
@@ -281,7 +298,7 @@ func TestCompleteLeadAccounting_FollowUpContinuesTheConversation(t *testing.T) {
 
 	provider := &scriptedProvider{responses: []llm.Response{{Content: nudgedPlanJSON}}}
 	_, _, _, err := followUpEngine().completeLeadAccounting(
-		context.Background(), provider, "章程与契约", firstRound(), response, plan, planCtx, nil)
+		context.Background(), provider, "章程与契约", firstRound(), response, plan, planCtx)
 	require.NoError(t, err)
 	require.Len(t, provider.requests, 1, "只追问一次")
 
@@ -309,7 +326,7 @@ func TestCompleteLeadAccounting_KeepsTheFirstAnswerWhenFollowUpFails(t *testing.
 			firstResponse, firstPlan := firstPlan(t, planCtx)
 
 			response, merged, plan, err := followUpEngine().completeLeadAccounting(
-				context.Background(), provider, "章程与契约", firstRound(), firstResponse, firstPlan, planCtx, nil)
+				context.Background(), provider, "章程与契约", firstRound(), firstResponse, firstPlan, planCtx)
 			require.NoError(t, err)
 
 			assert.Equal(t, *firstResponse, *response, "按上一版输出落图")
@@ -335,7 +352,7 @@ func TestCompleteLeadAccounting_ProseAnswerIsRestatedBeforeParsing(t *testing.T)
 		{Content: nudgedPlanJSON},
 	}}
 	_, merged, plan, err := followUpEngine().completeLeadAccounting(
-		context.Background(), provider, "章程与契约", firstRound(), response, plan, planCtx, nil)
+		context.Background(), provider, "章程与契约", firstRound(), response, plan, planCtx)
 	require.NoError(t, err)
 	require.Len(t, provider.requests, 2, "追问一次，加上运行时要求重述的一次")
 	assert.Equal(t, nudgedPlanJSON, merged.FinalAnswer)
@@ -350,7 +367,7 @@ func TestCompleteLeadAccounting_CancelledRunReturnsTheError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	provider := &scriptedProvider{errs: []error{context.Canceled}}
-	_, _, _, err := followUpEngine().completeLeadAccounting(ctx, provider, "章程与契约", firstRound(), response, plan, planCtx, nil)
+	_, _, _, err := followUpEngine().completeLeadAccounting(ctx, provider, "章程与契约", firstRound(), response, plan, planCtx)
 	require.ErrorIs(t, err, context.Canceled)
 }
 
@@ -361,7 +378,7 @@ func TestCompleteLeadAccounting_RespectsStopInFollowUp(t *testing.T) {
 
 	provider := &scriptedProvider{responses: []llm.Response{{Content: `{"should_continue":false,"reasoning":"目标已达成"}`}}}
 	response, _, plan, err := followUpEngine().completeLeadAccounting(
-		context.Background(), provider, "章程与契约", firstRound(), response, plan, planCtx, nil)
+		context.Background(), provider, "章程与契约", firstRound(), response, plan, planCtx)
 	require.NoError(t, err)
 	assert.False(t, response.ShouldContinue)
 	assert.Empty(t, plan.claims)
