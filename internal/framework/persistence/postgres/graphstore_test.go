@@ -190,21 +190,21 @@ func TestGraphStore_ListNodes(t *testing.T) {
 			Kind:    string(core.KindAction),
 			Content: json.RawMessage(`{}`),
 			State:   string(core.NodeStateOpen),
-			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{"priority": "high"},
+			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{"rank": "high"},
 		},
 		{
 			ID:      "aaaaaaaa-0000-4000-8000-000000000002",
 			Kind:    string(core.KindObjective),
 			Content: json.RawMessage(`{}`),
 			State:   string(core.NodeStateRunning),
-			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{"priority": "medium"},
+			TaskID:  "cccccccc-0000-4000-8000-000000000001", Metadata: map[string]interface{}{"rank": "medium"},
 		},
 		{
 			ID:      "aaaaaaaa-0000-4000-8000-000000000003",
 			Kind:    string(core.KindAction),
 			Content: json.RawMessage(`{}`),
 			State:   string(core.NodeStateCompleted),
-			TaskID:  "cccccccc-0000-4000-8000-000000000002", Metadata: map[string]interface{}{"priority": "high"},
+			TaskID:  "cccccccc-0000-4000-8000-000000000002", Metadata: map[string]interface{}{"rank": "high"},
 		},
 	}
 

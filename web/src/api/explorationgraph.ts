@@ -41,7 +41,10 @@ export interface GraphNode {
   lead_closed?: LeadClosure
   /** action 专属：复杂度 */
   complexity?: string
+  /** 主张的优先级（假设与结果）：渗透测试里即严重度。动作与目标没有 */
   priority?: string
+  /** 规划者给动作标的加急（一轮至多一个）：执行者的空位不够时先派，仅次于用户指派的 */
+  urgent?: boolean
   source_type: string
   /** action 专属：阻塞原因 */
   state_reason?: string

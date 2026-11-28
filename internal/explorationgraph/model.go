@@ -143,6 +143,10 @@ type Node struct {
 	Complexity  *Complexity `json:"complexity,omitempty"`   // trivial/simple/moderate/...
 	StateReason *string     `json:"state_reason,omitempty"` // 当前状态的原因（失败、中止、停摆）
 
+	// Urgent 是规划者给动作标的加急（一轮至多一个）：执行者派发时它排在其它规划者排出的
+	// 动作之前，仅次于用户指派的。只有规划者排出的动作可以带（库约束 ck_exploration_node_urgent）。
+	Urgent bool `json:"urgent,omitempty"`
+
 	// 假设观察专用：验证状态（pending/confirmed/refuted）。事实观察与 result 没有。
 	VerificationStatus *VerificationStatus `json:"verification_status,omitempty"`
 
@@ -155,8 +159,10 @@ type Node struct {
 	LeadClosed *LeadClosure `json:"lead_closed,omitempty"`
 
 	// 通用字段
-	// Priority 是优先级，只有两处有含义：假设（坐实后即发现的严重度）与用户指派的动作
-	// （执行者派发的先后）。规划者排出的动作与方向不带——模型自评的优先级校准差。
+	// Priority 是主张的优先级：假设带，坐实后随结果进交付（按什么定档由任务场景规定——
+	// 渗透测试里是严重度）。动作与目标没有优先级（库约束 ck_exploration_node_priority）：
+	// 动作的派发先后由来源、是否加急、是否认领先索与创建时间决定（见 executor 的 dispatch），
+	// 不由模型自评的分数决定。
 	Priority   Priority        `json:"priority"`
 	SourceType SourceType      `json:"source_type"`
 	Metadata   json.RawMessage `json:"metadata,omitempty"`
@@ -246,6 +252,9 @@ type LeadSpec struct {
 func (n *Node) IsLead() bool {
 	return n.IsFact() && n.Lead != nil
 }
+
+// metaUrgent 是动作加急的存储键（与 Node.Urgent 同一事实）。
+const metaUrgent = "urgent"
 
 // metaLeadClosed 是线索上规划层关闭决定的存储键（与 Node.LeadClosed 同一事实）：规划层
 // 判定这条线索不再跟进，值是 {"kind": …, "reason": …}。随关闭它的那次规划修订同事务写入

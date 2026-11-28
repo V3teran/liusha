@@ -31,14 +31,16 @@ describe('kindTheme（kind 视觉档案与内容提取）', () => {
     expect(nodeTitle(node({ kind: 'action', content: '纯字符串载荷' }))).toBe('')
   })
 
-  it('nodeChips：action 状态/P0-P1 优先级上卡，无分类徽章', () => {
+  it('nodeChips：action 状态与加急上卡，无分类徽章、没有优先级', () => {
     const chips = nodeChips(
-      node({ id: 'n-act', kind: 'action', state: 'running', priority: 'high', content: { instruction: '列出入口' } }),
+      node({ id: 'n-act', kind: 'action', state: 'running', urgent: true, content: { instruction: '列出入口' } }),
     )
     expect(chips.state?.label).toBe('执行中')
     expect(chips.category).toBeUndefined()
-    expect(chips.priority?.code).toBe('P1')
+    expect(chips.urgent).toBe(true)
+    expect(chips.priority).toBeUndefined()
     expect(chips.verification).toBeUndefined()
+    expect(nodeChips(node({ id: 'n-act', kind: 'action', state: 'open', content: { instruction: '列出入口' } })).urgent).toBeUndefined()
   })
 
   it('nodeChips：假设观察带分类/验证状态，优先级取节点层（P2 不上卡）', () => {

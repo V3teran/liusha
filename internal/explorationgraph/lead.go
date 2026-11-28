@@ -163,6 +163,22 @@ func (s *Store) ClosedLeads(ctx context.Context, taskID string) ([]Lead, error) 
 	return closed, nil
 }
 
+// LeadClaimants 返回认领了线索的动作 ID（有 pursues 边从它出发）。执行者据此定派发的先后：
+// 跟进线索的动作先于铺开对象面的。
+func (s *Store) LeadClaimants(ctx context.Context, taskID string) (map[string]bool, error) {
+	edges, err := s.graphStore.ListEdges(ctx, core.GraphEdgeQuery{
+		TaskID: taskID, Relation: string(RelPursues),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("读取 pursues 边: %w", err)
+	}
+	claimants := make(map[string]bool, len(edges))
+	for _, e := range edges {
+		claimants[e.From] = true
+	}
+	return claimants, nil
+}
+
 // PursuedLeads 返回某个动作经 pursues 边认领的线索——指令为它们而写，执行者据它知道
 // 自己接手的是哪条线索，沿它推进到结论。
 func (s *Store) PursuedLeads(ctx context.Context, taskID, actionID string) ([]Node, error) {

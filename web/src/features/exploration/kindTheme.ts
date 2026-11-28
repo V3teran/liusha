@@ -205,6 +205,8 @@ export interface NodeChips {
   verification?: string
   /** 高优先级（假设与结果的优先级即严重度；仅 P0/P1 上卡，避免噪音） */
   priority?: { code: string; className: string }
+  /** 加急（规划者标的，一轮至多一个）：空位不够时先派 */
+  urgent?: true
   /** 线索（事实观察带的 lead）：卡片上的标记见 ExplorationNodeCard */
   lead?: { label: string; closed: boolean; detail: string; spec: LeadSpec }
 }
@@ -226,6 +228,8 @@ export function nodeChips(node: GraphNode): NodeChips {
   }
   const lead = leadMeta(node)
   if (lead) chips.lead = { label: lead.closed ? '已关闭' : '线索', closed: lead.closed, detail: lead.detail, spec: lead.spec }
+
+  if (node.kind === 'action' && node.urgent) chips.urgent = true
 
   if (node.priority === 'critical' || node.priority === 'high') {
     chips.priority = {

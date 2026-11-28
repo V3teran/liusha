@@ -37,7 +37,7 @@ func TestSteeringPostgres(t *testing.T) {
 	require.NoError(t, CreateRootObjective(ctx, pool, taskID, "目标"))
 	action := func(id string, state State, source SourceType) {
 		_, err := store.CreateNode(ctx, Node{ID: id, TaskID: taskID, Kind: core.KindAction, State: &state,
-			SourceType: source, Priority: PriorityMedium, Content: []byte(`{"instruction":"x"}`), CreatedAt: time.Now()})
+			SourceType: source, Content: []byte(`{"instruction":"x"}`), CreatedAt: time.Now()})
 		require.NoError(t, err)
 	}
 	action(planned, StateOpen, SourcePlanner)
@@ -62,13 +62,13 @@ func TestSteeringPostgres(t *testing.T) {
 	})
 
 	t.Run("指派动作挂在根目标下", func(t *testing.T) {
-		id, err := AssignAction(ctx, pool, taskID, "复测登录接口的 SQL 注入", PriorityHigh)
+		id, err := AssignAction(ctx, pool, taskID, "复测登录接口的 SQL 注入")
 		require.NoError(t, err)
 		node, err := store.GetNode(ctx, id)
 		require.NoError(t, err)
 		assert.Equal(t, StateOpen, *node.State)
 		assert.Equal(t, SourceUser, node.SourceType)
-		assert.Equal(t, PriorityHigh, node.Priority)
+		assert.Empty(t, node.Priority, "动作没有优先级：用户指派的先走靠的是来源，不靠打分")
 		assert.JSONEq(t, `{"instruction":"复测登录接口的 SQL 注入"}`, string(node.Content))
 		root, _, err := store.RootObjectiveOf(ctx, taskID)
 		require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestSteeringPostgres(t *testing.T) {
 		}
 		assert.True(t, found, "根目标 → 指派动作的 generates 边")
 
-		_, err = AssignAction(ctx, pool, other, "x", PriorityHigh)
+		_, err = AssignAction(ctx, pool, other, "x")
 		assert.Error(t, err, "没有根目标的任务无处挂动作")
 	})
 

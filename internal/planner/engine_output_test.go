@@ -28,6 +28,20 @@ func TestPlanningOutputCheck(t *testing.T) {
 	}
 }
 
+// 加急一轮至多一个：多标的只有第一个算，其余撤成普通动作——加急靠稀缺才不被通胀。
+func TestParsePlanningResponse_CapsUrgentToOne(t *testing.T) {
+	e := NewEngine(nil, zerolog.Nop())
+
+	response, err := e.parsePlanningResponse(`{"should_continue":true,"reasoning":"r","actions":[
+		{"instruction":"a","urgent":true},{"instruction":"b","urgent":true},{"instruction":"c"},{"instruction":"d","urgent":true}]}`)
+	require.NoError(t, err)
+	require.Len(t, response.Actions, 4)
+	assert.True(t, response.Actions[0].Urgent)
+	for i := 1; i < 4; i++ {
+		assert.False(t, response.Actions[i].Urgent, "第 %d 个动作上的加急应被撤掉", i+1)
+	}
+}
+
 // 缺 should_continue 的 JSON 是解析失败（可重试），不再被读成「停止探索」把任务收掉。
 func TestParsePlanningResponse_RequiresShouldContinue(t *testing.T) {
 	e := NewEngine(nil, zerolog.Nop())

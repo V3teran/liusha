@@ -26,7 +26,6 @@ const md = (over: Partial<TimelineEventMeta>): TimelineEventMeta => ({
   op: '',
   withdrawn: 0,
   action_id: '',
-  priority: '',
   severity: '',
   host: '',
   target: '',
