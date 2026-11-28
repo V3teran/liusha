@@ -94,8 +94,9 @@ func (p leadPlan) describe() []string {
 }
 
 // accountLeads 核对规划输出对每条待深挖线索的交代：每条恰一次——被本轮某个动作的 pursues
-// 引用，或在 leads 里有一条成立的处置（close / leave）。不成立的地方原样列出，
-// 成立的部分照常保留：一条交代不成立不让其余的跟着作废。
+// 引用，或在 leads 里有一条成立的处置（close / leave）。规划开始之后才出现的线索例外：模型
+// 这一轮没有见过它们，没提到就是留待下一轮，不算缺口（提到了但交代不成立的照常列出）。
+// 不成立的地方原样列出，成立的部分照常保留：一条交代不成立不让其余的跟着作废。
 func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 	plan := leadPlan{claims: map[int][]string{}}
 	// accounted 是已有成立交代的线索；touched 是输出里提到过的线索（交代成立与否不论）。
@@ -179,10 +180,11 @@ func accountLeads(planCtx *PlanningContext, resp *PlanningResponse) leadPlan {
 		}
 	}
 
-	// 输出里一条都没提到的线索按输入里的行报：同一行上的线索一起列出来。
+	// 输出里一条都没提到的线索按输入里的行报：同一行上的线索一起列出来。规划开始之后才出现
+	// 的不报：同一行上若有开轮时就在的线索，它们照常把这一行报出来。
 	reported := make(map[string]bool, len(planCtx.OpenLeads))
 	for _, lead := range planCtx.OpenLeads {
-		if touched[lead.ID] || reported[lead.ID] {
+		if touched[lead.ID] || reported[lead.ID] || planCtx.lateLeads[lead.ID] {
 			continue
 		}
 		handles := make([]string, 0, 1)
@@ -209,9 +211,8 @@ func (e *Engine) completeLeadAccounting(
 	response *PlanningResponse,
 	plan leadPlan,
 	planCtx *PlanningContext,
-	added []OpenLead,
 ) (*PlanningResponse, *runtime.ReActResult, leadPlan, error) {
-	e.logger.Warn().Strs("problems", plan.describe()).Int("added", len(added)).Msg("待深挖的线索没有逐条交代，追问一次")
+	e.logger.Warn().Strs("problems", plan.describe()).Msg("规划输入里的待深挖线索没有逐条交代，追问一次")
 
 	var onThoughtDelta, onThinkingDelta func(string)
 	if e.thoughts != nil {
@@ -221,7 +222,7 @@ func (e *Engine) completeLeadAccounting(
 	// 所以系统提示直接放进历史、排在最前（见 followUpHistory）。
 	followUp := runtime.NewReActRuntime()
 	next, err := followUp.Run(ctx, &runtime.ReActConfig{
-		Objective:            leadFollowUp(planCtx, plan.problems, added),
+		Objective:            leadFollowUp(plan.problems),
 		LLMProvider:          provider,
 		MaxIterations:        e.maxIt,
 		InitialHistory:       followUpHistory(first.MessageHistory, systemPrompt),
@@ -256,19 +257,10 @@ func (e *Engine) completeLeadAccounting(
 	return nudged, first, accountLeads(planCtx, nudged), nil
 }
 
-// leadFollowUp 是追问的输入：规划期间新出现的线索带着短号与处境列出，交代上的问题逐条列出，
-// 并指回输出契约——格式只在契约里。
-func leadFollowUp(planCtx *PlanningContext, problems []leadProblem, added []OpenLead) string {
+// leadFollowUp 是追问的输入：交代上的问题逐条列出，并指回输出契约——格式只在契约里。
+func leadFollowUp(problems []leadProblem) string {
 	var b strings.Builder
 	b.WriteString("上一版规划没有把「待深挖的线索」逐条交代完。")
-	if len(added) > 0 {
-		b.WriteString("规划进行期间图上又出现了待深挖的线索，编号接在输入清单之后：\n")
-		for i, lead := range planCtx.OpenLeads {
-			if slices.ContainsFunc(added, func(a OpenLead) bool { return a.ID == lead.ID }) {
-				fmt.Fprintf(&b, "- [%s] %s（%s）\n", ordinal(leadPrefix, i), lead.Statement, planCtx.leadStatus(lead, planCtx.now()))
-			}
-		}
-	}
 	b.WriteString("按「输出契约」重新输出完整的规划 JSON（不是只补差额）：\n")
 	for _, problem := range problems {
 		fmt.Fprintf(&b, "- %s：%s\n", problem.handle, problem.message)
