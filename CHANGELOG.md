@@ -3,7 +3,7 @@
 ## [0.16.0](https://github.com/V3teran/liusha/compare/v0.15.1...v0.16.0) (2026-11-28)
 
 
-### ⚠ BREAKING CHANGES
+### ⚠ 破坏性变更
 
 * **tools:** 配置删除 runtime.run_tail_bytes；runtime.tool_output_tail_bytes 改名为 runtime.tool_output_window_bytes，含义变为留开头与结尾、缺省 65536、上限 100000，系统设置里对旧键的自定义失效；沙盒镜像需重建才有输出落盘。
 * **models:** provider 的协议新增取值 openai_responses；output_limit_param 新增取值 max_output_tokens（Responses 恒为此值）
