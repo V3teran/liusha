@@ -10,10 +10,11 @@
  * 那里用到的类别色相经 CSS 变量 --exp-accent 取自这里。
  *
  * 线索的标记有三态（线索是事实观察带的高价值延伸说明：意外发现、有希望带来重大进展的方向）：
- * 开着（待深挖）——四边描边（.exp-card-lead）+ 右上角橙色脚印（LeadMark）；被跟进过且已关闭——
- * 脚印换中性灰（LeadMarkFollowed），描边还原，「这条路走过了」的留痕；未被跟进就关闭——无任何
- * 标记，不值得走的东西不留脚印。脚印渲染在卡片外面：卡片裁切溢出内容，脚印要探出角上。两者
- * 都取自己的颜色：开着的取线索的 LEAD_ACCENT，走过的取中性 token。关闭的类别与理由在详情面板。
+ * 开着（待深挖）——四边橙色描边（.exp-card-lead）+ 右上角橙色脚印（LeadMark）；被跟进过且已
+ * 关闭——脚印换正文色（LeadMarkFollowed）+ 同款正文色描边（.exp-card-lead-followed），「这条路
+ * 走过了」的留痕；未被跟进就关闭——无任何标记，不值得走的东西不留脚印。脚印渲染在卡片外面：
+ * 卡片裁切溢出内容，脚印要探出角上。描边与脚印的颜色由卡片写入的 --exp-lead 决定：开着的取
+ * 线索的 LEAD_ACCENT，走过的取正文色。关闭的类别与理由在详情面板。
  */
 
 import { memo, type CSSProperties } from 'react'
@@ -40,12 +41,14 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
           'hover:border-border-strong hover:shadow-md',
           node.state === 'running' && 'exp-card-running',
           leadState === 'open' && 'exp-card-lead',
+          leadState === 'followed' && 'exp-card-lead-followed',
         )}
         style={
           {
             background: `color-mix(in srgb, ${profile.accent} 10%, var(--surface))`,
             '--exp-accent': profile.accent,
-            '--exp-lead': LEAD_ACCENT,
+            // 开着的线索描边取线索的暖橙；已走过的取正文色——脚印与描边同一颜色
+            '--exp-lead': leadState === 'followed' ? 'var(--text)' : LEAD_ACCENT,
           } as CSSProperties
         }
       >

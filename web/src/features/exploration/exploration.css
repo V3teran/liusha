@@ -127,6 +127,16 @@
   border-width: 1px;
 }
 
+/* 已走过的线索卡片：同款描边，色取正文色（卡片把 --exp-lead 写成 --text）。脚印同样让位 */
+.exp-card-lead-followed {
+  border-width: 3px;
+  border-color: var(--exp-lead);
+}
+
+.react-flow__node:is(.exp-path, .exp-selected, .exp-dimmed) .exp-card-lead-followed {
+  border-width: 1px;
+}
+
 /* 脚印骑在右上角上：中心落在角上，一半探出卡片。卡片裁切溢出内容，所以脚印是卡片的
    兄弟节点，按节点的盒子定位 */
 .react-flow__node > .exp-lead-mark {
