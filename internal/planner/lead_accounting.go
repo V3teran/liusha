@@ -222,17 +222,17 @@ func (e *Engine) completeLeadAccounting(
 	// 所以系统提示直接放进历史、排在最前（见 followUpHistory）。
 	followUp := runtime.NewReActRuntime()
 	next, err := followUp.Run(ctx, &runtime.ReActConfig{
-		Objective:            leadFollowUp(plan.problems),
-		LLMProvider:          provider,
-		MaxIterations:        e.maxIt,
-		InitialHistory:       followUpHistory(first.MessageHistory, systemPrompt),
-		OnThoughtDelta:       onThoughtDelta,
-		OnThinkingDelta:      onThinkingDelta,
-		MessageModifierChain: runtime.NewCompactionChain(e.contextBudget(ctx), "planner", e.distiller, e.compactionTimeouts),
-		ToolOutputTailBytes:  e.toolOutputTailBytes,
-		OutputFormatPrompt:   "你是规划者（Planner），需要输出下一批要执行的Action。",
-		OutputFormatSchema:   plannercontract.Text,
-		OutputCheck:          planningOutputCheck,
+		Objective:             leadFollowUp(plan.problems),
+		LLMProvider:           provider,
+		MaxIterations:         e.maxIt,
+		InitialHistory:        followUpHistory(first.MessageHistory, systemPrompt),
+		OnThoughtDelta:        onThoughtDelta,
+		OnThinkingDelta:       onThinkingDelta,
+		MessageModifierChain:  runtime.NewCompactionChain(e.contextBudget(ctx), "planner", e.distiller, e.compactionTimeouts),
+		ToolOutputWindowBytes: e.toolOutputWindowBytes,
+		OutputFormatPrompt:    "你是规划者（Planner），需要输出下一批要执行的Action。",
+		OutputFormatSchema:    plannercontract.Text,
+		OutputCheck:           planningOutputCheck,
 	})
 	if err != nil {
 		if ctx.Err() != nil {

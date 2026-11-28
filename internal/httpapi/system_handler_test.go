@@ -23,8 +23,8 @@ type fakeSettings struct {
 
 func (f *fakeSettings) Detail(_ context.Context, g settingstore.Group) (settingstore.GroupDetail, error) {
 	return settingstore.GroupDetail{
-		Values:    override.Document{"run_tail_bytes": json.RawMessage(`8192`)},
-		Defaults:  override.Document{"run_tail_bytes": json.RawMessage(`8192`)},
+		Values:    override.Document{"tool_output_window_bytes": json.RawMessage(`65536`)},
+		Defaults:  override.Document{"tool_output_window_bytes": json.RawMessage(`65536`)},
 		Overrides: map[string]override.State{},
 	}, nil
 }
@@ -88,8 +88,8 @@ func TestSettings_PatchRejectsEmptyAndInvalid(t *testing.T) {
 	if w := serve(r, http.MethodPatch, "/settings/runtime", `{}`); w.Code != http.StatusBadRequest {
 		t.Fatalf("空提交应 400，得 %d", w.Code)
 	}
-	r = settingsRouter(&fakeSettings{patchErr: fmt.Errorf("%w：run_tail_bytes 必须 > 0", override.ErrInvalid)})
-	if w := serve(r, http.MethodPatch, "/settings/runtime", `{"run_tail_bytes":0}`); w.Code != http.StatusBadRequest {
+	r = settingsRouter(&fakeSettings{patchErr: fmt.Errorf("%w：tool_output_window_bytes 必须 > 0", override.ErrInvalid)})
+	if w := serve(r, http.MethodPatch, "/settings/runtime", `{"tool_output_window_bytes":0}`); w.Code != http.StatusBadRequest {
 		t.Fatalf("校验失败应 400，得 %d", w.Code)
 	}
 }
@@ -97,10 +97,10 @@ func TestSettings_PatchRejectsEmptyAndInvalid(t *testing.T) {
 func TestSettings_ResetFieldAndGroup(t *testing.T) {
 	fs := &fakeSettings{}
 	r := settingsRouter(fs)
-	if w := serve(r, http.MethodDelete, "/settings/runtime/overrides/run_tail_bytes", ""); w.Code != http.StatusOK {
+	if w := serve(r, http.MethodDelete, "/settings/runtime/overrides/tool_output_window_bytes", ""); w.Code != http.StatusOK {
 		t.Fatalf("得 %d", w.Code)
 	}
-	if fs.resetGroup != settingstore.GroupRuntime || len(fs.resetFields) != 1 || fs.resetFields[0] != "run_tail_bytes" {
+	if fs.resetGroup != settingstore.GroupRuntime || len(fs.resetFields) != 1 || fs.resetFields[0] != "tool_output_window_bytes" {
 		t.Fatalf("单字段恢复接线错误: %s %v", fs.resetGroup, fs.resetFields)
 	}
 	if w := serve(r, http.MethodDelete, "/settings/compaction/overrides", ""); w.Code != http.StatusOK || len(fs.resetFields) != 0 {

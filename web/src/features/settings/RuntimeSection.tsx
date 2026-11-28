@@ -17,8 +17,8 @@ export function RuntimeSection() {
     !d ||
     d.step_tool_timeout_seconds <= 0 ||
     d.step_llm_timeout_seconds <= 0 ||
-    d.run_tail_bytes <= 0 ||
-    d.tool_output_tail_bytes <= 0
+    d.tool_output_window_bytes <= 0 ||
+    d.tool_output_window_bytes > 100000
 
   return (
     <SettingsSection
@@ -46,22 +46,14 @@ export function RuntimeSection() {
               onChange={(e) => s.patch({ step_llm_timeout_seconds: Number(e.target.value) })}
             />
           </Field>
-          <Field label="输出尾部保留（字节）" aside={<SettingStatus s={s} field="run_tail_bytes" />}>
+          <Field label="工具结果窗口（字节）" aside={<SettingStatus s={s} field="tool_output_window_bytes" />}>
             <input
               type="number"
               min={1}
+              max={100000}
               className={NUMBER_INPUT_CLASS}
-              value={d.run_tail_bytes}
-              onChange={(e) => s.patch({ run_tail_bytes: Number(e.target.value) })}
-            />
-          </Field>
-          <Field label="工具输出全局钳制（字节）" aside={<SettingStatus s={s} field="tool_output_tail_bytes" />}>
-            <input
-              type="number"
-              min={1}
-              className={NUMBER_INPUT_CLASS}
-              value={d.tool_output_tail_bytes}
-              onChange={(e) => s.patch({ tool_output_tail_bytes: Number(e.target.value) })}
+              value={d.tool_output_window_bytes}
+              onChange={(e) => s.patch({ tool_output_window_bytes: Number(e.target.value) })}
             />
           </Field>
         </>

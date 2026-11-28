@@ -60,7 +60,7 @@ type RouterJudge struct {
 	contextRatio       float64                           // 上下文历史预算占 provider.context_window 的比例（0=压缩器内置兜底）
 	distiller          runtime.Distiller                 // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
 	compactionTimeouts runtime.CompactionTimeouts        // 压缩链的时间预算
-	toolTailBytes      int                               // 工具输出全局尾部钳制字节（0=不钳）
+	toolWindowBytes    int                               // 单条工具结果进上下文的窗口字节（0=不设窗口，仅测试）
 	toolWrap           func(registry.Tool) registry.Tool // 装配层注入的工具包装器（共享拦截链；nil=不包装）
 }
 
@@ -134,9 +134,9 @@ func (j *RouterJudge) WithCompactionTimeouts(t runtime.CompactionTimeouts) *Rout
 	return j
 }
 
-// WithToolOutputTailBytes 注入工具输出全局尾部钳制字节（0=不钳）。
-func (j *RouterJudge) WithToolOutputTailBytes(n int) *RouterJudge {
-	j.toolTailBytes = n
+// WithToolOutputWindowBytes 注入单条工具结果进上下文的窗口字节（0=不设窗口，仅测试）。
+func (j *RouterJudge) WithToolOutputWindowBytes(n int) *RouterJudge {
+	j.toolWindowBytes = n
 	return j
 }
 
@@ -226,7 +226,7 @@ func (j *RouterJudge) Judge(ctx context.Context, in JudgeInput) (Verdict, error)
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
 		MessageModifierChain:       runtime.NewCompactionChain(j.contextBudget(ctx), "evaluator", j.distiller, j.compactionTimeouts),
-		ToolOutputTailBytes:        j.toolTailBytes,
+		ToolOutputWindowBytes:      j.toolWindowBytes,
 		MiddlewareChain:            middlewareChain,
 		// 判定终稿的结构化输出契约（与 executor/planner 同机制）：不设防时终稿
 		// 是自由散文——验证结论写在散文里（"假设坐实 confirmed 0.99"）而

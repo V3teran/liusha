@@ -232,11 +232,14 @@ func validate(g Group, doc override.Document) error {
 		}
 		for name, v := range map[string]int{
 			"step_tool_timeout_seconds": r.StepToolTimeoutSeconds, "step_llm_timeout_seconds": r.StepLLMTimeoutSeconds,
-			"run_tail_bytes": r.RunTailBytes, "tool_output_tail_bytes": r.ToolOutputTailBytes,
+			"tool_output_window_bytes": r.ToolOutputWindowBytes,
 		} {
 			if v <= 0 {
 				problems = append(problems, name+" 必须 > 0")
 			}
+		}
+		if r.ToolOutputWindowBytes > config.MaxToolOutputWindowBytes {
+			problems = append(problems, fmt.Sprintf("tool_output_window_bytes 不得超过 %d（单条消息的硬上限）", config.MaxToolOutputWindowBytes))
 		}
 	case GroupProxyFilter:
 		var p ProxyFilterSettings

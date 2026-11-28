@@ -21,7 +21,6 @@ vi.mock('@/api/settings', () => ({
   getRuntimeSettings: vi.fn().mockResolvedValue({
     step_tool_timeout_seconds: 1800,
     step_llm_timeout_seconds: 300,
-    run_tail_bytes: 8192,
   }),
 }))
 

@@ -196,11 +196,16 @@ type RuntimeConfig struct {
 	StepLLMTimeoutSeconds int `mapstructure:"step_llm_timeout_seconds" json:"step_llm_timeout_seconds"`
 	// StepToolTimeoutSeconds 是 command_run 超时的上限（模型自传的 timeout_seconds 不得超过它）。
 	StepToolTimeoutSeconds int `mapstructure:"step_tool_timeout_seconds" json:"step_tool_timeout_seconds"`
-	// RunTailBytes 是 command_run 输出保留尾部的字节数（输出末段是结果所在）。
-	RunTailBytes int `mapstructure:"run_tail_bytes" json:"run_tail_bytes"`
-	// ToolOutputTailBytes 是任意工具输出进模型上下文前的全局尾部保留字节数。
-	ToolOutputTailBytes int `mapstructure:"tool_output_tail_bytes" json:"tool_output_tail_bytes"`
+	// ToolOutputWindowBytes 是单条工具结果进模型上下文的窗口（字节）：超过时留开头与结尾各一半，
+	// 中间省略并写明省掉多少。工具自己不裁剪，这是工具结果进上下文前唯一的尺寸关口；一步里各条
+	// 结果的合计另有限额（至多相当于四条顶格的结果）。不得超过 MaxToolOutputWindowBytes。
+	ToolOutputWindowBytes int `mapstructure:"tool_output_window_bytes" json:"tool_output_window_bytes"`
 }
+
+// MaxToolOutputWindowBytes 是单条工具结果窗口的上限：单条消息的硬上限（运行时的长度哨兵，按字节
+// 计）。窗口之内的结果连说明在内不超过窗口，所以窗口不超过它就撞不上哨兵。config 不引用运行时，
+// 两者的关系由 internal/runner 的测试守住。
+const MaxToolOutputWindowBytes = 100000
 
 // CompactionConfig 是各角色会话历史的预算占比（前端「系统配置 · 会话历史压缩」那一组）：
 // 预算 = 比例 × 本角色所用模型的上下文窗口，超出预算的历史前缀被裁并蒸馏成纪要。比例越大上下文

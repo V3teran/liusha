@@ -52,9 +52,11 @@ type Deps struct {
 	ListenerPortCount int
 	CallbackHost      string
 
-	// RunTailBytes 是 command_run 输出保留尾部的字节数（runtime.run_tail_bytes：配置里的出厂值
-	// 或页面上的热改值）。构造 command_run 时要求为正。
-	RunTailBytes int
+	// OutputWindowBytes 是单条工具结果进模型上下文的窗口（runtime.tool_output_window_bytes：配置里的
+	// 出厂值或页面上的热改值）。command_run 不裁剪输出——裁剪只在工具结果进上下文的那一道窗口做；
+	// 这个值交给沙盒当落盘阈值：命令输出超过窗口时由沙盒把完整内容落盘，窗口省掉的部分因此有处可读。
+	// 构造 command_run 时要求为正。
+	OutputWindowBytes int
 }
 
 // CommandRunner 是工具层对沙盒的唯一依赖：执行一条命令（*sandbox.HTTPClient 满足）。

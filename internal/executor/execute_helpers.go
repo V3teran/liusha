@@ -141,7 +141,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 		OnThinkingDelta:            onThinkingDelta,
 		Temperature:                0.7,
 		MessageModifierChain:       runtime.NewCompactionChain(e.contextBudget(ctx), "executor", e.distiller, e.compactionTimeouts),
-		ToolOutputTailBytes:        e.toolOutputTailBytes,
+		ToolOutputWindowBytes:      e.toolOutputWindowBytes,
 		MiddlewareChain:            middlewareChain,
 		// Executor 的结构化输出格式
 		OutputFormatPrompt: "你刚才完成了动作的执行，现在需要按输出契约输出终稿。",

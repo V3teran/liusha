@@ -82,10 +82,11 @@ type ReActConfig struct {
 	// 最大 Token 数
 	MaxTokens int
 
-	// ToolOutputTailBytes 是单条工具输出进上下文前的全局尾部保留字节（>0 启用）。
-	// 运行时统一收口：个别工具自身的裁剪仍先行，这里兜底保证任何工具结果
-	// 都有界——不撑爆上下文预算、不撞长度校验哨兵弄死整轮。0 = 不钳制（仅测试）。
-	ToolOutputTailBytes int
+	// ToolOutputWindowBytes 是单条工具结果进上下文的窗口（字节，>0 启用）：超过时留开头与结尾、
+	// 中间省略并写明省掉多少。这是工具结果进上下文前唯一的尺寸关口（工具自己不裁剪），一步里
+	// 各条结果的合计另有限额（见 fitStepOutputs）——不撑爆上下文预算、不撞长度校验哨兵弄死整轮。
+	// 没给（仅测试）或给得超过单条消息的硬上限时按硬上限。
+	ToolOutputWindowBytes int
 
 	// 是否启用流式输出
 	// MessageModifierChain 是消息修改链（压缩、校验等）。链产出收敛回权威

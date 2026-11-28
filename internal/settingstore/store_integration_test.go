@@ -47,18 +47,18 @@ func newStore(t *testing.T) (*Store, context.Context) {
 func TestPatchResetAndDefaults(t *testing.T) {
 	s, ctx := newStore(t)
 	rt, err := s.Runtime(ctx)
-	if err != nil || rt.StepLLMTimeoutSeconds != 300 || rt.RunTailBytes != 8192 {
+	if err != nil || rt.StepLLMTimeoutSeconds != 300 || rt.ToolOutputWindowBytes != 65536 {
 		t.Fatalf("未自定义时应为出厂默认: %+v %v", rt, err)
 	}
-	if err := s.Patch(ctx, GroupRuntime, override.Document{"run_tail_bytes": json.RawMessage(`16384`)}); err != nil {
+	if err := s.Patch(ctx, GroupRuntime, override.Document{"tool_output_window_bytes": json.RawMessage(`98304`)}); err != nil {
 		t.Fatal(err)
 	}
 	d, _ := s.Detail(ctx, GroupRuntime)
-	if string(d.Values["run_tail_bytes"]) != "16384" || len(d.Overrides) != 1 {
-		t.Fatalf("应只自定义 run_tail_bytes: values=%s overrides=%v", d.Values["run_tail_bytes"], d.Overrides)
+	if string(d.Values["tool_output_window_bytes"]) != "98304" || len(d.Overrides) != 1 {
+		t.Fatalf("应只自定义 tool_output_window_bytes: values=%s overrides=%v", d.Values["tool_output_window_bytes"], d.Overrides)
 	}
 	// 写回与出厂相同的值即不算自定义
-	if err := s.Patch(ctx, GroupRuntime, override.Document{"run_tail_bytes": json.RawMessage(`8192`)}); err != nil {
+	if err := s.Patch(ctx, GroupRuntime, override.Document{"tool_output_window_bytes": json.RawMessage(`65536`)}); err != nil {
 		t.Fatal(err)
 	}
 	if d, _ := s.Detail(ctx, GroupRuntime); len(d.Overrides) != 0 {
@@ -81,7 +81,8 @@ func TestPatchValidation(t *testing.T) {
 		g Group
 		d override.Document
 	}{
-		{GroupRuntime, override.Document{"run_tail_bytes": json.RawMessage(`0`)}},
+		{GroupRuntime, override.Document{"tool_output_window_bytes": json.RawMessage(`0`)}},
+		{GroupRuntime, override.Document{"tool_output_window_bytes": json.RawMessage(`100001`)}}, // 超过单条消息的硬上限
 		{GroupCompaction, override.Document{"monitor_context_ratio": json.RawMessage(`0.95`)}},
 		{GroupProxyFilter, override.Document{"max_request_body_bytes": json.RawMessage(`-1`)}},
 		{GroupRuntime, override.Document{"no_such_field": json.RawMessage(`1`)}},

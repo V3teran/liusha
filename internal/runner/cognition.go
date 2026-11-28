@@ -66,8 +66,7 @@ func (h *Handler) runCognition(
 		},
 		ToolLimits: cognition.ToolLimits{
 			StepToolTimeoutSeconds: rt.StepToolTimeoutSeconds,
-			RunTailBytes:           rt.RunTailBytes,
-			ToolOutputTailBytes:    rt.ToolOutputTailBytes,
+			ToolOutputWindowBytes:  rt.ToolOutputWindowBytes,
 		},
 		RunActivity:     h.Heartbeats,
 		SandboxListener: h.SandboxListener,

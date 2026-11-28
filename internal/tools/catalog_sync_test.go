@@ -60,7 +60,7 @@ func TestFunctionToolCatalogSync(t *testing.T) {
 		WebSearch:              noOpWebSearch{},
 		Sandbox:                noOpSandbox{},
 		StepToolTimeoutSeconds: 1800,
-		RunTailBytes:           8192,
+		OutputWindowBytes:      65536,
 		Skills:                 skillSet,
 	}
 

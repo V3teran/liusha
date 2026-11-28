@@ -218,7 +218,7 @@ func TestMigration0201_SeparatesUserChangesFromDefaults(t *testing.T) {
 	}
 	set := settingstore.New(pool, smokeCache(t), settingstore.DefaultsFrom(defaults))
 	rt, _ := set.Runtime(ctx)
-	if rt.StepLLMTimeoutSeconds != 240 || rt.RunTailBytes != 8192 {
+	if rt.StepLLMTimeoutSeconds != 240 || rt.ToolOutputWindowBytes != 65536 {
 		t.Errorf("runtime 生效值: %+v", rt)
 	}
 	pf, _ := set.ProxyFilter(ctx)

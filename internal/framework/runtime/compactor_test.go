@@ -2,10 +2,13 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/stretchr/testify/assert"
@@ -194,124 +197,122 @@ func TestContextCompactor_TailGroupFallback(t *testing.T) {
 	require.True(t, len(out) >= 4, "必须保住尾组而非吐空窗口")
 }
 
-// TestClampTail 工具输出全局钳制：尾部保留 + UTF-8 边界对齐 + 阈内直通。
-func TestClampTail(t *testing.T) {
-	assert.Equal(t, "short", clampTail("short", 100))
-	assert.Equal(t, "short", clampTail("short", 0), "0=不钳（仅测试）")
+// 单条工具结果的窗口：没超过原样进入上下文；超过时留开头与结尾、中间换成说明省掉多少字节的
+// 一句话，整条结果（连说明在内）不超过窗口。
+func TestWindowToolOutput(t *testing.T) {
+	assert.Equal(t, "short", windowToolOutput("short", 100))
+	assert.Equal(t, "short", windowToolOutput("short", 0), "0=不设窗口（仅测试）")
+	assert.Equal(t, "0123456789", windowToolOutput("0123456789", 10), "恰好等于窗口：原样")
 
-	// 超限：尾部保留 + 前缀标记
-	got := clampTail("0123456789", 4)
-	assert.True(t, strings.HasSuffix(got, "6789"))
-	assert.True(t, strings.HasPrefix(got, "...[前段已截断]"))
+	out := strings.Repeat("a", 1000)
+	got := windowToolOutput(out, 200)
+	assert.LessOrEqual(t, len(got), 200, "连说明在内不超过窗口")
+	head, rest, found := strings.Cut(got, "…[中间省略 ")
+	require.True(t, found, "中间应有说明: %q", got)
+	digits, tail, found := strings.Cut(rest, " 字节]…")
+	require.True(t, found)
+	omitted, err := strconv.Atoi(digits)
+	require.NoError(t, err)
+	assert.Equal(t, 1000-len(head)-len(tail), omitted, "说明里的省略量对得上头尾之外的部分")
+	assert.Equal(t, 84, len(head), "头尾各半")
+	assert.Equal(t, 84, len(tail))
 
-	// UTF-8 边界：截口落在多字节 rune 中间时丢弃残字节（"中文中文中文" 每字
-	// 3 字节，取尾部 7 字节的裁口落在第 4 个汉字的末字节——残字节被丢弃后
-	// 只剩最后两个完整汉字）。
-	s := "中文中文中文"
-	got = clampTail(s, 7)
-	assert.True(t, strings.HasSuffix(got, "中文"),
-		"截口必须落在 rune 边界（保留完整 rune）")
-	assert.LessOrEqual(t, len(got), len("...[前段已截断]\n")+7)
+	// 窗口小到连说明都放不下（只有测试才会这样）：只留结尾，长度不超过窗口。
+	got = windowToolOutput(out, 10)
+	assert.Equal(t, strings.Repeat("a", 10), got)
 }
 
-// TestCallLLM_CompactionCheckpoint 验证压缩的检查点语义：压缩结果写回权威
-// 历史——二次压缩时旧纪要随被裁前缀进入蒸馏器折叠。若压缩只是视图层变换
-// （历史原样保留），每次调用都要重新压缩同一历史且纪要永不在场，折叠链路
-// 整体失效——本测试守住写回这一接线。
-func TestCallLLM_CompactionCheckpoint(t *testing.T) {
-	summaryCache = newSummaryLRU(128)
-	d := &stubDistiller{script: []struct {
-		out string
-		err error
-	}{{out: "纪要一", err: nil}, {out: "纪要二（已折叠纪要一）", err: nil}}}
-	provider := &mockLLMProvider{responses: []llm.Response{{Content: "done"}}}
-	r := NewReActRuntime().(*reactRuntime)
-	config := &ReActConfig{
-		LLMProvider:          provider,
-		MessageModifierChain: NewCompactionChain(24, "test", d, testTimeouts),
+// 顶格的窗口（单条消息的硬上限）之下，一条远超窗口的结果过了窗口也装得进长度哨兵：哨兵不会拦下
+// 任何过了窗口的结果。没给窗口或给得超过硬上限时按硬上限，配置写错也撞不上哨兵。
+func TestWindowToolOutput_FitsTheLengthSentinel(t *testing.T) {
+	out := strings.Repeat("a", MaxMessageBytes*3)
+	sentinel := NewValidateModifier(0)
+	for _, window := range []int{MaxMessageBytes, 0, MaxMessageBytes * 2} {
+		got := windowToolOutput(out, outputWindow(&ReActConfig{ToolOutputWindowBytes: window}))
+		_, err := sentinel.Modify(context.Background(), []llm.Message{{Role: llm.RoleTool, Content: got}})
+		require.NoErrorf(t, err, "窗口 %d", window)
 	}
-
-	countSummaries := func(msgs []llm.Message) int {
-		n := 0
-		for _, m := range msgs {
-			if strings.HasPrefix(m.Content, SummaryPrefix) {
-				n++
-			}
-		}
-		return n
-	}
-
-	result := &ReActResult{MessageHistory: toolPairHistory(4)}
-	_, err := r.callLLM(context.Background(), config, result)
-	require.NoError(t, err)
-	require.Equal(t, 1, d.calls)
-	require.Equal(t, llm.RoleSystem, result.MessageHistory[0].Role, "写回后权威历史以 system 开头")
-	require.Equal(t, 1, countSummaries(result.MessageHistory), "写回后权威历史含一份纪要")
-
-	// 追加新一轮工具往返（历史重新逼近预算）后二次调用：新前缀新蒸馏，
-	// 旧纪要折叠进新纪要，权威历史仍只有一份纪要。
-	result.AddAssistantMessage("", []llm.ToolCall{{ID: "zz", Name: "command_run", Arguments: []byte(`{}`)}}, nil)
-	result.AddToolMessage("zz", strings.Repeat("observation-", 4))
-	_, err = r.callLLM(context.Background(), config, result)
-	require.NoError(t, err)
-	require.Equal(t, 2, d.calls, "新的被裁前缀必须新蒸馏")
-	assert.Equal(t, "纪要一", d.priores[1], "旧纪要必须折叠传给蒸馏器")
-	assert.Equal(t, 1, countSummaries(result.MessageHistory), "折叠后不得残留两份纪要")
 }
 
-// TestContextCompactor_AmortizationGap 摊销回归：压缩后总量必须显著低于预算
-// （≤80%）。检查点语义的经济性前提是「压缩后到下次触发之间有追加余量」——
-// 贴线压缩会让每条新消息立即再度触发压缩与蒸馏，摊销归零（本测试守住
-// 尾部预算公式里的落差系数）。
-func TestContextCompactor_AmortizationGap(t *testing.T) {
-	summaryCache = newSummaryLRU(128)
-	budget := 400
-	comp := NewContextCompactor(budget, "planner", nil, testDistillTimeout)
-
-	// system 极小 + 大量等长小消息（每对 ~5 token）：总量远超预算，且单条
-	// 消息相对预算可忽略（摊销断言只在无单条支配时成立——toolPairHistory
-	// 的后段 pair 递增增长会被「至少保留最后一条」规则支配，不可用）。
-	msgs := []llm.Message{mkMsg(llm.RoleSystem, "system"), mkMsg(llm.RoleUser, "objective")}
-	for i := 0; i < 90; i++ {
-		a, tool := mkToolPair(fmt.Sprintf("c%d", i), "observation")
-		msgs = append(msgs, a, tool)
+// 两处截口都对齐 UTF-8 边界：无论怎么切都不落在多字节字符的中间。
+func TestWindowToolOutput_AlignsToRuneBoundaries(t *testing.T) {
+	out := strings.Repeat("中文", 100) // 600 字节，每字 3 字节
+	for _, window := range []int{101, 102, 103, 104, 205} {
+		got := windowToolOutput(out, window)
+		assert.Truef(t, utf8.ValidString(got), "窗口 %d: 结果应是合法 UTF-8", window)
+		assert.Truef(t, strings.HasPrefix(got, "中文"), "窗口 %d: 开头是完整的字", window)
+		assert.Truef(t, strings.HasSuffix(got, "中文"), "窗口 %d: 结尾是完整的字", window)
+		assert.LessOrEqualf(t, len(got), window, "窗口 %d", window)
 	}
-	out, err := comp.Modify(context.Background(), msgs)
-	require.NoError(t, err)
-
-	total := llm.EstimateMessagesTokens(out)
-	assert.LessOrEqual(t, total, budget*8/10,
-		"压缩后总量 %d 贴近/超出预算 %d——摊销落差丢失，检查点退化为每步压缩", total, budget)
-	assert.Less(t, total, llm.EstimateMessagesTokens(msgs), "必须实际发生压缩")
 }
 
-// TestCompleteForced_ConvergesHistory 强制收尾是唯一绕过 callLLM 的出站点，
-// 不得成为预算治理的旁路：收尾调用前必须过修改链并写回。
-func TestCompleteForced_ConvergesHistory(t *testing.T) {
-	summaryCache = newSummaryLRU(128)
-	d := &stubDistiller{script: []struct {
-		out string
-		err error
-	}{{out: "收尾前纪要", err: nil}}}
-	provider := &mockLLMProvider{responses: []llm.Response{{Content: "最终总结"}}}
-	r := NewReActRuntime().(*reactRuntime)
-	config := &ReActConfig{
-		LLMProvider:          provider,
-		MaxTokens:            1000,
-		MessageModifierChain: NewCompactionChain(24, "test", d, testTimeouts),
+// 一步里的工具结果合计至多相当于四条顶格的结果：装得下就只是各过单条窗口；装不下时小结果
+// 原样保留，大结果均分额度，顺序不变。
+func TestFitStepOutputs(t *testing.T) {
+	small := strings.Repeat("s", 50)
+	big := strings.Repeat("b", 3000)
+
+	// 合计没超：只有超过单条窗口的被收
+	got := fitStepOutputs([]string{strings.Repeat("x", 9000), small}, 1000)
+	assert.Equal(t, small, got[1])
+	assert.LessOrEqual(t, len(got[0]), 1000)
+	assert.Contains(t, got[0], "中间省略")
+
+	// 两条大结果加一条小的：预算 4000，小的留 50，余下 3950 由两条均分
+	got = fitStepOutputs([]string{big, small, big}, 1000)
+	assert.Equal(t, small, got[1], "小结果原样")
+	for _, i := range []int{0, 2} {
+		assert.LessOrEqual(t, len(got[i]), 1975, "大结果各至多一个均分额度")
+		assert.Contains(t, got[i], "中间省略")
+		assert.True(t, strings.HasPrefix(got[i], "bbbb"), "大结果仍从头开始")
+		assert.True(t, strings.HasSuffix(got[i], "bbbb"), "大结果仍到结尾")
 	}
 
-	result := &ReActResult{MessageHistory: toolPairHistory(4)}
-	_, err := r.completeForced(context.Background(), config, result, "输出最终总结")
-	require.NoError(t, err)
+	// 不设窗口（仅测试）：原样
+	assert.Equal(t, []string{big}, fitStepOutputs([]string{big}, 0))
+}
 
-	require.Equal(t, 1, d.calls, "收尾调用必须先触发压缩")
-	assert.Equal(t, llm.RoleSystem, result.MessageHistory[0].Role)
-	found := false
-	for _, m := range result.MessageHistory {
-		if strings.HasPrefix(m.Content, SummaryPrefix) {
-			found = true
+// 端到端：模型一步发起五个工具调用，各交出 3000 字节；窗口 1000 时合计 5000 超过四个窗口，
+// 每条被均分到 800 字节——回传给 provider 的工具消息、轨迹与观察回调看到的都是这一份。
+func TestReActRuntime_ToolOutputsFitOneStep(t *testing.T) {
+	rt := NewReActRuntime()
+	require.NoError(t, rt.RegisterTool(&mockTool{
+		name:    "bulk",
+		handler: func(json.RawMessage) (any, error) { return strings.Repeat("a", 3000), nil },
+	}))
+	var calls []llm.ToolCall
+	for i := range 5 {
+		calls = append(calls, llm.ToolCall{ID: fmt.Sprintf("call_%d", i), Name: "bulk", Arguments: json.RawMessage(`{}`)})
+	}
+	provider := &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{
+		{ToolCalls: calls, FinishReason: "tool_use"},
+		{Content: "完成", FinishReason: "stop"},
+	}}}
+	var seen []string
+	cfg := defaultTestConfig()
+	cfg.Objective = "取一批数据"
+	cfg.LLMProvider = provider
+	cfg.ToolOutputWindowBytes = 1000
+	cfg.OnObservation = func(o string) { seen = append(seen, o) }
+	result, err := rt.Run(context.Background(), cfg)
+	require.NoError(t, err)
+	assert.Equal(t, ReActStatusSuccess, result.Status)
+
+	require.Len(t, seen, 5)
+	for _, o := range seen {
+		assert.LessOrEqual(t, len(o), 800, "五条均分四个窗口")
+		assert.Contains(t, o, "中间省略")
+	}
+	require.GreaterOrEqual(t, len(provider.requests), 2)
+	var toolMessages []llm.Message
+	for _, m := range provider.requests[1].Messages {
+		if m.Role == llm.RoleTool {
+			toolMessages = append(toolMessages, m)
 		}
 	}
-	assert.True(t, found, "收尾历史必须含收敛纪要")
+	require.Len(t, toolMessages, 5)
+	for i, m := range toolMessages {
+		assert.Equal(t, seen[i], m.Content, "回传给 provider 的就是观察回调看到的那一份")
+	}
+	assert.Equal(t, seen, result.Trace[0].Observations)
 }

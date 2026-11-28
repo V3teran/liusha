@@ -31,12 +31,12 @@ type runCommandTool struct {
 	deps Deps
 }
 
-// newRunCommandTool 构造 command_run。超时钳制上限与输出尾部保留都来自 runtime 配置（出厂值
+// newRunCommandTool 构造 command_run。超时钳制上限与工具结果窗口都来自 runtime 配置（出厂值
 // 在 config.yaml，热改值在系统设置），装配处必须给出——工具不再内置出厂值的第二份：配置改了
 // 它不会跟着变，留着只会让人以为「没配也行」。
 func newRunCommandTool(deps Deps, timeout time.Duration) *runCommandTool {
-	if deps.StepToolTimeoutSeconds <= 0 || deps.RunTailBytes <= 0 || timeout <= 0 {
-		panic("command_run 需要 runtime.step_tool_timeout_seconds 与 runtime.run_tail_bytes（均须为正，注册表级超时同源）：装配处未给出配置值")
+	if deps.StepToolTimeoutSeconds <= 0 || deps.OutputWindowBytes <= 0 || timeout <= 0 {
+		panic("command_run 需要 runtime.step_tool_timeout_seconds 与 runtime.tool_output_window_bytes（均须为正，注册表级超时同源）：装配处未给出配置值")
 	}
 	t := &runCommandTool{deps: deps}
 	t.SetTimeout(timeout)
@@ -46,7 +46,8 @@ func newRunCommandTool(deps Deps, timeout time.Duration) *runCommandTool {
 func (t *runCommandTool) Name() string      { return "command_run" }
 func (t *runCommandTool) ShortDesc() string { return "在沙箱内执行 shell 命令" }
 func (t *runCommandTool) Desc() string {
-	desc := "在沙箱内执行完整 shell 命令（管道/重定向/环境变量），跑外部 CLI 工具。命令以 root 身份执行，sudo 不可用也无必要；预装清单外的命令也能写，但未安装的会报 command not found。"
+	desc := "在沙箱内执行完整 shell 命令（管道/重定向/环境变量），跑外部 CLI 工具。命令以 root 身份执行，sudo 不可用也无必要；预装清单外的命令也能写，但未安装的会报 command not found。" +
+		" 输出很长时你看到的只是开头和结尾，结果末尾写着总字节数和完整输出的文件路径：需要中间的内容就用 sed -n、grep 分段读那个文件，不要重跑命令。"
 	// 对外可达性契约：不告知时 LLM 会随手挑端口起监听（端口未对外发布时目标连
 	// 不进来，回连静默失败）。提供监听段时显式告知可用端口段与回连地址，让需回连
 	// 的命令一次写对；未提供时同样明示，阻止注定
@@ -88,37 +89,48 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		a.TimeoutSeconds = int(ceiling.Seconds())
 	}
 
+	// 落盘阈值取工具结果的窗口：输出超过窗口就会被窗口省掉中间，省掉的部分得有处可读。
 	req := sandbox.ExecRequest{
-		AssignmentID:   t.deps.AssignmentID,
-		TaskID:         t.deps.TaskID,
-		AgentRunID:     t.deps.AgentRunID,
-		Command:        a.Command,
-		TimeoutSeconds: a.TimeoutSeconds,
-		Tag:            a.Tag,
+		AssignmentID:        t.deps.AssignmentID,
+		TaskID:              t.deps.TaskID,
+		AgentRunID:          t.deps.AgentRunID,
+		Command:             a.Command,
+		TimeoutSeconds:      a.TimeoutSeconds,
+		Tag:                 a.Tag,
+		SaveOutputOverBytes: t.deps.OutputWindowBytes,
 	}
 	res, err := t.deps.Sandbox.Exec(ctx, req)
 	if err != nil {
 		return registry.ToolResult{Error: fmt.Sprintf("command_run: 沙箱执行失败: %v", err)}, nil
 	}
 
-	// stdout/stderr 合并后按 runtime.run_tail_bytes 保留尾部——命令输出的结果
-	// （报文/报错）几乎总在末段，头部横幅与噪音优先弃。截断只影响给 LLM 的
-	// Signal.Content；Output 保留全文供 tool_invocation 留档取证。
-	combined := res.Stdout
-	if res.Stderr != "" {
-		if combined != "" {
-			combined += "\n--- stderr ---\n"
-		}
-		combined += res.Stderr
-	}
-	visible := tailRunOutput(combined, t.deps.RunTailBytes)
-
+	// 输出原样交出，这里不裁剪：工具结果进上下文之前只有运行时的那一道窗口（留开头与结尾、
+	// 中间写明省掉多少）。此前这里先只留尾部 8 KiB——扫描类工具的结果按序排在中间，模型还没
+	// 看到就先被扔掉了前段，nmap 的低端口恰好在最前面。
 	var sb strings.Builder
-	sb.WriteString(visible)
+	sb.WriteString(res.Stdout)
+	if res.Stderr != "" {
+		if sb.Len() > 0 {
+			sb.WriteString("\n--- stderr ---\n")
+		}
+		sb.WriteString(res.Stderr)
+	}
 	if res.TimedOut {
 		fmt.Fprintf(&sb, "\n[超时: %ds]", a.TimeoutSeconds)
 	}
 	fmt.Fprintf(&sb, "\n[exit_code: %d]", res.ExitCode)
+
+	// 以下几行都在结果末尾：无论窗口怎么切，末尾都保留——模型看得到输出完不完整、缺的在哪儿。
+	// 完整输出已由沙盒落盘的流，写明总字节数与文件路径（命令可以分段读它）。
+	if res.StdoutFile != "" {
+		fmt.Fprintf(&sb, "\n[stdout 共 %d 字节；完整输出: %s]", res.StdoutBytes, res.StdoutFile)
+	}
+	if res.StderrFile != "" {
+		fmt.Fprintf(&sb, "\n[stderr 共 %d 字节；完整输出: %s]", res.StderrBytes, res.StderrFile)
+	}
+	for _, warning := range res.Warnings {
+		fmt.Fprintf(&sb, "\n[沙盒提示: %s]", warning)
+	}
 
 	// $OUTPUT_DIR 新增产物随结果附清单——文件本体留在 out/（宿主持久层，
 	// 操作员工作空间页可见可下载），清单进 LLM 上下文使其知道「我产出过
@@ -135,16 +147,7 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 		sb.WriteString(" —— 已存档，操作员可在工作空间页查看]")
 	}
 
-	output := sb.String()
-	return registry.ToolResult{
-		Output: output,
-		Signal: &registry.Signal{
-			Kind:     registry.SignalCmdOutput,
-			ToolName: "command_run",
-			Content:  output,
-			Detail:   combined,
-		},
-	}, nil
+	return registry.ToolResult{Output: sb.String()}, nil
 }
 
 // runCommandTimeout 返回 command_run 的注册表级超时 = runtime.step_tool_timeout_seconds
@@ -153,27 +156,4 @@ func (t *runCommandTool) Execute(ctx context.Context, args json.RawMessage) (reg
 // 它为正。
 func runCommandTimeout(deps Deps) time.Duration {
 	return time.Duration(deps.StepToolTimeoutSeconds) * time.Second
-}
-
-// tailRunOutput 保留 s 的尾部 n 字节（n 须为正，构造时已校验；n<=0 原样返回——
-// 保守失败，不悄悄换成一个写死的数）。按字节截断可能切断
-// 多字节 UTF-8 字符——从截断点回退到字符起始边界再切。
-func tailRunOutput(s string, n int) string {
-	if n <= 0 {
-		return s
-	}
-	b := []byte(s)
-	if len(b) <= n {
-		return s
-	}
-	cut := len(b) - n
-	for cut < len(b) && cut > 0 && b[cut]&0xC0 == 0x80 {
-		cut-- // 回退到 UTF-8 多字节序列的起始字节
-	}
-	trimmed := b[cut:]
-	head := ""
-	if cut > 0 {
-		head = "\n...[前段已截断]\n"
-	}
-	return head + string(trimmed)
 }
