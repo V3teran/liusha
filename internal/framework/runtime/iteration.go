@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // runIteration 运行单次迭代。
@@ -57,6 +59,7 @@ func (r *reactRuntime) runIteration(
 
 	// token 用量逐迭代累计（时间线每步用量 chip 的数据源）。
 	result.Usage = result.Usage.Add(response.Usage)
+	r.lastOutput = outputState{hitLimit: llm.HitOutputLimit(response.FinishReason), outTokens: response.Usage.OutTokens}
 
 	// 提取思考内容
 	trace.Thought = response.Content
@@ -82,11 +85,20 @@ func (r *reactRuntime) runIteration(
 
 	// 2. 检查是否有工具调用
 	if len(response.ToolCalls) == 0 {
-		// 空响应不是完成：正文与工具调用双空的助手轮次对 ReAct 协议零信息——
-		// 几乎总是生成预算被思考过程耗尽后截断（finish_reason=length 的常见
-		// 形态）。接受它会让本轮以空 FinalAnswer 收场、调用方把已完成的迭代
-		// 全部作废；这里改为注入纠偏指令继续循环，预算压力随上下文重排自然缓解。
+		// 空响应不是完成：正文与工具调用双空的助手轮次对 ReAct 协议零信息。接受它会让本轮
+		// 以空 FinalAnswer 收场、调用方把已完成的迭代全部作废。
 		if strings.TrimSpace(response.Content) == "" {
+			// 结束原因写明被输出上限截断的（思考吃满了输出预算）不在循环里纠偏：预算就那么
+			// 大，再生成一次思考多半还是把它吃满（实测循环里的第二次照旧被截断）。直接收尾，
+			// 收尾按放大的输出预算请求（见 completeForced），并如实告诉模型上一版是被截断的。
+			if r.lastOutput.hitLimit {
+				result.AddAssistantMessage(response.Content, nil, response.Thinking)
+				trace.Status = IterationStatusFailed
+				trace.EndTime = time.Now().UnixMilli()
+				return trace, true, nil
+			}
+			// 结束原因没写明的（适配器取不到，或模型退化）：注入纠偏指令继续循环，预算压力
+			// 随上下文重排自然缓解；连续两次判绝症，报错交调用方的重试阶梯。
 			r.consecutiveEmptyResponses++
 			if r.consecutiveEmptyResponses >= 2 {
 				result.AddAssistantMessage(response.Content, nil, response.Thinking)
@@ -121,58 +133,10 @@ func (r *reactRuntime) runIteration(
 	// 添加助手消息（包含工具调用；thinking 随消息携带供多轮 tool_use 规范回传）
 	result.AddAssistantMessage(response.Content, response.ToolCalls, response.Thinking)
 
-	// 3. 执行工具调用（Observation）——每个工具执行前同样检查外部中止：
-	//    浏览器/长命令执行期间的外部中止即刻生效。
-	for _, toolCall := range response.ToolCalls {
-		if config.AbortCheck != nil && config.AbortCheck() {
-			result.AddUserMessage("（外部中止：本轮执行已被验证终止，跳过剩余工具调用）")
-			trace.Status = IterationStatusCompleted
-			trace.EndTime = time.Now().UnixMilli()
-			return trace, true, nil
-		}
-		action := &Action{
-			ToolCall:  toolCall,
-			Thought:   response.Content,
-			Timestamp: time.Now().UnixMilli(),
-		}
-		trace.Actions = append(trace.Actions, action)
-
-		// 回调：动作
-		if config.OnAction != nil {
-			config.OnAction(action)
-		}
-
-		// 执行工具（参数无法解析的调用不执行，把错误回给模型重新调用）
-		var (
-			observation string
-			failed      bool
-			err         error
-		)
-		if argErr, bad := response.MalformedArgs[toolCall.ID]; bad {
-			observation = fmt.Sprintf("工具 %s 未执行：参数不是合法 JSON（%v）。请重新调用并给出完整的 JSON 参数。", toolCall.Name, argErr)
-			failed = true
-		} else {
-			observation, failed, err = r.executeTool(ctx, config, toolCall)
-		}
-		if err != nil {
-			observation = fmt.Sprintf("工具执行失败: %s", err.Error())
-			failed = true
-		}
-		if failed {
-			r.consecutiveToolFailures++
-		} else {
-			r.consecutiveToolFailures = 0
-		}
-
-		trace.Observations = append(trace.Observations, observation)
-
-		// 回调：观察
-		if config.OnObservation != nil {
-			config.OnObservation(observation)
-		}
-
-		// 添加工具结果消息
-		result.AddToolMessage(toolCall.ID, observation)
+	// 3. 执行工具调用（Observation）。循环到此为止只有两种情形：外部中止，或本次运行
+	//    一个工具也没有注册（见 executeToolCalls）。
+	if r.executeToolCalls(ctx, config, iteration, result, trace, response) {
+		return trace, true, nil
 	}
 
 	// 4. 连续工具失败止损：环境有障碍时 LLM 会反复换姿势重试同一堵墙，
@@ -214,8 +178,8 @@ func (r *reactRuntime) runIteration(
 	return trace, false, nil
 }
 
-// finishIteration 触发本轮 AfterIteration 中间件。三种「本轮已定局」路径
-// （提前终止 / 最终答案 / 工具失败止损）共用：停止信号对本轮无意义，
+// finishIteration 触发本轮 AfterIteration 中间件。四种「本轮已定局」路径
+// （提前终止 / 最终答案 / 工具失败止损 / 无工具运行）共用：停止信号对本轮无意义，
 // 收尾错误不阻断已定的完成态。
 func (r *reactRuntime) finishIteration(
 	ctx context.Context,

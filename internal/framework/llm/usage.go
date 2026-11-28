@@ -153,6 +153,7 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 				}
 			case StreamDone:
 				done = true
+				shadow.FinishReason = finishReasonOf(ev)
 				if ev.Usage != nil {
 					usage = *ev.Usage
 				}
@@ -232,12 +233,12 @@ func (p *instrumentedProvider) finishStreamRecord(
 		rec.Err = failure.message
 		rec.ErrClass = Classify(failure.cause)
 	} else {
-		// 成功收尾的终止原因也写列：只进 shadow jsonb 会让 finish_reason
-		// 列在流式路径恒空（实测 197 行里 164 行空串），按列筛选成功调用
-		// 永远查不到；错误（"error: ..."）与成功（"stop"）同列可辨。
-		rec.FinishReason = "stop"
+		// 成功收尾的终止原因也写列：只进 Result jsonb 会让 finish_reason 列在流式
+		// 路径恒空，按列筛选成功调用永远查不到；错误（"error: ..."）与成功同列可辨。
+		// 记的是协议给出的那个（被输出上限截断时是 length / max_tokens），不再一律写
+		// stop——写死它，「模型调用」页的截断徽章对智能体的调用（全走流式）永远不会出现。
+		rec.FinishReason = shadow.FinishReason
 		shadow.Usage = usage
-		shadow.FinishReason = "stop"
 		rec.Result = auditResponse(shadow)
 	}
 	rec.Messages = auditMessages(req.Messages)

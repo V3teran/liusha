@@ -27,6 +27,10 @@ type reactRuntime struct {
 	// 双空，通常为生成截断）。空响应触发纠偏续跑；连续两次判截断绝症、报错
 	// 交调用方重试阶梯。任何非空响应清零。Run 开始时归零。
 	consecutiveEmptyResponses int
+
+	// lastOutput 概括本轮最近一次模型调用的输出（被输出上限截断与否、输出了多少 token）。
+	// 终稿验收据它如实说明原因（见 finalDraftProblem）。Run 开始时归零。
+	lastOutput outputState
 }
 
 // NewReActRuntime 创建 ReAct 运行时
@@ -70,6 +74,7 @@ func (r *reactRuntime) Run(ctx context.Context, config *ReActConfig) (*ReActResu
 	// 3. 初始化执行状态
 	r.consecutiveToolFailures = 0
 	r.consecutiveEmptyResponses = 0
+	r.lastOutput = outputState{}
 	r.initializeNewExecution(config, result)
 
 	// 4. ReAct 循环

@@ -80,6 +80,8 @@ type llmResponse struct {
 	Thinking *llm.ThinkingBlock
 	// Usage 是该次调用的 token 用量（供 ReActResult.Usage 逐迭代累计）。
 	Usage llm.Usage
+	// FinishReason 是协议给出的结束原因（llm.HitOutputLimit 据此判定输出是否被上限截断）。
+	FinishReason string
 }
 
 // convertToolsToLLMFormat 转换工具为 LLM 格式

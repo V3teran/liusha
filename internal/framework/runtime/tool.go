@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/V3teran/liusha/internal/framework/llm"
 	"github.com/V3teran/liusha/internal/registry"
@@ -17,6 +18,7 @@ func (r *reactRuntime) parseLLMResponse(response llm.Response) (*llmResponse, er
 		MalformedArgs: malformed,
 		Thinking:      response.Thinking,
 		Usage:         response.Usage,
+		FinishReason:  response.FinishReason,
 	}, nil
 }
 
@@ -56,6 +58,95 @@ func thinkingText(t *llm.ThinkingBlock) string {
 		return ""
 	}
 	return t.Text
+}
+
+// hasTools 报告本次运行有没有注册任何工具：一个都没有时，模型的工具调用无从执行。
+func (r *reactRuntime) hasTools() bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.tools) > 0
+}
+
+// executeToolCalls 执行这一轮的工具调用，把结果逐条写进历史。返回 true 表示循环到此为止：
+// 外部中止（每次执行前都探测——浏览器 / 长命令执行期间的外部中止即刻生效），或本次运行一个
+// 工具也没有注册。
+//
+// 没有工具的运行里，模型的工具调用无从执行：逐条回「没有提供工具」之后结束循环、请模型
+// 收尾。把失败回给模型再等它重试换不来东西——它要么再调一次（实测规划者被追问线索交代时
+// 连着两次去读探索图），要么直接写终稿，而终稿正是收尾请求要的，还带着契约与放大的输出预算。
+func (r *reactRuntime) executeToolCalls(
+	ctx context.Context,
+	config *ReActConfig,
+	iteration int,
+	result *ReActResult,
+	trace *IterationTrace,
+	response *llmResponse,
+) bool {
+	toolless := !r.hasTools()
+	for _, toolCall := range response.ToolCalls {
+		if config.AbortCheck != nil && config.AbortCheck() {
+			result.AddUserMessage("（外部中止：本轮执行已被验证终止，跳过剩余工具调用）")
+			trace.Status = IterationStatusCompleted
+			trace.EndTime = time.Now().UnixMilli()
+			return true
+		}
+		action := &Action{
+			ToolCall:  toolCall,
+			Thought:   response.Content,
+			Timestamp: time.Now().UnixMilli(),
+		}
+		trace.Actions = append(trace.Actions, action)
+
+		// 回调：动作
+		if config.OnAction != nil {
+			config.OnAction(action)
+		}
+
+		var (
+			observation string
+			failed      bool
+			err         error
+		)
+		if toolless {
+			observation, failed = fmt.Sprintf("工具 %s 未执行：本次运行没有提供工具。", toolCall.Name), true
+		} else {
+			observation, failed, err = r.runToolCall(ctx, config, response, toolCall)
+		}
+		if err != nil {
+			observation = fmt.Sprintf("工具执行失败: %s", err.Error())
+			failed = true
+		}
+		if failed {
+			r.consecutiveToolFailures++
+		} else {
+			r.consecutiveToolFailures = 0
+		}
+
+		trace.Observations = append(trace.Observations, observation)
+
+		// 回调：观察
+		if config.OnObservation != nil {
+			config.OnObservation(observation)
+		}
+
+		// 添加工具结果消息
+		result.AddToolMessage(toolCall.ID, observation)
+	}
+
+	if toolless {
+		trace.Status = IterationStatusCompleted
+		trace.EndTime = time.Now().UnixMilli()
+		r.finishIteration(ctx, config, iteration, result, trace)
+	}
+	return toolless
+}
+
+// runToolCall 执行一次工具调用。参数无法解析的调用不执行，把错误回给模型重新调用。
+func (r *reactRuntime) runToolCall(ctx context.Context, config *ReActConfig, response *llmResponse, toolCall llm.ToolCall) (observation string, failed bool, err error) {
+	if argErr, bad := response.MalformedArgs[toolCall.ID]; bad {
+		return fmt.Sprintf("工具 %s 未执行：参数不是合法 JSON（%v）。请重新调用并给出完整的 JSON 参数。", toolCall.Name, argErr), true, nil
+	}
+	return r.executeTool(ctx, config, toolCall)
 }
 
 // executeTool 执行工具。failed 区分「结果性失败」（ErrorMaskInterceptor 语义：错误经

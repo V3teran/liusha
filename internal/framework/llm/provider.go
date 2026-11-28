@@ -61,6 +61,10 @@ type StreamEvent struct {
 	// Signature 是思考块的回传校验签名，StreamDone 有效（anthropic 流在收尾时
 	// 才给出完整 signature；与 StreamThinking 增量聚合的 Text 组成 ThinkingBlock）。
 	Signature string
+	// FinishReason 是协议给出的结束原因，StreamDone 有效、原样透出（OpenAI 兼容的 finish_reason、
+	// Anthropic 的 stop_reason）：输出被上限截断时是 length / max_tokens，调用方据此识别截断
+	// （HitOutputLimit）。适配器取不到时为空，聚合按 stop。
+	FinishReason string
 }
 
 // ErrStreamingUnsupported 表示底层 Generator 无流式能力（桥接层判定），
@@ -87,9 +91,19 @@ type Request struct {
 // llm_invocation.result，前端抽屉与详情均按
 // 小写键读取——无 tag 会序列化成 Go 大写字段名，整条审计渲染链失效。
 type Response struct {
-	Content      string         `json:"content,omitempty"`       // 文本内容（ToolCalls 非空时可能为空）
-	ToolCalls    []ToolCall     `json:"tool_calls,omitempty"`    // 工具调用请求列表
-	Usage        Usage          `json:"usage"`                   // token 用量
-	FinishReason string         `json:"finish_reason,omitempty"` // "stop" | "tool_use" | "max_tokens" | "error"
-	Thinking     *ThinkingBlock `json:"thinking,omitempty"`      // 扩展思考块（Text=增量聚合，Signature=收尾透出）
+	Content   string     `json:"content,omitempty"`    // 文本内容（ToolCalls 非空时可能为空）
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"` // 工具调用请求列表
+	Usage     Usage      `json:"usage"`                // token 用量
+	// FinishReason 是协议给出的结束原因，原样透出：OpenAI 兼容 stop / length / tool_calls /
+	// content_filter，Anthropic end_turn / max_tokens / tool_use。被输出上限截断时是 length /
+	// max_tokens（HitOutputLimit）。
+	FinishReason string         `json:"finish_reason,omitempty"`
+	Thinking     *ThinkingBlock `json:"thinking,omitempty"` // 扩展思考块（Text=增量聚合，Signature=收尾透出）
+}
+
+// HitOutputLimit 判定一个结束原因是不是「输出达到上限、被截断」：两种协议各有一个叫法
+// （OpenAI 兼容的 length、Anthropic 的 max_tokens），按原值比对。达到上限的输出不完整——
+// JSON 会停在半截。与 ErrStreamTruncated 不是一回事：那是流在收尾之前断掉。
+func HitOutputLimit(finishReason string) bool {
+	return finishReason == "length" || finishReason == "max_tokens"
 }
