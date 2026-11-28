@@ -11,9 +11,10 @@ import (
 
 // 任务工作区目录（任务一层隔离）：
 //
-//	<工作区根>/<批次>/<任务>/work   命令执行的 cwd
-//	<工作区根>/<批次>/<任务>/out    产物（$OUTPUT_DIR 的落点）
-//	<工作区根>/<批次>/<任务>/state  会话与环境状态（HOME 指向它，chromium 等按 $HOME 落盘的工具随之归位）
+//	<工作区根>/<批次>/<任务>/work     命令执行的 cwd
+//	<工作区根>/<批次>/<任务>/out      产物（$OUTPUT_DIR 的落点）
+//	<工作区根>/<批次>/<任务>/state    会话与环境状态（HOME 指向它，chromium 等按 $HOME 落盘的工具随之归位）
+//	<工作区根>/<批次>/<任务>/console  越过落盘阈值的命令输出（完整内容，见 exec_capture.go；有才建）
 //
 // 任务间以目录为隔离边界；任务内多 agent 共享目录——同任务共目标，agent 级目录是假隔离。
 // 工作区根与 api 的文件面是同一目录，工件因此在沙盒重建后仍在。
@@ -28,6 +29,7 @@ var execWaitDelay = 10 * time.Second
 //  3. 本次执行的 $OUTPUT_DIR 是专属暂存目录（见 execOutput），结束后产物移入 out/ 并作为附件返回
 //  4. 命令的进程归属于任务：超时 / 请求断开结束这条命令的全部进程；正常结束后留在
 //     后台的进程（监听器等）保留到任务释放
+//  5. 输出有界收集：越过请求的落盘阈值就完整落盘，响应带完整字节数与落盘路径（见 exec_capture.go）
 //
 // 并发：并发任务的请求各占一个 goroutine；工作区按 批次 / 任务 两级隔离。
 func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
@@ -59,10 +61,18 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer cleanup()
-	stdout, stderr, exitCode, timedOut := s.executeCommand(cmdCtx, req.TaskID, cmd)
+	capture := newOutputCapture(req.SaveOutputOverBytes, dirs.console)
+	streams, exitCode, timedOut := s.executeCommand(cmdCtx, req.TaskID, cmd, capture)
 
-	res := sandbox.ExecResult{Stdout: stdout, Stderr: stderr, ExitCode: exitCode, TimedOut: timedOut}
-	res.Files, res.Warnings = staged.publish()
+	res := sandbox.ExecResult{
+		ExitCode: exitCode, TimedOut: timedOut,
+		Stdout: streams.stdout, Stderr: streams.stderr,
+		StdoutBytes: streams.stdoutBytes, StderrBytes: streams.stderrBytes,
+		StdoutFile: streams.stdoutFile, StderrFile: streams.stderrFile,
+		Warnings: streamWarnings(streams),
+	}
+	files, warnings := staged.publish()
+	res.Files, res.Warnings = files, append(res.Warnings, warnings...)
 	writeJSON(w, http.StatusOK, res)
 }
 
