@@ -52,6 +52,11 @@ type Agent struct {
 
 	stopCh chan struct{}
 
+	// activity 把冷却期登记到所属 run 的存活心跳（见 holdCooldown）；nil = 不登记。
+	activity RunActivity
+	// cooldownRelease 撤销当前冷却期的登记；没有登记或已撤销时为 nil。只在 Run 的事件循环内读写。
+	cooldownRelease func()
+
 	// 规划失败后的冷却：planFailures 是连续失败的次数（成功即清零），planRetryAt 是下一次
 	// 可以再规划的最早时刻；planHardFailures 是其中连续非瞬时的次数（见 planFailure）。只在
 	// Run 的事件循环内读写。
@@ -74,6 +79,9 @@ type AgentConfig struct {
 	PollInterval  time.Duration                                         // 默认 10s
 	FunctionTools []string                                              // function_tools 白名单（agent 配置；nil=拒绝，[]=空集，["*"]=全量）
 	OnConverged   func(reason string, basis explorationgraph.GoalBasis) // 收敛通知（必填：任务结束靠它）
+	// Activity 把规划失败后的冷却期登记到所属 run 的存活心跳（nil = 不登记）：冷却是有期限的
+	// 等待，不是停摆，见 holdCooldown。
+	Activity RunActivity
 }
 
 // NewAgent 创建 planner Agent。
@@ -90,6 +98,7 @@ func NewAgent(cfg AgentConfig) *Agent {
 		eventBus:      cfg.EventBus,
 		logger:        cfg.Logger.With().Str("agent", "planner").Logger(),
 		functionTools: cfg.FunctionTools,
+		activity:      cfg.Activity,
 		pollInterval:  cfg.PollInterval,
 		onConverged:   cfg.OnConverged,
 		replanCh:      make(chan struct{}, 1),

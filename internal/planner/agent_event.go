@@ -30,6 +30,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	ticker := time.NewTicker(a.pollInterval)
 	defer ticker.Stop()
 
+	defer a.releaseCooldown()
 	plan := func(c context.Context) error { return a.planningRound(c, a.planActions) }
 
 	// 启动时规划一次
@@ -94,15 +95,21 @@ func (a *Agent) planFailure(err error, phase string) error {
 	if err == nil {
 		a.planFailures, a.planHardFailures = 0, 0
 		a.planRetryAt = time.Time{}
+		a.releaseCooldown()
 		return nil
+	}
+	// 致命失败 Run 就此退出：撤销冷却的登记，不再为它续约。
+	fatal := func() error {
+		a.releaseCooldown()
+		return err
 	}
 	if llm.IsConfigError(err) {
 		a.logger.Error().Err(err).Str("phase", phase).Msg("模型配置错误，规划无法继续")
-		return err
+		return fatal()
 	}
 	if errors.Is(err, runtime.ErrMessageTooLong) {
 		a.logger.Error().Err(err).Str("phase", phase).Msg("规划输入超过单条消息的上限，重试无济于事，规划无法继续")
-		return err
+		return fatal()
 	}
 	if errors.Is(err, context.Canceled) {
 		// 这一轮被停掉或被目标改写取代：不是规划的失败，循环的下一轮会看到 ctx 已结束
@@ -124,9 +131,37 @@ func (a *Agent) planFailure(err error, phase string) error {
 		a.logger.Error().Err(err).Str("phase", phase).
 			Int("consecutive_hard_failures", a.planHardFailures).
 			Msg("规划连续非瞬时失败达上限，带着最后一次的原因终止本轮运行")
+		a.releaseCooldown()
 		return fmt.Errorf("规划连续 %d 次失败: %w", a.planHardFailures, err)
 	}
+	a.holdCooldown()
 	return nil
+}
+
+// RunActivity 向所属 run 的存活心跳登记一个在途操作：until 是它最晚结束的时刻，返回的撤销函数
+// 在操作结束时调用。接口在使用方定义；*runner.Heartbeats 满足它。
+type RunActivity interface {
+	Busy(runID string, until time.Time) (release func())
+}
+
+// holdCooldown 把冷却期登记为所属 run 在途的有期限等待。恢复监控只凭存活心跳判定一轮 run 是否
+// 还在被推进；冷却期里既没有新的模型调用、也没有在途的工具调用，不登记就与停摆无从区分。
+// 冷却封顶两分钟，与回收阈值（缺省 120 秒）相当：账户限流时连续几次失败就足以让活着的 run
+// 被判停摆、白白重投。到期即失效，下一次失败以新的登记覆盖。
+func (a *Agent) holdCooldown() {
+	a.releaseCooldown()
+	if a.activity != nil {
+		a.cooldownRelease = a.activity.Busy(a.agentRunID, a.planRetryAt)
+	}
+}
+
+// releaseCooldown 撤销冷却期的登记：冷却已结束（成功）、本 run 将退出（致命失败、失败达上限），
+// 或要以上一次失败的新登记覆盖它。
+func (a *Agent) releaseCooldown() {
+	if a.cooldownRelease != nil {
+		a.cooldownRelease()
+		a.cooldownRelease = nil
+	}
 }
 
 // persistentPlanFailures 是连续非瞬时失败的上限：到了就带着最后一次的原因终止本轮运行。模型

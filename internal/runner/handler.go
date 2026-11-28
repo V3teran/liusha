@@ -49,6 +49,8 @@ type Handler struct {
 	RunnerCfg  config.RunnerConfig
 	// Heartbeats 是各 run 的存活心跳：run 执行期间续约，恢复监控据此判定它是否还在被推进。
 	Heartbeats *Heartbeats
+	// runLoop 驱动一轮认知循环；nil 取 runCognition。测试以替身指定循环的结局，收尾分流才测得到。
+	runLoop func(ctx context.Context, taskLogger zerolog.Logger, tk task.Task, agentRunID, host, conversationID string, installed sandbox.Inventory) (cognition.Report, error)
 	// Sandbox 是沙盒服务客户端：任务开始时查询安装状态，工具经它执行命令，run 结束时释放任务资源。
 	Sandbox sandbox.Client
 	// SandboxListener 是沙盒对外可达性契约（监听段 + 回连地址），注入认知循环的工具契约。
