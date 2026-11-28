@@ -12,13 +12,13 @@ import (
 // 封顶理由：超限预算会被 provider 直接拒绝，把「截断重试」变成「请求报错」。
 const maxForcedOutputTokens = 16384
 
-// completeForced 执行收尾的一次 LLM 调用，空响应时自适应重试。
+// completeForced 执行收尾的 LLM 调用，输出没写完时自适应重试。
 //
 // 收尾调用的输入是整轮消息历史（含全部思考块），扩展思考对新预算的消耗随
 // 历史长度增长——固定预算下「思考吃满、正文被截断」是确定性失败，同预算
 // 重试没有意义。这里按 2× 逐次放大输出预算（封顶 maxForcedOutputTokens），
-// 并在重试间注入「直接输出正文」的纠偏指令。返回最后一次响应与错误；
-// err 非 nil 时响应不可用。
+// 并在重试间注入纠偏指令、如实说明上一次为什么没写完。返回最后一次响应与
+// 错误；err 非 nil 时响应不可用。
 func (r *reactRuntime) completeForced(
 	ctx context.Context,
 	config *ReActConfig,
@@ -41,6 +41,11 @@ func (r *reactRuntime) completeForced(
 	if budget <= 0 {
 		budget = maxForcedOutputTokens
 	}
+	const (
+		emptyDraft     = "正文为空——生成被截断"
+		truncatedDraft = "达到输出上限被截断，没有写完，请精简说明文字"
+	)
+	incomplete := emptyDraft // 上一版没写完的原因，写在重试请求的开头
 	var last llm.Response
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
@@ -48,7 +53,7 @@ func (r *reactRuntime) completeForced(
 			if budget > maxForcedOutputTokens {
 				budget = maxForcedOutputTokens
 			}
-			result.AddUserMessage("（上一条输出正文为空——生成被截断。" + ask + "，不要输出思考过程）")
+			result.AddUserMessage("（上一条输出" + incomplete + "。" + ask + "，不要输出思考过程）")
 		}
 		request := llm.Request{
 			Messages:  result.MessageHistory,
@@ -63,12 +68,25 @@ func (r *reactRuntime) completeForced(
 			return llm.Response{}, fmt.Errorf("forced output LLM call failed: %w", err)
 		}
 		result.Usage = result.Usage.Add(resp.Usage)
-		if strings.TrimSpace(resp.Content) != "" {
+		if !forcedDraftIncomplete(config, resp) {
 			return resp, nil
+		}
+		if strings.TrimSpace(resp.Content) != "" {
+			incomplete = truncatedDraft
 		}
 		last = resp
 	}
-	return last, fmt.Errorf("forced output 连续 3 次空响应（输出预算 %d 仍被截断）", budget)
+	return last, fmt.Errorf("forced output 连续 3 次没有写完（输出预算 %d）", budget)
+}
+
+// forcedDraftIncomplete 判定收尾调用交回的输出是不是没写完（要再要一次）：正文为空；或被
+// 输出上限截断、验收又取不出完整的输出。被截断但验收通过的照常交付（砍掉的只是 JSON 之后的
+// 说明）；没有输出契约的运行只看正文是否为空——终稿只是叙述，截断的叙述照样交付。
+func forcedDraftIncomplete(config *ReActConfig, resp llm.Response) bool {
+	if strings.TrimSpace(resp.Content) == "" {
+		return true
+	}
+	return llm.HitOutputLimit(resp.FinishReason) && config.OutputCheck != nil && config.OutputCheck(resp.Content) != nil
 }
 
 // appendForcedResult 把强制收尾得到的正文落进消息历史（思考块随行，供多轮

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/V3teran/liusha/internal/framework/llm"
 )
 
 // runIteration 运行单次迭代。
@@ -57,6 +59,7 @@ func (r *reactRuntime) runIteration(
 
 	// token 用量逐迭代累计（时间线每步用量 chip 的数据源）。
 	result.Usage = result.Usage.Add(response.Usage)
+	r.lastOutput = outputState{hitLimit: llm.HitOutputLimit(response.FinishReason), outTokens: response.Usage.OutTokens}
 
 	// 提取思考内容
 	trace.Thought = response.Content
@@ -82,11 +85,20 @@ func (r *reactRuntime) runIteration(
 
 	// 2. 检查是否有工具调用
 	if len(response.ToolCalls) == 0 {
-		// 空响应不是完成：正文与工具调用双空的助手轮次对 ReAct 协议零信息——
-		// 几乎总是生成预算被思考过程耗尽后截断（finish_reason=length 的常见
-		// 形态）。接受它会让本轮以空 FinalAnswer 收场、调用方把已完成的迭代
-		// 全部作废；这里改为注入纠偏指令继续循环，预算压力随上下文重排自然缓解。
+		// 空响应不是完成：正文与工具调用双空的助手轮次对 ReAct 协议零信息。接受它会让本轮
+		// 以空 FinalAnswer 收场、调用方把已完成的迭代全部作废。
 		if strings.TrimSpace(response.Content) == "" {
+			// 结束原因写明被输出上限截断的（思考吃满了输出预算）不在循环里纠偏：预算就那么
+			// 大，再生成一次思考多半还是把它吃满（实测循环里的第二次照旧被截断）。直接收尾，
+			// 收尾按放大的输出预算请求（见 completeForced），并如实告诉模型上一版是被截断的。
+			if r.lastOutput.hitLimit {
+				result.AddAssistantMessage(response.Content, nil, response.Thinking)
+				trace.Status = IterationStatusFailed
+				trace.EndTime = time.Now().UnixMilli()
+				return trace, true, nil
+			}
+			// 结束原因没写明的（适配器取不到，或模型退化）：注入纠偏指令继续循环，预算压力
+			// 随上下文重排自然缓解；连续两次判绝症，报错交调用方的重试阶梯。
 			r.consecutiveEmptyResponses++
 			if r.consecutiveEmptyResponses >= 2 {
 				result.AddAssistantMessage(response.Content, nil, response.Thinking)

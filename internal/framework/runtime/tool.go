@@ -17,6 +17,7 @@ func (r *reactRuntime) parseLLMResponse(response llm.Response) (*llmResponse, er
 		MalformedArgs: malformed,
 		Thinking:      response.Thinking,
 		Usage:         response.Usage,
+		FinishReason:  response.FinishReason,
 	}, nil
 }
 
