@@ -54,6 +54,60 @@ func (echoTool) Execute(_ context.Context, args json.RawMessage) (registry.ToolR
 	return registry.ToolResult{Output: "观测原文：" + string(args)}, nil
 }
 
+// deadlineAwareWriter 模拟真实的存储：ctx 已经结束（超时、取消）时写入立即失败。
+type deadlineAwareWriter struct {
+	fakeTimelineWriter
+}
+
+func (f *deadlineAwareWriter) AppendMessage(ctx context.Context, conversationID string, role conversation.Role, kind conversation.Kind, content string, meta json.RawMessage) (conversation.Message, error) {
+	if err := ctx.Err(); err != nil {
+		return conversation.Message{}, err
+	}
+	return f.fakeTimelineWriter.AppendMessage(ctx, conversationID, role, kind, content, meta)
+}
+
+// expireTool 模拟一次超时的工具调用：执行中它的 ctx 到期，随后带着结果返回。
+type expireTool struct{ cancel context.CancelFunc }
+
+func (t *expireTool) Name() string            { return "corpus_search" }
+func (t *expireTool) ShortDesc() string       { return "检索" }
+func (t *expireTool) Desc() string            { return "检索知识库" }
+func (t *expireTool) Schema() json.RawMessage { return json.RawMessage(`{}`) }
+func (t *expireTool) Timeout() time.Duration  { return time.Second }
+func (t *expireTool) Execute(ctx context.Context, _ json.RawMessage) (registry.ToolResult, error) {
+	t.cancel()
+	<-ctx.Done()
+	return registry.ToolResult{Error: "检索超时"}, nil
+}
+
+// 工具调用超时之后，它的结果事件照样落库并广播：时间线是观测面，自己的写入有自己的时限，不随
+// 被观测调用的截止时间作废。此前发事件用的是工具调用的 ctx——凡是超时的调用（实测：向量化接口
+// 超时时的 corpus_search），它的结果事件必然丢失，而超时恰恰是最该留下过程的一类。
+func TestToolTimelineInterceptor_ResultEventOutlivesToolDeadline(t *testing.T) {
+	w, pub := &deadlineAwareWriter{}, &fakeTimelinePub{}
+	e := newToolTimelineEvents(w, pub, zerolog.Nop())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tool := &expireTool{cancel: cancel}
+
+	_, err := e.interceptor("conv-1")(ctx, tool, json.RawMessage(`{}`), func(ctx context.Context, t registry.Tool, args []byte) (registry.ToolResult, error) {
+		return t.Execute(ctx, args)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w.metas) != 2 || pub.payloads != 2 {
+		t.Fatalf("调用与结果两条事件都应落库并广播: metas=%d payloads=%d", len(w.metas), pub.payloads)
+	}
+	var last struct {
+		Kind string `json:"kind"`
+		Err  string `json:"err"`
+	}
+	if json.Unmarshal(w.metas[1], &last) != nil || last.Kind != "tool_result" || last.Err != "检索超时" {
+		t.Fatalf("结果事件应带着错误落库: %s", w.metas[1])
+	}
+}
+
 // 一次工具调用产生两条事件：tool_call（执行前，携带 args）→ tool_result
 // （执行后，携带 result/duration/err）；agent 归属取自 ctx，两条事件均广播 SSE。
 func TestToolTimelineInterceptor_EmitsCallAndResult(t *testing.T) {

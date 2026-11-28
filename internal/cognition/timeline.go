@@ -105,21 +105,30 @@ func withRoundID(event map[string]any, roundID string) map[string]any {
 	return event
 }
 
+// eventWriteTimeout 是落一条事件并广播的时限。
+const eventWriteTimeout = 5 * time.Second
+
 // emit 落一条 agent 过程事件并广播 SSE（best-effort：失败仅告警，工具执行本体
 // 不受影响——时间线是观测面，不构成执行依赖）。
+//
+// 写入与广播用自己的时限，不沿用传进来的 ctx：那是被观测的工具调用的 ctx，调用超时或被取消
+// 之后它已经结束，拿它写库必然失败——超时的调用恰恰是最该留下过程的一类（实测：向量化接口超时
+// 时 corpus_search 的结果事件每次都丢）。
 func (e *toolTimelineEvents) emit(ctx context.Context, conversationID string, meta map[string]any) {
 	raw, err := json.Marshal(meta)
 	if err != nil {
 		e.logger.Warn().Err(err).Msg("工具过程事件序列化失败")
 		return
 	}
-	msg, err := e.writer.AppendMessage(ctx, conversationID,
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), eventWriteTimeout)
+	defer cancel()
+	msg, err := e.writer.AppendMessage(writeCtx, conversationID,
 		conversation.RoleAssistant, conversation.KindEvent, "", raw)
 	if err != nil {
 		e.logger.Warn().Err(err).Str("conversation_id", conversationID).Msg("工具过程事件落库失败")
 		return
 	}
-	if err := e.pub.PublishMessage(ctx, conversationID, msg); err != nil {
+	if err := e.pub.PublishMessage(writeCtx, conversationID, msg); err != nil {
 		e.logger.Warn().Err(err).Str("conversation_id", conversationID).Msg("工具过程事件广播失败（重连补历史可见）")
 	}
 }
