@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.3](https://github.com/V3teran/liusha/compare/v0.16.2...v0.16.3) (2026-11-28)
+
+
+### 问题修复
+
+* **exploration:** 被认领推进中的线索换青色脚印，走过的换灰色脚印与描边 ([d6cd415](https://github.com/V3teran/liusha/commit/d6cd4155c3794a8db2f6e27140ed1df12f767828))
+* **ui:** 品牌图标的剑形视觉居中 ([190f1f5](https://github.com/V3teran/liusha/commit/190f1f5183cc1a99fc7630453fe7619f04841f5e))
+
 ## [0.16.2](https://github.com/V3teran/liusha/compare/v0.16.1...v0.16.2) (2026-11-28)
 
 
