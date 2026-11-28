@@ -48,7 +48,7 @@ describe('LeadMarkFollowed', () => {
     const { container } = render(<LeadMarkFollowed title="已走过的线索（已走到头：之前的动作已做过）" />)
     const mark = container.querySelector('.exp-lead-mark') as HTMLElement
     expect(mark.querySelector('.lucide-footprints')).not.toBeNull()
-    expect(mark.classList.contains('text-text-secondary')).toBe(true)
+    expect(mark.classList.contains('text-text')).toBe(true)
     const icon = mark.querySelector('svg') as SVGElement
     expect(icon.style.color).toBe('')
     expect(icon.getAttribute('fill')).toBe('currentColor')

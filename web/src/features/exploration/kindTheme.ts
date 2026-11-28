@@ -128,6 +128,9 @@ export const LEAD_CLOSURE_META: Record<string, string> = {
   vetoed: '被否决关闭',
 }
 
+/** 被动作处理过的关闭类别：脚印留作「这条路走过了」的留痕（其余类别没走就不留）。 */
+export const FOLLOWED_LEAD_CLOSURES = new Set<LeadClosure['kind']>(['exhausted', 'concluded', 'dry', 'blocked', 'vetoed'])
+
 export interface LeadMeta {
   /** 已关闭（规划层判定不再跟进，或由跟进的结局结算） */
   closed: boolean
@@ -135,6 +138,8 @@ export interface LeadMeta {
   detail: string
   /** 线索的三样：下一步、要弄清、能换来什么。线索成为结构化字段之前落图的没有（都是空串） */
   spec: LeadSpec
+  /** 关闭类别（仅已关闭时有）：图上据此决定走过脚印还是无标记 */
+  kind?: LeadClosure['kind']
 }
 
 /** 线索的三样里有没有写得出的（旧线索三样皆空） */
@@ -162,11 +167,11 @@ export function leadMeta(node: GraphNode): LeadMeta | null {
   if (node.kind !== 'observation' || node.verification_status || !node.lead) return null
   const spec = node.lead
   const closure: LeadClosure | undefined = node.lead_closed
-  if (!closure) return { closed: false, detail: '', spec }
+  if (!closure) return { closed: false, detail: '', spec, kind: undefined }
   const kindLabel = LEAD_CLOSURE_META[closure.kind] ?? closure.kind
   const reasonText = closure.reason.trim()
-  if (kindLabel && reasonText) return { closed: true, detail: `${kindLabel}：${reasonText}`, spec }
-  return { closed: true, detail: kindLabel || reasonText, spec }
+  const detail = kindLabel && reasonText ? `${kindLabel}：${reasonText}` : kindLabel || reasonText
+  return { closed: true, detail, spec, kind: closure.kind }
 }
 
 /** 动作否决的范围（metadata.rejected_scope）：只否决这一步，还是连它跟进的线索一起。用户否决一律只否决这一步。 */
@@ -208,7 +213,7 @@ export interface NodeChips {
   /** 加急（规划者标的，一轮至多一个）：空位不够时先派 */
   urgent?: true
   /** 线索（事实观察带的 lead）：卡片上的标记见 ExplorationNodeCard */
-  lead?: { label: string; closed: boolean; detail: string; spec: LeadSpec }
+  lead?: { label: string; closed: boolean; detail: string; spec: LeadSpec; kind?: LeadClosure['kind'] }
 }
 
 /** 卡片底部徽章行的取值（详情面板另有更全的展示） */
@@ -227,7 +232,7 @@ export function nodeChips(node: GraphNode): NodeChips {
     chips.verification = verificationMeta(node.verification_status) ?? undefined
   }
   const lead = leadMeta(node)
-  if (lead) chips.lead = { label: lead.closed ? '已关闭' : '线索', closed: lead.closed, detail: lead.detail, spec: lead.spec }
+  if (lead) chips.lead = { label: lead.closed ? '已关闭' : '线索', closed: lead.closed, detail: lead.detail, spec: lead.spec, kind: lead.kind }
 
   if (node.kind === 'action' && node.urgent) chips.urgent = true
 

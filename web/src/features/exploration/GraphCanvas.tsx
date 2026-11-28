@@ -225,12 +225,12 @@ function GraphCanvasInner({
           {/* 图例里的线索样例就是立在卡片右上角的那串脚印：同一个组件 */}
           <span className="flex items-center gap-1.5">
             <LeadMark aria-hidden title="执行者已踩通、尚未推进到结论的路径" />
-            线索（待深挖）
+            线索
           </span>
           <span className="mx-0.5 h-3 w-px bg-border" aria-hidden />
           <span className="flex items-center gap-1.5">
-            <LeadMarkFollowed aria-hidden title="被动作跟进推进过、随后关闭的线索" />
-            线索（已走过）
+            <LeadMarkFollowed aria-hidden title="被动作处理过、随后关闭的线索（走到头 / 有结论 / 干涸 / 受阻 / 被否决）" />
+            线索
           </span>
         </div>
       </Panel>

@@ -55,34 +55,33 @@ describe('ExplorationNodeCard 的线索标记', () => {
     expect(lead.style.background).not.toContain(LEAD_ACCENT)
   })
 
-  it('已关闭且被跟进过的线索：脚印保留但换中性色，描边还原——这条路走过了', () => {
-    const { card, container } = renderCard(
-      fact({ lead: SPEC, lead_closed: { kind: 'exhausted', reason: '之前的动作已做过' } }),
-      { leadFollowed: true },
-    )
+  it('被处理过才关闭的线索（exhausted / concluded / dry / blocked / vetoed）：脚印保留但换正文色，描边还原——这条路走过了', () => {
+    for (const kind of ['exhausted', 'concluded', 'dry', 'blocked', 'vetoed']) {
+      const { card, container } = renderCard(fact({ lead: SPEC, lead_closed: { kind, reason: '之前的动作已做过' } }))
 
-    expect(card.classList.contains('exp-card-lead')).toBe(false)
-    const mark = container.querySelector('.exp-lead-mark') as HTMLElement
-    expect(mark).not.toBeNull()
-    expect(card.contains(mark)).toBe(false)
-    expect(mark.classList.contains('text-text-secondary')).toBe(true)
-    const icon = mark.querySelector('svg') as SVGElement
-    expect(icon.style.color).toBe('')
-    expect(card.firstElementChild?.className).toContain('pr-9')
-    expect(screen.queryByText('线索已关闭')).toBeNull()
-    expect(mark.getAttribute('title')).toContain('已走过的线索')
-    expect(mark.getAttribute('title')).toContain('之前的动作已做过')
+      expect(card.classList.contains('exp-card-lead')).toBe(false)
+      const mark = container.querySelector('.exp-lead-mark') as HTMLElement
+      expect(mark).not.toBeNull()
+      expect(card.contains(mark)).toBe(false)
+      expect(mark.classList.contains('text-text')).toBe(true)
+      const icon = mark.querySelector('svg') as SVGElement
+      expect(icon.style.color).toBe('')
+      expect(card.firstElementChild?.className).toContain('pr-9')
+      expect(screen.queryByText('线索已关闭')).toBeNull()
+      expect(mark.getAttribute('title')).toContain('已走过的线索')
+      expect(mark.getAttribute('title')).toContain('之前的动作已做过')
+    }
   })
 
-  it('已关闭但没被跟进的线索：什么标记都没有——不值得走的东西不留脚印', () => {
-    const { card, container } = renderCard(
-      fact({ lead: SPEC, lead_closed: { kind: 'out_of_scope', reason: '不在本期范围' } }),
-    )
+  it('没被处理就关闭的线索（not_worth / out_of_scope / premise_refuted）：什么标记都没有——不值得走的东西不留脚印', () => {
+    for (const kind of ['not_worth', 'out_of_scope', 'premise_refuted']) {
+      const { card, container } = renderCard(fact({ lead: SPEC, lead_closed: { kind, reason: '不在本期范围' } }))
 
-    expect(card.classList.contains('exp-card-lead')).toBe(false)
-    expect(container.querySelector('.exp-lead-mark')).toBeNull()
-    expect(card.firstElementChild?.className).toContain('pr-3')
-    expect(screen.queryByText('线索已关闭')).toBeNull()
+      expect(card.classList.contains('exp-card-lead')).toBe(false)
+      expect(container.querySelector('.exp-lead-mark')).toBeNull()
+      expect(card.firstElementChild?.className).toContain('pr-3')
+      expect(screen.queryByText('线索已关闭')).toBeNull()
+    }
   })
 
   it('不是线索的观测：什么标记都没有', () => {
@@ -93,10 +92,17 @@ describe('ExplorationNodeCard 的线索标记', () => {
   })
 })
 
-// 加急：规划者标的动作在卡片头部标「加急」；其余动作没有。
+// 加急：规划者标的动作在卡片头部标着色的「加急」（警示琥珀，不用中性白）；其余动作没有。
 describe('ExplorationNodeCard 的加急标记', () => {
   const action = (over: Partial<GraphNode>): GraphNode =>
     ({ ...fact(), kind: 'action', state: 'open', source_type: 'planner', content: { instruction: '先续会话' }, ...over }) as GraphNode
+
+  it('加急的着色：警示琥珀（text-status-warning），不用中性白', () => {
+    const { card } = renderCard(action({ urgent: true }))
+    const chip = within(card).getByText('加急')
+    expect(chip.className).toContain('text-status-warning')
+    expect(chip.className).not.toContain('text-text')
+  })
 
   it('加急的动作标「加急」，悬停说明它为什么先派', () => {
     const { card } = renderCard(action({ urgent: true }))

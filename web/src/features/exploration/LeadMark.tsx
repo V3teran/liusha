@@ -21,16 +21,16 @@ export function LeadMark({ title, className, ...rest }: HTMLAttributes<HTMLSpanE
 }
 
 /**
- * 已走过的线索：被动作认领推进、随后关闭（走到头、有结论、干涸或被否决）。脚印保留但换成
- * 中性色——它不再是「还没走到头」的呼喊，而是「这条路走过了」的留痕；描边还原为普通事实卡。
- * 未被跟进就关闭的线索没有标记（不值得走的东西不留脚印），关闭的类别与理由在详情面板。
+ * 已走过的线索：关闭类别属于被处理过的（走到头、有结论、干涸、受阻、被否决）。脚印保留但
+ * 从线索的暖橙换成正文色——它不再是「还没走到头」的呼喊，而是「这条路走过了」的留痕；描边
+ * 还原为普通事实卡。没被处理就关闭的线索（不值得走）没有标记，类别与理由在详情面板。
  */
 export function LeadMarkFollowed({ title, className, ...rest }: HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
       {...rest}
       title={title}
-      className={cn('exp-lead-mark inline-flex h-6 w-6 flex-shrink-0 items-center justify-center text-text-secondary', className)}
+      className={cn('exp-lead-mark inline-flex h-6 w-6 flex-shrink-0 items-center justify-center text-text', className)}
     >
       <Footprints aria-hidden fill="currentColor" className="h-6 w-6" strokeWidth={2} />
       <span className="sr-only">线索（已走过）</span>
