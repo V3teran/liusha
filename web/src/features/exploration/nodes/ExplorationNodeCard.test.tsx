@@ -67,7 +67,7 @@ describe('ExplorationNodeCard 的线索标记', () => {
     const mark = container.querySelector('.exp-lead-mark') as HTMLElement
     expect(mark).not.toBeNull()
     expect(card.contains(mark)).toBe(false)
-    expect(mark.classList.contains('text-text')).toBe(true)
+    expect(mark.classList.contains('text-text-secondary')).toBe(true)
     const icon = mark.querySelector('svg') as SVGElement
     expect(icon.style.color).toBe('')
     expect(card.firstElementChild?.className).toContain('pr-9')

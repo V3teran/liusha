@@ -34,6 +34,8 @@ export type ExplorationNodeData = {
   verification?: Verification
   /** 已关闭的线索是否被动作认领过（存在 pursues 边）：灰脚印与无标记的分界 */
   leadFollowed?: boolean
+  /** 仍开着的线索是否正被开跑中的动作认领（存在认领动作的 pursues 边）：青脚印与橙脚印的分界 */
+  leadActive?: boolean
 } & Record<string, unknown>
 
 export type ExplorationFlowNode = Node<ExplorationNodeData, 'exploration'>
@@ -141,9 +143,18 @@ export function buildFlowGraph(
       .map((n) => n.id),
   )
 
-  // 被跟进过 = 存在指向它的 pursues 边：认领即授权，边记下这条路被哪个动作走过；动作结束边仍在。
-  // 灰脚印的因果必须在图上看得见——没有认领边的关闭（如「别的动作已覆盖此路」的追认）不算走过。
-  const followedLeads = new Set(graph.edges.filter((e) => e.rel === 'pursues').map((e) => e.dst_id))
+  // pursues 边是认领的记录（认领即授权，动作结束边仍在）：
+  //   - 曾被认领（任一 pursues 边）→ 已关闭的线索留灰脚印，因果在图上看得见；
+  //   - 正被认领（认领它的动作还在开跑）→ 仍开着的线索换青脚印，青色与跟进连线同色。
+  // 没有认领边就关闭的（规划者判不值得 / 被别的动作覆盖的追认）不算走过，不留脚印。
+  const followedLeads = new Set<string>()
+  const activeLeads = new Set<string>()
+  for (const e of graph.edges) {
+    if (e.rel !== 'pursues') continue
+    followedLeads.add(e.dst_id)
+    const st = stateById.get(e.src_id)
+    if (st === 'open' || st === 'running') activeLeads.add(e.dst_id)
+  }
 
   const nodes: ExplorationFlowNode[] = graph.nodes
     .filter((n) => visible.has(n.id))
@@ -155,7 +166,12 @@ export function buildFlowGraph(
       // 回写到受控 node 对象上），同时让 dagre 与渲染共用同一份尺寸假设
       width: NODE_WIDTH,
       height: NODE_HEIGHT,
-      data: { node: n, verification: verificationsByNode.get(n.id), leadFollowed: followedLeads.has(n.id) },
+      data: {
+        node: n,
+        verification: verificationsByNode.get(n.id),
+        leadFollowed: followedLeads.has(n.id),
+        leadActive: activeLeads.has(n.id),
+      },
     }))
 
   // BuiltInEdge：smoothstep 的 pathOptions 只在联合类型的对应分支上（基础 Edge 无此字段）

@@ -1,7 +1,7 @@
 import type { HTMLAttributes } from 'react'
 import { Footprints } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { LEAD_ACCENT } from './kindTheme'
+import { LEAD_ACCENT, PURSUES_ACCENT } from './kindTheme'
 
 /**
  * 线索标记：执行者踩通、还没走到结论的路径，是图上最该一眼认出的东西。
@@ -14,26 +14,39 @@ import { LEAD_ACCENT } from './kindTheme'
 export function LeadMark({ title, className, ...rest }: HTMLAttributes<HTMLSpanElement>) {
   return (
     <span {...rest} title={title} className={cn('exp-lead-mark inline-flex h-6 w-6 flex-shrink-0 items-center justify-center', className)}>
-      <Footprints aria-hidden fill="currentColor" className="h-6 w-6" strokeWidth={2} style={{ color: LEAD_ACCENT }} />
+      <Footprints aria-hidden fill="currentColor" className="h-full w-full" strokeWidth={2} style={{ color: LEAD_ACCENT }} />
       <span className="sr-only">线索</span>
     </span>
   )
 }
 
 /**
+ * 跟进中的线索：动作认领了它、正在沿它走。脚印与描边换成跟进连线的青色——线表达关系，
+ * 标记跟着线走：看见青脚印就知道这条线索此刻正被哪个动作推进。
+ */
+export function LeadMarkActive({ title, className, ...rest }: HTMLAttributes<HTMLSpanElement>) {
+  return (
+    <span {...rest} title={title} className={cn('exp-lead-mark inline-flex h-6 w-6 flex-shrink-0 items-center justify-center', className)}>
+      <Footprints aria-hidden fill="currentColor" className="h-full w-full" strokeWidth={2} style={{ color: PURSUES_ACCENT }} />
+      <span className="sr-only">线索（跟进中）</span>
+    </span>
+  )
+}
+
+/**
  * 已走过的线索：被动作认领推进过、随后关闭（图上有认领它的 pursues 边连着）。脚印保留但
- * 从线索的暖橙换成正文色——它不再是「还没走到头」的呼喊，而是「这条路走过了」的留痕；描边
- * 还原为普通事实卡。没有认领边就关闭的线索（不值得走，或已被别的动作覆盖）没有标记，类别
- * 与理由在详情面板。
+ * 从线索的暖橙换成灰色（--text-secondary）——它不再是「还没走到头」的呼喊，而是「这条路
+ * 走过了」的留痕；描边同款换灰。没有认领边就关闭的线索（不值得走，或已被别的动作覆盖）没
+ * 有标记，类别与理由在详情面板。
  */
 export function LeadMarkFollowed({ title, className, ...rest }: HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
       {...rest}
       title={title}
-      className={cn('exp-lead-mark inline-flex h-6 w-6 flex-shrink-0 items-center justify-center text-text', className)}
+      className={cn('exp-lead-mark inline-flex h-6 w-6 flex-shrink-0 items-center justify-center text-text-secondary', className)}
     >
-      <Footprints aria-hidden fill="currentColor" className="h-6 w-6" strokeWidth={2} />
+      <Footprints aria-hidden fill="currentColor" className="h-full w-full" strokeWidth={2} />
       <span className="sr-only">线索（已走过）</span>
     </span>
   )
