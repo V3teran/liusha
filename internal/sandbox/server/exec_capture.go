@@ -9,21 +9,25 @@ package server
 //   - 内存占用有界：输出没越过落盘阈值时全部留在内存里（至多一个阈值）；越过之后边到边写进
 //     文件，内存里只留响应要带的末尾（maxCaptureBytes）。一条打印几个 GB 的命令不会把沙盒撑爆。
 //   - 被调用方省掉的部分不丢：调用方给出落盘阈值（ExecRequest.SaveOutputOverBytes），stdout 与
-//     stderr 合计超过它就把两个流完整落盘到任务工作区的 console/ 下——命令可以分段读那个文件，
-//     操作员在文件面也看得到。阈值按合计算：调用方的窗口是对整份结果开的，单独看哪一个流都
-//     定不了「有没有内容被省掉」。
+//     stderr 合计超过它就把两个流完整落盘为任务产物目录 out/ 顶层的 <时间戳>.stdout/.stderr——
+//     命令可以分段读那个文件，操作员在工作空间页也看得到。阈值按合计算：调用方的窗口是对整份
+//     结果开的，单独看哪一个流都定不了「有没有内容被省掉」。
 
 import (
 	"os"
+	"regexp"
 	"sync"
 	"time"
 
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// consoleDirName 是任务目录下命令输出落盘的子目录（与 work / out / state 并列）。只在输出越过
-// 落盘阈值时才会建出来。
-const consoleDirName = "console"
+// captureNameRE 匹配收集器写进 out/ 的留档文件名（<时间戳>-<随机>.stdout / .stderr）。文件由
+// 沙盒生成，名字有确切的形状；publish 据此跳过收编——留档不是产物，而且它可能在别次执行仍在
+// 写入时被预置进那次执行的暂存目录。
+var captureNameRE = regexp.MustCompile(`^\d{8}-\d{6}-\d+\.(stdout|stderr)$`)
+
+func isCaptureFile(name string) bool { return captureNameRE.MatchString(name) }
 
 // maxCaptureBytes 是响应里一个流至多带的字节数：超过就只带末尾。它不是给调用方的窗口——正常
 // 情况下调用方的落盘阈值远小于它，被省掉的部分都在落盘文件里；它只防一条失控的命令把几个 GB
@@ -36,11 +40,11 @@ var maxSaveBytes int64 = 1 << 30
 
 // outputCapture 是一次命令两个流的收集器。
 type outputCapture struct {
-	mu         sync.Mutex
-	limit      int64 // 落盘阈值（两个流合计）；<= 0 从不落盘
-	total      int64 // 两个流合计的字节数
-	spilled    bool  // 合计已经越过阈值
-	consoleDir string
+	mu      sync.Mutex
+	limit   int64 // 落盘阈值（两个流合计）；<= 0 从不落盘
+	total   int64 // 两个流合计的字节数
+	spilled bool  // 合计已经越过阈值
+	outDir  string
 
 	stdout, stderr *streamCapture
 }
@@ -54,9 +58,10 @@ type capturedStreams struct {
 	stdoutUnsaved, stderrUnsaved int64 // 超过落盘文件上限、没写进去的字节数
 }
 
-// newOutputCapture 建一次命令的收集器：两个流合计超过 limit 字节就完整落盘到 consoleDir。
-func newOutputCapture(limit int, consoleDir string) *outputCapture {
-	o := &outputCapture{limit: int64(limit), consoleDir: consoleDir}
+// newOutputCapture 建一次命令的收集器：两个流合计超过 limit 字节就完整落盘到 outDir（任务产物
+// 目录的顶层）。
+func newOutputCapture(limit int, outDir string) *outputCapture {
+	o := &outputCapture{limit: int64(limit), outDir: outDir}
 	o.stdout = &streamCapture{owner: o, ext: ".stdout", keep: tailBuffer{limit: maxCaptureBytes}}
 	o.stderr = &streamCapture{owner: o, ext: ".stderr", keep: tailBuffer{limit: maxCaptureBytes}}
 	return o
@@ -114,11 +119,11 @@ func (c *streamCapture) Write(p []byte) (int, error) {
 
 // open 开始落盘：建文件，把此前的内容（还在内存里的那一段）先写进去。
 func (c *streamCapture) open() {
-	if err := os.MkdirAll(c.owner.consoleDir, 0o750); err != nil {
+	if err := os.MkdirAll(c.owner.outDir, 0o750); err != nil {
 		c.fail(err)
 		return
 	}
-	file, err := os.CreateTemp(c.owner.consoleDir, time.Now().UTC().Format("20060102-150405")+"-*"+c.ext)
+	file, err := os.CreateTemp(c.owner.outDir, time.Now().UTC().Format("20060102-150405")+"-*"+c.ext)
 	if err != nil {
 		c.fail(err)
 		return

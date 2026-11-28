@@ -86,7 +86,9 @@ func (b *browserServices) ensure(s *Server, req browserRequest) error {
 		return fmt.Errorf("打开服务日志: %w", err)
 	}
 	cmd := exec.Command(s.cfg.BrowserPython, s.cfg.BrowserService, req.Identity, endpoints) // #nosec G204 // 解释器来自部署配置，参数已校验
-	cmd.Dir = dirs.work
+	// 浏览器服务是任务级长驻进程，cwd 用任务产物目录（它的环境里 OUTPUT_DIR 也指这里）；不能用
+	// 每次执行就删除的暂存目录（execOutput）。
+	cmd.Dir = dirs.out
 	cmd.Env = append(s.baseEnv(), dirs.env(dirs.out)...)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	group, err := s.procs.start(req.TaskID, cmd)

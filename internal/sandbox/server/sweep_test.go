@@ -37,7 +37,7 @@ func TestSweepExpiredTaskDirs_PerTaskActivity(t *testing.T) {
 	recent := time.Now().Add(-time.Hour)
 
 	mkFile(t, filepath.Join(root, "asg-1", "task-old", "out", "report.md"), old)
-	mkFile(t, filepath.Join(root, "asg-1", "task-active", "work", "evidence.txt"), recent)
+	mkFile(t, filepath.Join(root, "asg-1", "task-active", "out", "evidence.txt"), recent)
 	mkFile(t, filepath.Join(root, "asg-2", "task-gone", "out", "x"), old)
 	mkFile(t, filepath.Join(root, ".staging", "pending", "u", "f"), old)
 	setDirTimes(t, root, old) // 所有目录 mtime 都很旧：只能靠子树内文件判断活动
@@ -48,7 +48,7 @@ func TestSweepExpiredTaskDirs_PerTaskActivity(t *testing.T) {
 	if exists("asg-1/task-old") {
 		t.Error("久无活动的任务应被清扫")
 	}
-	if !exists("asg-1/task-active/work/evidence.txt") {
+	if !exists("asg-1/task-active/out/evidence.txt") {
 		t.Error("近期有写入的任务不应被清扫")
 	}
 	if !exists("asg-1") {

@@ -11,13 +11,16 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/V3teran/liusha/internal/sandbox"
 )
 
-// 两个流合计没有超过阈值：全部留在内存、不落盘（连 console/ 目录都不建）。
+// 两个流合计没有超过阈值：全部留在内存、不落盘。
 func TestOutputCapture_UnderThresholdKeepsEverythingInMemory(t *testing.T) {
-	console := filepath.Join(t.TempDir(), consoleDirName)
-	c := newOutputCapture(30, console)
+	outDir := t.TempDir()
+	c := newOutputCapture(30, outDir)
 	_, _ = c.stdout.Write([]byte(strings.Repeat("a", 20)))
 	_, _ = c.stderr.Write([]byte(strings.Repeat("b", 10)))
 
@@ -29,8 +32,8 @@ func TestOutputCapture_UnderThresholdKeepsEverythingInMemory(t *testing.T) {
 	if got.stdoutUnsaved != 0 || got.stderrUnsaved != 0 {
 		t.Fatalf("没落盘的流没有「没写进文件」可言，不该报未留档: %+v", got)
 	}
-	if _, err := os.Stat(console); !os.IsNotExist(err) {
-		t.Fatal("没有落盘就不该有 console/ 目录")
+	if captures := captureFilesIn(t, outDir); len(captures) != 0 {
+		t.Fatal("没有落盘就不该写任何文件")
 	}
 }
 
@@ -42,7 +45,7 @@ func TestOutputCapture_CombinedThresholdSpillsBothStreams(t *testing.T) {
 	maxCaptureBytes = 48
 	t.Cleanup(func() { maxCaptureBytes = keep })
 
-	c := newOutputCapture(30, filepath.Join(t.TempDir(), consoleDirName))
+	c := newOutputCapture(30, t.TempDir())
 	chunk := bytes.Repeat([]byte("x"), 4096)
 	_, _ = c.stdout.Write(bytes.Repeat([]byte("a"), 20))
 	for range 64 { // stdout 256 KiB：远超阈值，也超过响应保留的上限
@@ -73,8 +76,8 @@ func TestOutputCapture_CombinedThresholdSpillsBothStreams(t *testing.T) {
 
 // 不设阈值（browser_drive 这类调用方）：全部返回、不落盘，与过去一致。
 func TestOutputCapture_NoThresholdNeverSpills(t *testing.T) {
-	console := filepath.Join(t.TempDir(), consoleDirName)
-	c := newOutputCapture(0, console)
+	outDir := t.TempDir()
+	c := newOutputCapture(0, outDir)
 	all := strings.Repeat("a", 1000)
 	_, _ = c.stdout.Write([]byte(all))
 
@@ -82,16 +85,16 @@ func TestOutputCapture_NoThresholdNeverSpills(t *testing.T) {
 	if got.stdout != all || got.stdoutBytes != 1000 || got.stdoutFile != "" {
 		t.Fatalf("不设阈值应全部返回、不落盘: len=%d size=%d file=%q", len(got.stdout), got.stdoutBytes, got.stdoutFile)
 	}
-	if _, err := os.Stat(console); !os.IsNotExist(err) {
-		t.Fatal("不设阈值不该有 console/ 目录")
+	if captures := captureFilesIn(t, outDir); len(captures) != 0 {
+		t.Fatal("不设阈值就不该写任何文件")
 	}
 }
 
 // 两个流各由一个协程送达，先后与命令写它们的顺序无关：先送到的小流在合计越过阈值时已经写完，
 // 收集结束时要给它补落盘——否则它的文件时有时无，取决于调度。
 func TestOutputCapture_StreamFinishedBeforeThresholdIsStillSaved(t *testing.T) {
-	console := filepath.Join(t.TempDir(), consoleDirName)
-	c := newOutputCapture(100, console)
+	outDir := t.TempDir()
+	c := newOutputCapture(100, outDir)
 	_, _ = c.stderr.Write([]byte("err\n"))                // stderr 先到，合计 4，没越过阈值
 	_, _ = c.stdout.Write(bytes.Repeat([]byte("x"), 240)) // stdout 后到，越过阈值
 
@@ -111,7 +114,7 @@ func TestOutputCapture_ZeroCaptureLimit(t *testing.T) {
 	maxCaptureBytes = 0
 	t.Cleanup(func() { maxCaptureBytes = keep })
 
-	c := newOutputCapture(4, filepath.Join(t.TempDir(), consoleDirName))
+	c := newOutputCapture(4, t.TempDir())
 	_, _ = c.stdout.Write([]byte("0123456789"))
 
 	got := c.finish()
@@ -126,7 +129,7 @@ func TestOutputCapture_TailStartsOnRuneBoundary(t *testing.T) {
 	maxCaptureBytes = 10
 	t.Cleanup(func() { maxCaptureBytes = keep })
 
-	c := newOutputCapture(5, filepath.Join(t.TempDir(), consoleDirName))
+	c := newOutputCapture(5, t.TempDir())
 	_, _ = c.stdout.Write([]byte(strings.Repeat("中", 10))) // 30 字节，每个字 3 字节
 
 	got := c.finish()
@@ -141,7 +144,7 @@ func TestOutputCapture_SpillFileIsCapped(t *testing.T) {
 	maxSaveBytes = 100
 	t.Cleanup(func() { maxSaveBytes = keep })
 
-	c := newOutputCapture(10, filepath.Join(t.TempDir(), consoleDirName))
+	c := newOutputCapture(10, t.TempDir())
 	_, _ = c.stdout.Write([]byte(strings.Repeat("a", 150)))
 
 	got := c.finish()
@@ -154,7 +157,8 @@ func TestOutputCapture_SpillFileIsCapped(t *testing.T) {
 // 落盘失败不丢输出：响应照常带尾部与完整字节数，只是没有文件，原因一并报出——完整输出少一份
 // 留档，不该让这次命令的结果也跟着没了。
 func TestOutputCapture_SpillFailureKeepsOutput(t *testing.T) {
-	blocked := filepath.Join(t.TempDir(), consoleDirName)
+	// out/ 本该是目录；把它造成一个文件，MkdirAll 必然失败——这是「落盘失败」的确定性注入。
+	blocked := filepath.Join(t.TempDir(), "out")
 	if err := os.WriteFile(blocked, []byte("not a dir"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -170,8 +174,8 @@ func TestOutputCapture_SpillFailureKeepsOutput(t *testing.T) {
 	}
 }
 
-// /exec 带落盘阈值：输出合计超过它时两个流完整落盘到任务目录的 console/ 下——操作员在文件面
-// 看得到，命令自己也读得到；响应带完整字节数与落盘路径，输出本身原样返回。
+// /exec 带落盘阈值：输出合计超过它时两个流完整落盘到任务产物目录 out/ 顶层（时间戳命名）——
+// 操作员在工作空间页看得到，命令自己也读得到；响应带完整字节数与落盘路径，输出本身原样返回。
 func TestHandleExec_SavesFullOutputOverThreshold(t *testing.T) {
 	h := newHarness(t)
 	body, err := json.Marshal(sandbox.ExecRequest{
@@ -203,8 +207,8 @@ func TestHandleExec_SavesFullOutputOverThreshold(t *testing.T) {
 	assertFileContent(t, res.StderrFile, "err\n", "落盘文件里是完整的 stderr")
 	for _, f := range []string{res.StdoutFile, res.StderrFile} {
 		rel, err := filepath.Rel(h.root, f)
-		if err != nil || filepath.ToSlash(filepath.Dir(rel)) != "asg/task/console" {
-			t.Fatalf("落盘位置应是任务目录下的 console/，实际 %q", rel)
+		if err != nil || filepath.ToSlash(filepath.Dir(rel)) != "asg/task/out" || !isCaptureFile(filepath.Base(rel)) {
+			t.Fatalf("留档应直接落在任务产物目录 out/ 顶层（时间戳命名），实际 %q", rel)
 		}
 	}
 	if len(res.Warnings) != 0 {
@@ -223,8 +227,8 @@ func TestHandleExec_UnderThresholdDoesNotSave(t *testing.T) {
 	if n := strings.Count(res.Stdout, "out-"); n != 10 || res.StdoutBytes != int64(len(res.Stdout)) || res.StdoutFile != "" {
 		t.Fatalf("没超过阈值应原样返回、不落盘: %d 行 size=%d file=%q", n, res.StdoutBytes, res.StdoutFile)
 	}
-	if _, err := os.Stat(filepath.Join(h.root, "asg", "task", consoleDirName)); !os.IsNotExist(err) {
-		t.Fatal("没超过阈值不该有 console/ 目录")
+	if captures := captureFilesIn(t, filepath.Join(h.root, "asg", "task", "out")); len(captures) != 0 {
+		t.Fatal("没超过阈值不该有留档文件")
 	}
 	if len(res.Warnings) != 0 {
 		t.Fatalf("没超过阈值不该有任何提示: %v", res.Warnings)
@@ -241,8 +245,8 @@ func TestHandleExec_NoThresholdKeepsLegacyBehaviour(t *testing.T) {
 	if res.StdoutBytes != int64(len(res.Stdout)) || res.StdoutFile != "" {
 		t.Fatalf("不带阈值: 完整字节数等于返回长度、不落盘: %d %q", res.StdoutBytes, res.StdoutFile)
 	}
-	if _, err := os.Stat(filepath.Join(h.root, "asg", "legacy", consoleDirName)); !os.IsNotExist(err) {
-		t.Fatal("不带阈值不该有 console/ 目录")
+	if captures := captureFilesIn(t, filepath.Join(h.root, "asg", "legacy", "out")); len(captures) != 0 {
+		t.Fatal("不带阈值不该有留档文件")
 	}
 	if len(res.Warnings) != 0 {
 		t.Fatalf("不带阈值不该有任何提示: %v", res.Warnings)
@@ -264,26 +268,19 @@ func TestHandleExec_NegativeThresholdIsRejected(t *testing.T) {
 	}
 }
 
-// 落盘失败时响应仍带输出与完整字节数，没有文件路径，提示里说明原因。
-func TestHandleExec_SpillFailureIsReported(t *testing.T) {
-	h := newHarness(t)
-	blocked := filepath.Join(h.root, "asg", "task", consoleDirName)
-	if err := os.MkdirAll(filepath.Dir(blocked), 0o750); err != nil {
-		t.Fatal(err)
+// 留档失败与超出留档上限，都写成结果里的提示：这次命令的输出照常返回，只是完整输出少了一份
+// 留档——说明白，不悄悄少。
+func TestStreamWarnings(t *testing.T) {
+	got := streamWarnings(capturedStreams{stdoutErr: os.ErrPermission})
+	if len(got) != 1 || !strings.Contains(got[0], "stdout") || !strings.Contains(got[0], "could not be saved") {
+		t.Fatalf("留档失败应说明: %v", got)
 	}
-	if err := os.WriteFile(blocked, []byte("not a dir"), 0o600); err != nil {
-		t.Fatal(err)
+	got = streamWarnings(capturedStreams{stdoutUnsaved: 512})
+	if len(got) != 1 || !strings.Contains(got[0], "512 bytes were not saved") {
+		t.Fatalf("超出留档上限应说明没写进去多少: %v", got)
 	}
-	body, _ := json.Marshal(sandbox.ExecRequest{AssignmentID: "asg", TaskID: "task", AgentRunID: "run",
-		Command: `printf 'out-%03d\n' $(seq 1 300)`, TimeoutSeconds: 30, SaveOutputOverBytes: 100})
-	var res sandbox.ExecResult
-	h.decode(t, http.MethodPost, "/exec", bytes.NewReader(body), &res)
-
-	if res.StdoutBytes != 2400 || len(res.Stdout) != 2400 || res.StdoutFile != "" {
-		t.Fatalf("落盘失败应仍给出完整输出与字节数、没有文件: size=%d len=%d file=%q", res.StdoutBytes, len(res.Stdout), res.StdoutFile)
-	}
-	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "stdout") || !strings.Contains(res.Warnings[0], consoleDirName) {
-		t.Fatalf("落盘失败应在提示里说明: %v", res.Warnings)
+	if got := streamWarnings(capturedStreams{}); len(got) != 0 {
+		t.Fatalf("没有问题不该有提示: %v", got)
 	}
 }
 
@@ -296,4 +293,56 @@ func assertFileContent(t *testing.T, path, want, why string) {
 	if string(data) != want {
 		t.Fatalf("%s: 文件 %d 字节，期望 %d 字节", why, len(data), len(want))
 	}
+}
+
+// 留档文件名有确切的形状，publish 据此跳过收编。
+func TestIsCaptureFile(t *testing.T) {
+	for name, want := range map[string]bool{
+		"20261128-071052-3648473974.stdout": true,
+		"20261128-071052-1.stderr":          true,
+		"nmap_result.stdout":                false,
+		"20261128-071052-1.log":             false,
+		"stdout":                            false,
+		"a.txt":                             false,
+	} {
+		assert.Equal(t, want, isCaptureFile(name), name)
+	}
+}
+
+// captureFilesIn 列出目录下的留档文件名。
+func captureFilesIn(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range entries {
+		if isCaptureFile(e.Name()) {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
+// 留档直接落在 out/ 顶层之后，后续执行的暂存目录会把它预置进来：publish 按名字跳过收编——
+// 留档不是产物，不该被 base64 进后续执行的结果；留档本体也不该被动过。
+func TestHandleExec_CaptureIsNotAProductOfLaterExecs(t *testing.T) {
+	h := newHarness(t)
+	body, _ := json.Marshal(sandbox.ExecRequest{AssignmentID: "asg", TaskID: "task", AgentRunID: "run",
+		Command: `printf 'out-%03d
+' $(seq 1 30)`, TimeoutSeconds: 30, SaveOutputOverBytes: 100})
+	var res sandbox.ExecResult
+	h.decode(t, http.MethodPost, "/exec", bytes.NewReader(body), &res)
+	captures := captureFilesIn(t, filepath.Join(h.root, "asg", "task", "out"))
+	require.Len(t, captures, 1, "输出超过阈值应有留档")
+
+	res2 := h.execTask(t, "task", `ls`)
+	if len(res2.Files) != 0 {
+		t.Fatalf("留档不是产物，不得被后续执行收编: %+v", res2.Files)
+	}
+	assertFileContent(t, filepath.Join(h.root, "asg", "task", "out", captures[0]), res.Stdout, "留档本体不被动")
 }

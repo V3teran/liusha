@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,11 +203,38 @@ func TestHandleExec_AgentRunIDValidation(t *testing.T) {
 	}
 }
 
+// cwd 即 $OUTPUT_DIR（本次执行的暂存目录）：相对路径写盘与新产物一样被收编进 out 并归属本次
+// 执行；cwd 里的点条目是工具的 scratch，不进 out；任务目录下不再有 work；环境里没有
+// LIUSHA_WORKSPACE。
+func TestHandleExec_CwdIsTheOutputDir(t *testing.T) {
+	h := newHarness(t)
+	res := h.execTask(t, "task-cwd", `pwd && printf 'rel\n' > rel.txt && mkdir .cache && printf 'junk\n' > .cache/junk`)
+	if !strings.Contains(res.Stdout, "/.exec/out-") {
+		t.Fatalf("cwd 应是本次执行的暂存目录: %s", res.Stdout)
+	}
+	if len(res.Files) != 1 || res.Files[0].Name != "rel.txt" {
+		t.Fatalf("相对路径写盘应作为本次执行的产物收编: %+v", res.Files)
+	}
+	keep, err := os.ReadFile(filepath.Join(h.root, "asg", "task-cwd", "out", "rel.txt")) // #nosec G304 // 测试工作区内
+	if err != nil || string(keep) != "rel\n" {
+		t.Fatalf("相对路径写盘应落进 out: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "asg", "task-cwd", "out", ".cache")); !os.IsNotExist(err) {
+		t.Fatal("cwd 里的点条目是 scratch，不进 out")
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "asg", "task-cwd", "work")); !os.IsNotExist(err) {
+		t.Fatal("任务目录下不再有 work")
+	}
+	if got := h.execTask(t, "task-cwd", `env | grep -c '^LIUSHA_WORKSPACE=' || true`); strings.TrimSpace(got.Stdout) != "0" {
+		t.Fatalf("环境里不应再有 LIUSHA_WORKSPACE，得 %q", got.Stdout)
+	}
+}
+
 // TestHandleExec_PerTaskIsolation 验证 task 级隔离与 task 内共享。
 //
 // 任务间：task-a 写 a.txt，task-b 不可见（目录即隔离边界）。
-// 任务内：不同 agent 共享同一 work/out——同任务多 agent 共容器共目标，
-// agent 级目录是假隔离（设计裁定）。
+// 任务内：不同 agent 共享同一 out——同任务多 agent 共容器共目标，agent 级目录是假隔离（设计
+// 裁定）：新产物经各自执行的暂存目录收编进 out，旧产物随下次执行的暂存目录预置硬链接可读。
 func TestHandleExec_PerTaskIsolation(t *testing.T) {
 	h := newHarness(t)
 
@@ -246,14 +276,14 @@ func TestHandleExec_PerTaskIsolation(t *testing.T) {
 		t.Errorf("task-b OUTPUT_DIR 捞到了 task-a 的 a.txt，隔离失败，stdout=%q", resB.Stdout)
 	}
 
-	// 任务内共享：同 task 两个 agent 看到同一 work/out
-	resA2 := post(t, "batch-1", "task-a", "agent-1", `printf 'A\n' > "$OUTPUT_DIR/a2.txt" && printf 'shared\n' > shared-in-work.txt`)
-	resA3 := post(t, "batch-1", "task-a", "agent-2", `ls "$OUTPUT_DIR" && cat shared-in-work.txt`)
+	// 任务内共享：同 task 两个 agent 看到同一 out；agent-1 用相对路径写盘（cwd 即 $OUTPUT_DIR）
+	resA2 := post(t, "batch-1", "task-a", "agent-1", `printf 'A\n' > "$OUTPUT_DIR/a2.txt" && printf 'shared\n' > shared.txt`)
+	resA3 := post(t, "batch-1", "task-a", "agent-2", `ls "$OUTPUT_DIR" && cat shared.txt`)
 	if !bytes.Contains([]byte(resA3.Stdout), []byte("a2.txt")) {
 		t.Errorf("同任务 agent-2 看不到 agent-1 的产物（应共享），stdout=%q", resA3.Stdout)
 	}
 	if !bytes.Contains([]byte(resA3.Stdout), []byte("shared")) {
-		t.Errorf("同任务 agent-2 看不到 agent-1 的 work 文件（应共享），stdout=%q", resA3.Stdout)
+		t.Errorf("同任务 agent-2 看不到 agent-1 相对路径写下的文件（应共享），stdout=%q", resA3.Stdout)
 	}
 	_ = resA2
 

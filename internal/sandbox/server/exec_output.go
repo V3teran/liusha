@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/V3teran/liusha/internal/sandbox"
@@ -95,6 +96,19 @@ func (o *execOutput) publish() ([]sandbox.Attachment, []string) {
 	for _, e := range entries {
 		name := e.Name()
 		staged := filepath.Join(o.dir, name)
+		if isCaptureFile(name) {
+			// 输出留档由收集器直接写进 out/（见 execCapture），不是本次执行的产物：它可能已在
+			// out/ 顶层、被本执行的暂存目录预置进来（甚至别次执行仍在写入），收编会把可能巨大
+			// 的文件 base64 进响应。模型经 cwd 或绝对路径照常能读它。
+			continue
+		}
+		if strings.HasPrefix(name, ".") {
+			if _, linked := o.links[name]; !linked {
+				// cwd 里的点条目是工具的 scratch（如 .msf4 缓存），不是产物：随暂存目录删除，
+				// 不进 out。out 里本就有的点文件会被预置链接（links 里有名字），照常走下面的流程。
+				continue
+			}
+		}
 		target := filepath.Join(o.shared, name)
 		if info, ok := o.prelinked(name, staged); ok {
 			// 预置链接：只有经它原地改写过的既有产物归属本次。改写经硬链接已落到 out/ 的同一
