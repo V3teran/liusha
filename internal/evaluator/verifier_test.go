@@ -357,8 +357,8 @@ func TestPromote_KindWithoutChannelGoesJudgeOnly(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-steps"}
 	var seen json.RawMessage
 	v := gateWith(w, fakeReplayer{err: errors.New("不应走到 stub 通道")}, &fakeClaimSink{}).
-		WithJudge(judgeFunc(func(_ context.Context, _ string, _, ev json.RawMessage, _ ReplayFunc) (Verdict, error) {
-			seen = ev
+		WithJudge(judgeFunc(func(_ context.Context, in JudgeInput) (Verdict, error) {
+			seen = in.Evidence
 			return Verdict{Verdict: VerdictConfirmed}, nil
 		}))
 	c := baseClaim()
@@ -486,7 +486,7 @@ func TestPromote_MachineGuardRefutesWhenAssertFails(t *testing.T) {
 	w := &fakeGraphStore{verID: "ver-mg1"}
 	fw := &fakeClaimSink{}
 	judgeCalled := false
-	j := judgeFunc(func(context.Context, string, json.RawMessage, json.RawMessage, ReplayFunc) (Verdict, error) {
+	j := judgeFunc(func(context.Context, JudgeInput) (Verdict, error) {
 		judgeCalled = true
 		return Verdict{Verdict: VerdictConfirmed, Reasoning: "不该被调到"}, nil
 	})
@@ -529,10 +529,10 @@ func TestPromote_MachineGuardPassesThrough(t *testing.T) {
 	}
 }
 
-type judgeFunc func(context.Context, string, json.RawMessage, json.RawMessage, ReplayFunc) (Verdict, error)
+type judgeFunc func(context.Context, JudgeInput) (Verdict, error)
 
-func (f judgeFunc) Judge(ctx context.Context, hyp string, recipe, ev json.RawMessage, replay ReplayFunc) (Verdict, error) {
-	return f(ctx, hyp, recipe, ev, replay)
+func (f judgeFunc) Judge(ctx context.Context, in JudgeInput) (Verdict, error) {
+	return f(ctx, in)
 }
 
 type stubJudge struct {
@@ -542,7 +542,7 @@ type stubJudge struct {
 	fingerprint  json.RawMessage
 }
 
-func (s stubJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ ReplayFunc) (Verdict, error) {
+func (s stubJudge) Judge(context.Context, JudgeInput) (Verdict, error) {
 	return Verdict{Verdict: s.verdict, Reasoning: s.reasoning, RefuteReason: s.refuteReason, Fingerprint: s.fingerprint}, nil
 }
 
@@ -615,10 +615,10 @@ type replayJudge struct {
 	times   int
 }
 
-func (s *replayJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, replay ReplayFunc) (Verdict, error) {
-	s.replay = replay
+func (s *replayJudge) Judge(_ context.Context, in JudgeInput) (Verdict, error) {
+	s.replay = in.Replay
 	for i := 0; i < s.times; i++ {
-		_, _ = replay(context.Background())
+		_, _ = in.Replay(context.Background())
 	}
 	return Verdict{Verdict: s.verdict, Reasoning: "自主复放后判定"}, nil
 }
@@ -702,7 +702,7 @@ func TestPromote_RefutedWritesNoNodes(t *testing.T) {
 
 type errJudge struct{}
 
-func (errJudge) Judge(_ context.Context, _ string, _, _ json.RawMessage, _ ReplayFunc) (Verdict, error) {
+func (errJudge) Judge(context.Context, JudgeInput) (Verdict, error) {
 	return Verdict{}, errors.New("judge down")
 }
 
@@ -805,16 +805,202 @@ func TestPromote_SemanticDedupFoldsDuplicateConfirmations(t *testing.T) {
 		t.Fatalf("标记形状不符: %+v", mark)
 	}
 
-	// 审计链：第二次 verification 带 duplicate_of
+	// 审计链：第二次 verification 带 duplicate_of，依据是指纹规范键相同
 	if len(w.verifications) != 2 {
 		t.Fatalf("应有 2 条审计: %d", len(w.verifications))
 	}
 	var ev struct {
 		DuplicateOf string `json:"duplicate_of"`
+		Basis       string `json:"duplicate_basis"`
 	}
-	if json.Unmarshal(w.verifications[1].Evidence, &ev) != nil || ev.DuplicateOf != node1.ID {
-		t.Fatalf("第二条审计应带 duplicate_of: %s", w.verifications[1].Evidence)
+	if json.Unmarshal(w.verifications[1].Evidence, &ev) != nil || ev.DuplicateOf != node1.ID || ev.Basis != duplicateBasisFingerprint {
+		t.Fatalf("第二条审计应带 duplicate_of 与依据: %s", w.verifications[1].Evidence)
 	}
+	var debut struct {
+		DuplicateOf string `json:"duplicate_of"`
+	}
+	if json.Unmarshal(w.verifications[0].Evidence, &debut) == nil && debut.DuplicateOf != "" {
+		t.Fatalf("首次坐实不该带重复归属: %s", w.verifications[0].Evidence)
+	}
+}
+
+// recordingJudge 记下判定输入、按预设给出判定（验证既有结果怎样交给评估者）。
+type recordingJudge struct {
+	input   JudgeInput
+	verdict Verdict
+}
+
+func (j *recordingJudge) Judge(_ context.Context, in JudgeInput) (Verdict, error) {
+	j.input = in
+	return j.verdict, nil
+}
+
+// existingResult 是一条已坐实的结果：带陈述与指纹规范键。
+func existingResult(id, statement, key string) explorationgraph.Node {
+	return explorationgraph.Node{
+		ID:       id,
+		TaskID:   "asg-1",
+		Kind:     core.KindResult,
+		Content:  json.RawMessage(`{"statement":"` + statement + `"}`),
+		Metadata: json.RawMessage(`{"claim_fingerprint":"` + key + `","claim_class":"stored_xss"}`),
+	}
+}
+
+// 评估者判定本次坐实是既有结果的再次确认：指纹不同（换了一个输入项的名字）也折叠为那条结果
+// 的佐证——指纹是自由文本的精确匹配，认不出换了措辞、类别或输入项的同一主张，认得出的是判定。
+// 判定输入里带着既有结果的清单；审计链记下归属与依据。
+func TestPromote_JudgeDeclaredDuplicateFoldsAcrossFingerprints(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-j1"}
+	fw := &fakeClaimSink{}
+	const existing = "XSS (Stored) 页面的 txtName 未过滤即入库，其他用户浏览时执行脚本"
+	const existingKey = "stored_xss|post http://t.local/xss_s|txtname"
+	w.nodes = append(w.nodes, existingResult("res-1", existing, existingKey))
+	judge := &recordingJudge{verdict: Verdict{
+		Verdict:     VerdictConfirmed,
+		Reasoning:   "mtxMessage 同样未过滤即入库",
+		Fingerprint: json.RawMessage(`{"class":"stored_xss","target":"POST http://t.local/xss_s","point":"mtxmessage"}`),
+		DuplicateOf: "res-1",
+	}}
+
+	node, err := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, fw).
+		WithJudge(judge).Promote(context.Background(), baseClaim())
+	if err != nil {
+		t.Fatalf("再次确认不应报错: %v", err)
+	}
+	if node == nil || node.ID != "res-1" {
+		t.Fatalf("指纹不同的再次确认应折叠进既有结果: node=%v", node)
+	}
+	if len(w.nodes) != 1 {
+		t.Fatalf("不得新建节点: %d", len(w.nodes))
+	}
+	if len(fw.claims) != 1 || fw.claims[0].ResultNodeID != "res-1" || fw.claims[0].Statement != existing {
+		t.Fatalf("交付应指向既有结果: %+v", fw.claims)
+	}
+
+	// 评估者拿到的既有结果清单：短号按创建先后，陈述与指纹规范键都在
+	if got := judge.input.Confirmed; len(got) != 1 || got[0] != (ConfirmedResult{NodeID: "res-1", Statement: existing, Fingerprint: existingKey}) {
+		t.Fatalf("判定输入应列出既有结果: %+v", got)
+	}
+	if judge.input.Hypothesis != "X 参数存在可复现注入" || string(judge.input.Recipe) != string(baseClaim().Repro) || judge.input.Replay == nil {
+		t.Fatalf("判定输入的假设、配方与重放应照常带上: %+v", judge.input)
+	}
+
+	var ev struct {
+		DuplicateOf string `json:"duplicate_of"`
+		Basis       string `json:"duplicate_basis"`
+		Fingerprint string `json:"claim_fingerprint"`
+	}
+	if len(w.verifications) != 1 || json.Unmarshal(w.verifications[0].Evidence, &ev) != nil {
+		t.Fatalf("应有一条审计: %+v", w.verifications)
+	}
+	if ev.DuplicateOf != "res-1" || ev.Basis != duplicateBasisJudge || ev.Fingerprint != "stored_xss|post http://t.local/xss_s|mtxmessage" {
+		t.Fatalf("审计应记下归属（评估者判定）与这次的指纹: %+v", ev)
+	}
+	var mark map[string]string
+	if raw := w.metadata["node-source"]; raw == nil || json.Unmarshal(raw, &mark) != nil || mark["verification_status"] != "confirmed" {
+		t.Fatalf("再次确认的假设应标记 confirmed: %s", raw)
+	}
+}
+
+// 评估者指明的归属落空时（不是本任务的结果）不折叠：再走指纹的精确匹配——匹配得上照旧
+// 折叠，匹配不上就是独立的主张。归属只认图上确实存在的结果。
+func TestPromote_UnresolvedDuplicateReferenceFallsBackToFingerprint(t *testing.T) {
+	const existingKey = "stored_xss|post http://t.local/xss_s|txtname"
+	for _, tc := range []struct {
+		name       string
+		point      string
+		wantFolded bool
+	}{
+		{"指纹也不同，是独立的主张", "mtxmessage", false},
+		{"指纹相同，按指纹折叠", "txtname", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &fakeGraphStore{verID: "ver-j2"}
+			w.nodes = append(w.nodes, existingResult("res-1", "XSS (Stored) 页面的 txtName 未过滤即入库", existingKey))
+			judge := &recordingJudge{verdict: Verdict{
+				Verdict:     VerdictConfirmed,
+				Fingerprint: json.RawMessage(`{"class":"stored_xss","target":"POST http://t.local/xss_s","point":"` + tc.point + `"}`),
+				DuplicateOf: "res-none",
+			}}
+			node, err := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
+				WithJudge(judge).Promote(context.Background(), baseClaim())
+			if err != nil || node == nil {
+				t.Fatalf("应正常晋升: node=%v err=%v", node, err)
+			}
+			var ev struct {
+				DuplicateOf string `json:"duplicate_of"`
+				Basis       string `json:"duplicate_basis"`
+			}
+			_ = json.Unmarshal(w.verifications[0].Evidence, &ev)
+			if tc.wantFolded {
+				if node.ID != "res-1" || len(w.nodes) != 1 || ev.DuplicateOf != "res-1" || ev.Basis != duplicateBasisFingerprint {
+					t.Fatalf("指纹相同应按指纹折叠: node=%v nodes=%d audit=%+v", node, len(w.nodes), ev)
+				}
+				return
+			}
+			if node.ID == "res-1" || len(w.nodes) != 2 || ev.DuplicateOf != "" || ev.Basis != "" {
+				t.Fatalf("独立的主张应新建节点、不带归属: node=%v nodes=%d audit=%+v", node, len(w.nodes), ev)
+			}
+		})
+	}
+}
+
+// 评估者指明了再次确认、却没给指纹时照样折叠：再次确认是判定，不依赖指纹。
+func TestPromote_JudgeDeclaredDuplicateWithoutFingerprint(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-j3"}
+	w.nodes = append(w.nodes, existingResult("res-1", "备份目录可匿名下载", "info_disclosure|get http://t.local/backups/|"))
+	judge := &recordingJudge{verdict: Verdict{Verdict: VerdictConfirmed, DuplicateOf: "res-1"}}
+
+	node, err := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
+		WithJudge(judge).Promote(context.Background(), baseClaim())
+	if err != nil || node == nil || node.ID != "res-1" || len(w.nodes) != 1 {
+		t.Fatalf("没有指纹的再次确认也应折叠: node=%v nodes=%d err=%v", node, len(w.nodes), err)
+	}
+	var ev struct {
+		DuplicateOf string `json:"duplicate_of"`
+		Basis       string `json:"duplicate_basis"`
+	}
+	if json.Unmarshal(w.verifications[0].Evidence, &ev) != nil || ev.DuplicateOf != "res-1" || ev.Basis != duplicateBasisJudge {
+		t.Fatalf("审计应记下归属与依据: %s", w.verifications[0].Evidence)
+	}
+}
+
+// 折叠对照的是判定之后的结果集：这次判定进行期间，并行的验证坐实了同一主张——它读结果集
+// 时还没有这条结果，折叠时必须在，否则同一条主张落成两条结果。
+func TestPromote_FoldSeesResultsConfirmedDuringJudge(t *testing.T) {
+	w := &fakeGraphStore{verID: "ver-p1"}
+	const key = "sql_injection|get http://t.local/items|id"
+	fp := json.RawMessage(`{"class":"sql_injection","target":"GET http://t.local/items","point":"id"}`)
+	// 判定进行期间落图的并行结果
+	j := judgeFunc(func(context.Context, JudgeInput) (Verdict, error) {
+		w.mu.Lock()
+		w.nodes = append(w.nodes, existingResult("res-parallel", "Items 接口的 id 参数存在 SQL 注入", key))
+		w.mu.Unlock()
+		return Verdict{Verdict: VerdictConfirmed, Fingerprint: fp}, nil
+	})
+	node, err := gateWith(w, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
+		WithJudge(j).Promote(context.Background(), baseClaim())
+	if err != nil || node == nil {
+		t.Fatalf("应正常晋升: node=%v err=%v", node, err)
+	}
+	if node.ID != "res-parallel" || len(w.nodes) != 1 {
+		t.Fatalf("判定期间坐实的同一主张应被折叠: node=%v nodes=%d", node, len(w.nodes))
+	}
+}
+
+// 读不到既有结果时验证不继续：再次确认的归属与指纹对照都以它为准，读不到就无从判定。
+func TestPromote_FailsWhenExistingResultsUnreadable(t *testing.T) {
+	gate := gateWith(&listFailingGraphStore{fakeGraphStore: &fakeGraphStore{verID: "ver-x"}}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{"assert_passed":true}`)}}, &fakeClaimSink{}).
+		WithJudge(stubJudge{verdict: VerdictConfirmed})
+	if _, err := gate.Promote(context.Background(), baseClaim()); err == nil {
+		t.Fatal("既有结果读不到时应报错，留待重试")
+	}
+}
+
+type listFailingGraphStore struct{ *fakeGraphStore }
+
+func (f *listFailingGraphStore) ListResults(context.Context, string) ([]explorationgraph.Node, error) {
+	return nil, errors.New("库故障")
 }
 
 // 主张类别随结果节点落库并交给交付管道；缺对象的指纹不参与去重，但类别照样记下。
@@ -925,8 +1111,8 @@ func TestAgent_InvalidRecipeAuditSurvivesEmptyRepro(t *testing.T) {
 // 从配方自行推断验证对象，同一请求可支撑多种主张时会确认并非被提交的那一个。
 func TestPromote_JudgeReceivesHypothesisStatement(t *testing.T) {
 	var got string
-	j := judgeFunc(func(_ context.Context, hyp string, _, _ json.RawMessage, _ ReplayFunc) (Verdict, error) {
-		got = hyp
+	j := judgeFunc(func(_ context.Context, in JudgeInput) (Verdict, error) {
+		got = in.Hypothesis
 		return Verdict{Verdict: VerdictRefuted, Reasoning: "x"}, nil
 	})
 	v := gateWith(&fakeGraphStore{verID: "ver-h"}, fakeReplayer{res: Result{Evidence: json.RawMessage(`{}`)}}, &fakeClaimSink{}).WithJudge(j)

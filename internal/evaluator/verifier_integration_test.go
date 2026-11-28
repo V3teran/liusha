@@ -29,7 +29,7 @@ func (s stubReplayer) Replay(context.Context, json.RawMessage) (evaluator.Result
 // verdictJudge 固定判定（集成测试只测 store 咬合，语义判定由单测覆盖）。
 type verdictJudge struct{ verdict string }
 
-func (j verdictJudge) Judge(context.Context, string, json.RawMessage, json.RawMessage, evaluator.ReplayFunc) (evaluator.Verdict, error) {
+func (j verdictJudge) Judge(context.Context, evaluator.JudgeInput) (evaluator.Verdict, error) {
 	return evaluator.Verdict{Verdict: j.verdict, Reasoning: "集成测试固定判定"}, nil
 }
 
@@ -115,8 +115,8 @@ func TestEvaluator_PromoteAgainstRealStore(t *testing.T) {
 // replayJudgeITest 判定前自主复放一次（模拟 RouterJudge 的 repro_replay）。
 type replayJudgeITest struct{ verdict string }
 
-func (j replayJudgeITest) Judge(_ context.Context, _ string, _, _ json.RawMessage, replay evaluator.ReplayFunc) (evaluator.Verdict, error) {
-	_, _ = replay(context.Background())
+func (j replayJudgeITest) Judge(_ context.Context, in evaluator.JudgeInput) (evaluator.Verdict, error) {
+	_, _ = in.Replay(context.Background())
 	return evaluator.Verdict{Verdict: j.verdict, Reasoning: "集成测试复放后判定"}, nil
 }
 
