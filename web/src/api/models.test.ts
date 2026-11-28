@@ -31,13 +31,13 @@ const plaintextInput = ['mock', 'plaintext', 'input'].join('-')
 const PROV: ProviderConfig = {
   code: 'deepseek',
   display_name: ' DeepSeek ',
-  type: 'openai_compat',
+  type: 'openai_chat_completions',
   base_url: 'https://api.deepseek.com',
   default_model: 'deepseek-chat',
   api_key: plaintextInput,
   key_present: true,
   max_tokens: 131072,
-  thinking_budget_tokens: 0,
+  reasoning_effort: '',
   auth_scheme: 'bearer',
   output_limit_param: 'max_tokens',
   supports_tools: true,
@@ -70,14 +70,14 @@ describe('models API 客户端', () => {
     const body = JSON.parse(init.body)
     expect(body).toEqual({
       display_name: 'DeepSeek',
-      type: 'openai_compat',
+      type: 'openai_chat_completions',
       base_url: 'https://api.deepseek.com',
       default_model: 'deepseek-chat',
       api_key: plaintextInput,
       auth_scheme: 'bearer',
       output_limit_param: 'max_tokens',
       max_tokens: 131072,
-      thinking_budget_tokens: 0,
+      reasoning_effort: '',
       supports_tools: true,
       supports_vision: false,
       context_window: 1048576,
@@ -90,12 +90,12 @@ describe('models API 客户端', () => {
     expect(body.api_key).toBe(plaintextInput)
   })
 
-  it('saveProvider 携带扩展思考预算：仅 Anthropic 协议生效，其余协议恒为 0', async () => {
+  it('saveProvider 原样携带思考深度：各协议同一口径，没设置即空串', async () => {
     const fn = mockFetch(200, { provider: PROV })
-    await saveProvider({ ...PROV, type: 'anthropic', thinking_budget_tokens: 2048 }, false)
-    expect(JSON.parse(fn.mock.calls[0][1].body).thinking_budget_tokens).toBe(2048)
-    await saveProvider({ ...PROV, type: 'openai_compat', thinking_budget_tokens: 2048 }, false)
-    expect(JSON.parse(fn.mock.calls[1][1].body).thinking_budget_tokens).toBe(0)
+    await saveProvider({ ...PROV, type: 'anthropic_messages', reasoning_effort: 'high' }, false)
+    expect(JSON.parse(fn.mock.calls[0][1].body).reasoning_effort).toBe('high')
+    await saveProvider({ ...PROV, type: 'openai_chat_completions', reasoning_effort: '' }, false)
+    expect(JSON.parse(fn.mock.calls[1][1].body).reasoning_effort).toBe('')
   })
 
   it('saveProvider 编辑走 PUT /models/providers/:code（code 做 URL 编码）', async () => {
@@ -189,5 +189,16 @@ describe('检索模型 API 客户端', () => {
     const body = JSON.parse(String((fn.mock.calls[0][1] as RequestInit).body))
     expect(body.embedding_model).toBe('e-x')
     expect(body.api_key).toBe(plaintextInput)
+  })
+})
+
+describe('输出上限字段按协议落定', () => {
+  it('只有一个字段的协议随协议落定；Chat Completions 原样携带实测值', async () => {
+    const fn = mockFetch(200, { provider: PROV })
+    await saveProvider({ ...PROV, type: 'openai_responses', output_limit_param: 'max_output_tokens' }, false)
+    await saveProvider({ ...PROV, type: 'anthropic_messages', output_limit_param: 'max_tokens' }, false)
+    await saveProvider({ ...PROV, type: 'openai_chat_completions', output_limit_param: 'max_completion_tokens' }, false)
+    const bodies = fn.mock.calls.map((call) => JSON.parse(call[1].body))
+    expect(bodies.map((b) => b.output_limit_param)).toEqual(['max_output_tokens', 'max_tokens', 'max_completion_tokens'])
   })
 })

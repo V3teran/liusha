@@ -12,6 +12,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -275,26 +276,38 @@ func (r *Router) resolveSpec(ctx context.Context, complexity Complexity) (Provid
 // spec.APIKey 必须是已解析的明文密钥（解析归业务侧）。导出供业务策略层与 router 共用。
 func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool) (Generator, error) {
 	switch p.Type {
-	case ProviderTypeAnthropic:
-		cli, err := pool.GetOrCreateAnthropic(p.BaseURL, p.APIKey, p.AuthScheme)
+	case ProviderTypeAnthropicMessages:
+		cli, err := pool.GetOrCreateAnthropicMessages(p.BaseURL, p.APIKey, p.AuthScheme)
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
 		}
-		return NewAnthropic(ctx, p.Code, AnthropicConfig{
+		return NewAnthropicMessages(ctx, p.Code, AnthropicMessagesConfig{
 			BaseURL: p.BaseURL, Model: p.Model,
-			Limit:          pool.OutputLimitFor(p.BaseURL, p.APIKey, p.Model, p.MaxTokens),
-			ThinkingBudget: p.ThinkingBudget,
+			Limit:           pool.OutputLimitFor(p.BaseURL, p.APIKey, p.Model, p.MaxTokens),
+			ReasoningEffort: p.ReasoningEffort,
 		}, cli)
-	case ProviderTypeOpenAICompat, "":
+	case ProviderTypeOpenAIChatCompletions, "":
 		cli, err := pool.GetOrCreateOpenAI(p.BaseURL, p.APIKey, p.AuthScheme)
 		if err != nil {
 			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
 		}
-		return NewOpenAICompat(ctx, p.Code, OpenAICompatConfig{
+		return NewOpenAIChatCompletions(ctx, p.Code, OpenAIChatCompletionsConfig{
 			BaseURL: p.BaseURL, Model: p.Model,
 			Limit:          pool.OutputLimitFor(p.BaseURL, p.APIKey, p.Model, p.MaxTokens),
 			SupportsVision: p.SupportsVision, OutputLimitParam: p.OutputLimitParam,
+			ReasoningEffort: p.ReasoningEffort,
+		}, cli)
+	case ProviderTypeOpenAIResponses:
+		cli, err := pool.GetOrCreateHTTP(p.BaseURL, p.APIKey, p.AuthScheme)
+		if err != nil {
+			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
+		}
+		return NewOpenAIResponses(ctx, p.Code, OpenAIResponsesConfig{
+			BaseURL: p.BaseURL, Model: p.Model,
+			Limit:           pool.OutputLimitFor(p.BaseURL, p.APIKey, p.Model, p.MaxTokens),
+			SupportsVision:  p.SupportsVision,
+			ReasoningEffort: p.ReasoningEffort,
 		}, cli)
 	}
-	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: openai_compat / anthropic）", p.Code, p.Type)
+	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: %s）", p.Code, p.Type, strings.Join(ProviderTypes, " / "))
 }

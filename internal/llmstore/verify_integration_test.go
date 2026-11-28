@@ -22,7 +22,7 @@ func TestProviderCodeRoundtrip(t *testing.T) {
 	s := New(pool, cachestore.New(rdb, 0))
 
 	if _, err := s.CreateProvider(context.Background(), llmconfig.ProviderParams{
-		Code: "deepseek", DisplayName: "deepseek", Type: "openai_compat", BaseURL: "https://api.deepseek.com",
+		Code: "deepseek", DisplayName: "deepseek", Type: "openai_chat_completions", BaseURL: "https://api.deepseek.com",
 		DefaultModel: "deepseek-chat", MaxTokens: 4096, SupportsTools: true,
 		ContextWindow: 64000,
 	}); err != nil {

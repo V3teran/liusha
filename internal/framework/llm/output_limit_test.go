@@ -85,7 +85,7 @@ func TestChatCompletionsLowersOutputLimitWhenRejected(t *testing.T) {
 	pool := NewClientPool()
 	build := func(model string) Generator {
 		t.Helper()
-		gen, err := NewOpenAICompat(context.Background(), "p", OpenAICompatConfig{
+		gen, err := NewOpenAIChatCompletions(context.Background(), "p", OpenAIChatCompletionsConfig{
 			Model: model, Limit: pool.OutputLimitFor(srv.URL, "test", model, 131072),
 		}, client)
 		if err != nil {
@@ -135,7 +135,7 @@ func TestAnthropicLowersOutputLimitWhenRejected(t *testing.T) {
 	defer srv.Close()
 	client := anthropic.NewClient(option.WithAPIKey("test"), option.WithBaseURL(srv.URL))
 	pool := NewClientPool()
-	gen, err := NewAnthropic(context.Background(), "p", AnthropicConfig{
+	gen, err := NewAnthropicMessages(context.Background(), "p", AnthropicMessagesConfig{
 		Model: "m", Limit: pool.OutputLimitFor(srv.URL, "test", "m", 131072),
 	}, &client)
 	if err != nil {
@@ -158,7 +158,7 @@ func TestOutputLimitGivesUpAtFloor(t *testing.T) {
 	cfg := openai.DefaultConfig("test")
 	cfg.BaseURL = srv.URL
 	pool := NewClientPool()
-	gen, err := NewOpenAICompat(context.Background(), "p", OpenAICompatConfig{
+	gen, err := NewOpenAIChatCompletions(context.Background(), "p", OpenAIChatCompletionsConfig{
 		Model: "m", Limit: pool.OutputLimitFor(srv.URL, "test", "m", 4096),
 	}, openai.NewClientWithConfig(cfg))
 	if err != nil {

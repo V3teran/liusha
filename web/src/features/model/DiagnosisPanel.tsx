@@ -39,7 +39,7 @@ function inputFingerprint(d: ProviderConfig): string {
 
 /** 测试请求所依据的全部输入：任一项在请求在途期间变化，结果就不能回填。 */
 function requestFingerprint(d: ProviderConfig): string {
-  return [inputFingerprint(d), d.auth_scheme, d.output_limit_param, String(d.key_present)].join('\u0000')
+  return [inputFingerprint(d), d.auth_scheme, d.output_limit_param, d.reasoning_effort, String(d.key_present)].join('\u0000')
 }
 
 /** 测试连接的前置：实测目标齐全，且填了模型——可用性只能由对话请求证明。 */
@@ -85,7 +85,12 @@ export function DiagnosisPanel({
     if (missing) return
     const sent = requestFingerprint(draft)
     diagnose.mutate(
-      { ...probeTarget(draft), default_model: draft.default_model.trim(), output_limit_param: draft.output_limit_param },
+      {
+        ...probeTarget(draft),
+        default_model: draft.default_model.trim(),
+        output_limit_param: draft.output_limit_param,
+        reasoning_effort: draft.reasoning_effort,
+      },
       {
         onSuccess: (diag) => {
           setResult(diag)

@@ -46,7 +46,7 @@ function renderHarness(initial: ProviderConfig, onDraft: (d: ProviderConfig) => 
 
 const base = (): ProviderConfig => ({
   ...blankProvider(),
-  type: 'openai_compat',
+  type: 'openai_chat_completions',
   base_url: 'https://relay.example.com/v1/',
   default_model: 'm',
   api_key: 'sk',
@@ -101,16 +101,16 @@ describe('DiagnosisPanel', () => {
     mDiagnose.mockResolvedValue({
       ok: false, steps: steps('fail'), base_url: 'https://relay.example.com/anthropic',
       profile: null,
-      suggestion: { type: 'anthropic', base_url: 'https://relay.example.com/anthropic', auth_scheme: 'x-api-key', reason: '该地址按 Anthropic 协议可用' },
+      suggestion: { type: 'anthropic_messages', base_url: 'https://relay.example.com/anthropic', auth_scheme: 'x-api-key', reason: '该地址按 Anthropic 协议可用' },
     } satisfies Diagnosis)
     let current = base()
     renderHarness({ ...base(), base_url: 'https://relay.example.com/anthropic' }, (d) => (current = d))
     await userEvent.click(testButton())
 
     expect(await screen.findByText(/建议：该地址按 Anthropic 协议可用/)).toBeTruthy()
-    expect(current.type).toBe('openai_compat')
+    expect(current.type).toBe('openai_chat_completions')
     await userEvent.click(screen.getByRole('button', { name: '采纳' }))
-    expect(current.type).toBe('anthropic')
+    expect(current.type).toBe('anthropic_messages')
     expect(current.auth_scheme).toBe('x-api-key')
     expect(screen.queryByRole('button', { name: '采纳' })).toBeNull()
   })

@@ -3,11 +3,13 @@ package llmconfig
 import (
 	"errors"
 	"testing"
+
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 )
 
 func validParams() ProviderParams {
 	return ProviderParams{
-		Code: "p", DisplayName: "主力", Type: ProviderTypeAnthropic, BaseURL: "https://api.example.com",
+		Code: "p", DisplayName: "主力", Type: ProviderTypeAnthropicMessages, BaseURL: "https://api.example.com",
 		DefaultModel: "m", ContextWindow: 128000, MaxTokens: 8192,
 		AuthScheme: AuthXAPIKey, OutputLimitParam: OutputLimitMaxTokens,
 	}
@@ -20,7 +22,12 @@ func TestProviderParamsValidate(t *testing.T) {
 		valid bool
 	}{
 		{"合法", func(*ProviderParams) {}, true},
-		{"合法思考预算", func(p *ProviderParams) { p.ThinkingBudgetTokens = 4096 }, true},
+		{"合法思考深度", func(p *ProviderParams) { p.ReasoningEffort = string(fwllm.ReasoningEffortHigh) }, true},
+		{"思考深度不在档位表里", func(p *ProviderParams) { p.ReasoningEffort = "xhigh" }, false},
+		{"思考深度在 Chat Completions 下同样合法", func(p *ProviderParams) {
+			p.Type = ProviderTypeOpenAIChatCompletions
+			p.ReasoningEffort = string(fwllm.ReasoningEffortMax)
+		}, true},
 		{"非法协议", func(p *ProviderParams) { p.Type = "foo" }, false},
 		{"Base URL 无协议", func(p *ProviderParams) { p.BaseURL = "api.example.com" }, false},
 		{"Base URL 非 http", func(p *ProviderParams) { p.BaseURL = "ftp://x" }, false},
@@ -29,11 +36,6 @@ func TestProviderParamsValidate(t *testing.T) {
 		{"默认模型空白", func(p *ProviderParams) { p.DefaultModel = "  " }, false},
 		{"上下文窗口为 0", func(p *ProviderParams) { p.ContextWindow = 0 }, false},
 		{"max_tokens 为负", func(p *ProviderParams) { p.MaxTokens = -1 }, false},
-		{"思考预算为负", func(p *ProviderParams) { p.ThinkingBudgetTokens = -1 }, false},
-		{"思考预算用于 openai 兼容", func(p *ProviderParams) { p.Type = ProviderTypeOpenAICompat; p.ThinkingBudgetTokens = 2048 }, false},
-		{"思考预算低于下限", func(p *ProviderParams) { p.ThinkingBudgetTokens = 1023 }, false},
-		{"思考预算等于 max_tokens", func(p *ProviderParams) { p.ThinkingBudgetTokens = 8192 }, false},
-		{"max_tokens 为 0（未经归一）", func(p *ProviderParams) { p.MaxTokens = 0 }, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -82,15 +84,15 @@ func TestNormalizeBaseURL(t *testing.T) {
 	cases := []struct {
 		protocol, in, want string
 	}{
-		{ProviderTypeOpenAICompat, " https://api.example.com/v1/ ", "https://api.example.com/v1"},
-		{ProviderTypeOpenAICompat, "https://api.example.com/v1/chat/completions", "https://api.example.com/v1"},
-		{ProviderTypeOpenAICompat, "https://api.example.com/v1/models", "https://api.example.com/v1"},
-		{ProviderTypeOpenAICompat, "https://relay.example.com", "https://relay.example.com"},
-		{ProviderTypeOpenAICompat, "https://api.example.com/anthropic", "https://api.example.com/anthropic"},
-		{ProviderTypeAnthropic, "https://api.example.com/anthropic/v1/messages", "https://api.example.com/anthropic"},
-		{ProviderTypeAnthropic, "https://api.example.com/v1", "https://api.example.com"},
-		{ProviderTypeAnthropic, "https://api.example.com/anthropic/", "https://api.example.com/anthropic"},
-		{ProviderTypeAnthropic, "not a url", "not a url"},
+		{ProviderTypeOpenAIChatCompletions, " https://api.example.com/v1/ ", "https://api.example.com/v1"},
+		{ProviderTypeOpenAIChatCompletions, "https://api.example.com/v1/chat/completions", "https://api.example.com/v1"},
+		{ProviderTypeOpenAIChatCompletions, "https://api.example.com/v1/models", "https://api.example.com/v1"},
+		{ProviderTypeOpenAIChatCompletions, "https://relay.example.com", "https://relay.example.com"},
+		{ProviderTypeOpenAIChatCompletions, "https://api.example.com/anthropic", "https://api.example.com/anthropic"},
+		{ProviderTypeAnthropicMessages, "https://api.example.com/anthropic/v1/messages", "https://api.example.com/anthropic"},
+		{ProviderTypeAnthropicMessages, "https://api.example.com/v1", "https://api.example.com"},
+		{ProviderTypeAnthropicMessages, "https://api.example.com/anthropic/", "https://api.example.com/anthropic"},
+		{ProviderTypeAnthropicMessages, "not a url", "not a url"},
 	}
 	for _, tc := range cases {
 		if got := NormalizeBaseURL(tc.protocol, tc.in); got != tc.want {
@@ -101,17 +103,17 @@ func TestNormalizeBaseURL(t *testing.T) {
 
 // 归一填充请求画像缺省值：鉴权方式取协议标准方式；anthropic 的输出上限字段恒为 max_tokens。
 func TestProviderParamsNormalize(t *testing.T) {
-	o := ProviderParams{Type: ProviderTypeOpenAICompat, BaseURL: "https://x/v1/", DefaultModel: " m "}
+	o := ProviderParams{Type: ProviderTypeOpenAIChatCompletions, BaseURL: "https://x/v1/", DefaultModel: " m "}
 	o.Normalize()
 	if o.AuthScheme != AuthBearer || o.OutputLimitParam != OutputLimitMaxTokens || o.BaseURL != "https://x/v1" || o.DefaultModel != "m" {
 		t.Fatalf("openai 缺省归一错误: %+v", o)
 	}
-	a := ProviderParams{Type: ProviderTypeAnthropic, BaseURL: "https://x/v1", OutputLimitParam: OutputLimitMaxCompletionTokens}
+	a := ProviderParams{Type: ProviderTypeAnthropicMessages, BaseURL: "https://x/v1", OutputLimitParam: OutputLimitMaxCompletionTokens}
 	a.Normalize()
 	if a.AuthScheme != AuthXAPIKey || a.OutputLimitParam != OutputLimitMaxTokens || a.BaseURL != "https://x" {
 		t.Fatalf("anthropic 缺省归一错误: %+v", a)
 	}
-	kept := ProviderParams{Type: ProviderTypeAnthropic, BaseURL: "https://x", AuthScheme: AuthBearer}
+	kept := ProviderParams{Type: ProviderTypeAnthropicMessages, BaseURL: "https://x", AuthScheme: AuthBearer}
 	kept.Normalize()
 	if kept.AuthScheme != AuthBearer {
 		t.Fatal("已记录的鉴权方式不应被缺省值覆盖")
@@ -124,9 +126,9 @@ func TestProviderParamsNormalize(t *testing.T) {
 }
 
 // 上下文窗口与单次最大输出没填（0）时，归一落成缺省——缺省只有一个出处，落库的行不再有
-// 「未设置」；已填的值原样保留。扩展思考预算按落成后的上限判定。
+// 「未设置」；已填的值原样保留。
 func TestProviderParamsNormalize_FillsLimitDefaults(t *testing.T) {
-	p := ProviderParams{Type: ProviderTypeAnthropic, BaseURL: "https://x", DisplayName: "n", DefaultModel: "m"}
+	p := ProviderParams{Type: ProviderTypeAnthropicMessages, BaseURL: "https://x", DisplayName: "n", DefaultModel: "m"}
 	p.Normalize()
 	if p.MaxTokens != DefaultMaxTokens || p.ContextWindow != DefaultContextWindow {
 		t.Fatalf("没填的上限应落成缺省 %d / %d，实际 %d / %d", DefaultMaxTokens, DefaultContextWindow, p.MaxTokens, p.ContextWindow)
@@ -134,16 +136,7 @@ func TestProviderParamsNormalize_FillsLimitDefaults(t *testing.T) {
 	if err := p.Validate(); err != nil {
 		t.Fatalf("落成缺省后应合法: %v", err)
 	}
-	budget := p
-	budget.ThinkingBudgetTokens = 65536
-	if err := budget.Validate(); err != nil {
-		t.Fatalf("思考预算小于缺省上限应合法: %v", err)
-	}
-	budget.ThinkingBudgetTokens = int64(DefaultMaxTokens)
-	if err := budget.Validate(); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("思考预算不小于缺省上限应被拒，got %v", err)
-	}
-	kept := ProviderParams{Type: ProviderTypeAnthropic, BaseURL: "https://x", MaxTokens: 4096, ContextWindow: 200000}
+	kept := ProviderParams{Type: ProviderTypeAnthropicMessages, BaseURL: "https://x", MaxTokens: 4096, ContextWindow: 200000}
 	kept.Normalize()
 	if kept.MaxTokens != 4096 || kept.ContextWindow != 200000 {
 		t.Fatalf("已填的值不应被缺省覆盖: %+v", kept)
@@ -155,5 +148,62 @@ func TestProviderParamsNormalize_FillsLimitDefaults(t *testing.T) {
 func TestLimitDefaults(t *testing.T) {
 	if DefaultContextWindow != 1048576 || DefaultMaxTokens != 131072 {
 		t.Fatalf("缺省应为 1048576 / 131072，实际 %d / %d", DefaultContextWindow, DefaultMaxTokens)
+	}
+}
+
+// 档位表由低到高四档；空串是「没设置」，不是一档。
+func TestReasoningEfforts(t *testing.T) {
+	want := []fwllm.ReasoningEffort{fwllm.ReasoningEffortLow, fwllm.ReasoningEffortMedium, fwllm.ReasoningEffortHigh, fwllm.ReasoningEffortMax}
+	if len(fwllm.ReasoningEfforts) != len(want) {
+		t.Fatalf("档位应为 %v，实际 %v", want, fwllm.ReasoningEfforts)
+	}
+	for i, e := range fwllm.ReasoningEfforts {
+		if e != want[i] {
+			t.Fatalf("档位应为 %v，实际 %v", want, fwllm.ReasoningEfforts)
+		}
+	}
+	for effort, valid := range map[string]bool{"": true, "low": true, "max": true, "none": false, "xhigh": false} {
+		if err := ReasoningEffortError(effort); (err == nil) != valid {
+			t.Errorf("ReasoningEffortError(%q) = %v，合法应为 %v", effort, err, valid)
+		}
+	}
+}
+
+// OpenAI Responses 协议：输出上限字段随协议落定为 max_output_tokens，别的写法被拒；
+// 地址归一去掉误粘的 /responses。
+func TestProviderParams_ResponsesProtocol(t *testing.T) {
+	p := ProviderParams{Type: ProviderTypeOpenAIResponses, BaseURL: "https://x/v1/responses", DisplayName: "n", DefaultModel: "m"}
+	p.Normalize()
+	if p.OutputLimitParam != OutputLimitMaxOutputTokens {
+		t.Fatalf("Responses 的输出上限字段应落定为 max_output_tokens，实际 %q", p.OutputLimitParam)
+	}
+	if p.BaseURL != "https://x/v1" {
+		t.Fatalf("误粘的 /responses 应去掉，实际 %q", p.BaseURL)
+	}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("应合法: %v", err)
+	}
+	for _, typ := range ProviderTypes {
+		q := p
+		q.Type = typ
+		q.Normalize()
+		if err := q.Validate(); err != nil {
+			t.Errorf("%s：归一后应合法，实际 %v", typ, err)
+		}
+	}
+	wrong := p
+	wrong.OutputLimitParam = OutputLimitMaxTokens
+	if err := wrong.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("Responses 不接受 max_tokens，应被拒，实际 %v", err)
+	}
+	// 换了协议、留着他协议的字段：归一按新协议落回它认的值（Chat Completions 认的两个之一之外按 max_tokens）
+	switched := p
+	switched.Type, switched.OutputLimitParam = ProviderTypeOpenAIChatCompletions, OutputLimitMaxOutputTokens
+	switched.Normalize()
+	if switched.OutputLimitParam != OutputLimitMaxTokens {
+		t.Fatalf("换成 Chat Completions 后输出上限字段应落回 max_tokens，实际 %q", switched.OutputLimitParam)
+	}
+	if ProtocolLabel(ProviderTypeOpenAIResponses) != "OpenAI Responses" {
+		t.Fatalf("展示名应为 OpenAI Responses，实际 %q", ProtocolLabel(ProviderTypeOpenAIResponses))
 	}
 }

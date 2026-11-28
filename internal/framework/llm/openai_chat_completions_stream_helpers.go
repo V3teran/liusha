@@ -9,14 +9,14 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-// prepareOpenAICompatRequest 准备 OpenAI 兼容流式请求的消息与工具（输出上限与温度
+// prepareChatCompletionsRequest 准备 OpenAI 兼容流式请求的消息与工具（输出上限与温度
 // 由调用方经 requestCompat 写入——字段名随兼容结论而定）。
-func prepareOpenAICompatRequest(msgs []Message, tools []ToolSchema, model string, supportsVision bool) (openai.ChatCompletionRequest, error) {
-	openaiMsgs, err := toOpenAIMessages(msgs, supportsVision)
+func prepareChatCompletionsRequest(msgs []Message, tools []ToolSchema, model string, supportsVision bool) (openai.ChatCompletionRequest, error) {
+	openaiMsgs, err := toChatCompletionsMessages(msgs, supportsVision)
 	if err != nil {
 		return openai.ChatCompletionRequest{}, fmt.Errorf("convert messages: %w", err)
 	}
-	openaiTools, err := toOpenAITools(tools)
+	openaiTools, err := toChatCompletionsTools(tools)
 	if err != nil {
 		return openai.ChatCompletionRequest{}, fmt.Errorf("convert tools: %w", err)
 	}
@@ -32,8 +32,8 @@ func prepareOpenAICompatRequest(msgs []Message, tools []ToolSchema, model string
 	return creq, nil
 }
 
-// processOpenAICompatStream 处理 OpenAI 兼容流式响应
-func processOpenAICompatStream(ctx context.Context, stream *openai.ChatCompletionStream, ch chan StreamEvent) {
+// processChatCompletionsStream 处理 OpenAI 兼容流式响应
+func processChatCompletionsStream(ctx context.Context, stream *openai.ChatCompletionStream, ch chan StreamEvent) {
 	defer close(ch)
 	defer func() {
 		_ = stream.Close()
@@ -59,14 +59,14 @@ func processOpenAICompatStream(ctx context.Context, stream *openai.ChatCompletio
 			break
 		}
 		if err != nil {
-			emit(StreamEvent{Kind: StreamError, Err: wrapOpenAICompatErr(err)})
+			emit(StreamEvent{Kind: StreamError, Err: wrapChatCompletionsErr(err)})
 			return
 		}
 		if len(chunk.Choices) == 0 {
 			continue
 		}
 
-		if !handleOpenAICompatChunk(chunk, partial, emit) {
+		if !handleChatCompletionsChunk(chunk, partial, emit) {
 			return
 		}
 
@@ -83,8 +83,8 @@ func processOpenAICompatStream(ctx context.Context, stream *openai.ChatCompletio
 	emit(StreamEvent{Kind: StreamDone, Usage: &Usage{}, FinishReason: finish})
 }
 
-// handleOpenAICompatChunk 处理单个 OpenAI 兼容 chunk
-func handleOpenAICompatChunk(chunk openai.ChatCompletionStreamResponse, partial map[int]*ToolCall, emit func(StreamEvent) bool) bool {
+// handleChatCompletionsChunk 处理单个 OpenAI 兼容 chunk
+func handleChatCompletionsChunk(chunk openai.ChatCompletionStreamResponse, partial map[int]*ToolCall, emit func(StreamEvent) bool) bool {
 	delta := chunk.Choices[0].Delta
 
 	if delta.Content != "" {

@@ -292,15 +292,21 @@ export interface ToolDetail {
    任何 GET 响应都不回传密钥值；key_present 仅提示该 provider 是否已有可用密钥来源。
    ============================================================ */
 
-// provider 协议类型：openai_compat（OpenAI Chat Completions 协议）/ anthropic（Anthropic Messages 协议）。
-// 只认协议、不认服务：官方、各家兼容端点、中转网关都按所用协议接入。
-export type ProviderType = 'openai_compat' | 'anthropic'
+// provider 协议类型：厂商 + 接口名——同一家有多种协议时只写厂商分不清。只认协议、不认服务：
+// 官方、各家兼容端点、中转网关都按所用协议接入。
+export type ProviderType = 'openai_chat_completions' | 'openai_responses' | 'anthropic_messages'
 
 // 鉴权方式：密钥的携带方式，与协议正交（同一协议的不同服务可能只认其一），由测试连接识别。
 export type AuthScheme = 'bearer' | 'x-api-key'
 
-// 输出上限字段（OpenAI 兼容协议）：多数服务认 max_tokens，部分推理模型只认 max_completion_tokens。
-export type OutputLimitParam = 'max_tokens' | 'max_completion_tokens'
+// 输出上限字段：协议声明单次输出上限所用的请求字段。OpenAI Chat Completions 下多数服务认 max_tokens，
+// 部分推理模型只认 max_completion_tokens——由测试连接实测后记录；其余协议只有一个字段（Anthropic
+// Messages 的 max_tokens、OpenAI Responses 的 max_output_tokens），随协议落定。
+export type OutputLimitParam = 'max_tokens' | 'max_completion_tokens' | 'max_output_tokens'
+
+// 思考深度（推理模型投入多少推理），由低到高四档。各协议按自己的字段下发，取值是各家的通行叫法；
+// 「最高」在个别模型上叫 xhigh，由适配器映射。
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'max'
 
 // ProviderConfig 是一个 LLM provider（连接参数 + 能力标志）。
 // code 是稳定引用键（角色路由 FK 指向它），创建后不可改；后端 JSON 字段即 code。
@@ -314,12 +320,12 @@ export interface ProviderConfig {
   key_present: boolean // 是否已设置密钥（加密落库）
   key_last4?: string // 已存密钥末 4 位（脱敏辨识用，非机密）；未设置密钥时为空
   auth_scheme: AuthScheme // 鉴权方式（测试连接识别后回填）
-  output_limit_param: OutputLimitParam // 输出上限字段（仅 OpenAI 兼容协议生效；测试连接识别后回填）
+  output_limit_param: OutputLimitParam // 输出上限字段（OpenAI Chat Completions 由测试连接识别后回填；其余协议随协议落定）
   // 数字字段是编辑期草稿：键入中可短暂为 ''（数字框清空态），保存被
   // providerInvalid 拦截，落库/网络载荷永远是 number。
   max_tokens: number | ''
-  // 扩展思考预算（anthropic thinking.budget_tokens）：0 = 关闭；开启时 ≥ 1024 且 < max_tokens
-  thinking_budget_tokens: number | ''
+  // 思考深度：推理模型投入多少推理；'' = 没设置（不下发这个参数，按模型自己的默认）
+  reasoning_effort: ReasoningEffort | ''
   supports_tools: boolean
   supports_vision: boolean
   context_window: number | '' // model 总上下文窗口 tokens（react 历史压缩按此算阈值）
@@ -376,6 +382,7 @@ export interface ProviderProbeTarget {
 export interface ProviderDiagnoseRequest extends ProviderProbeTarget {
   default_model: string
   output_limit_param?: OutputLimitParam
+  reasoning_effort?: ReasoningEffort | '' // 按表单当前值实测：不支持的档位在这里就会暴露
 }
 
 // 测试连接的检查项与状态。后端按依赖顺序返回（端点 → 鉴权 → 模型 → 工具调用），前端按返回顺序渲染；

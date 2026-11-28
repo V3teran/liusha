@@ -97,7 +97,7 @@ func TestRetryAfter(t *testing.T) {
 		informative bool
 	}{
 		{"限流带恢复时刻", &HTTPError{Code: 429, RetryAt: resetAt}, 35 * time.Minute, true},
-		{"被包装的限流", fmt.Errorf("anthropic generate: %w", &HTTPError{Code: 429, RetryAt: resetAt}), 35 * time.Minute, true},
+		{"被包装的限流", fmt.Errorf("anthropic messages generate: %w", &HTTPError{Code: 429, RetryAt: resetAt}), 35 * time.Minute, true},
 		{"限流但上游未告知", &HTTPError{Code: 429}, 0, false},
 		{"恢复时刻已过", &HTTPError{Code: 429, RetryAt: now.Add(-time.Second)}, 0, false},
 		{"非限流错误即使带时刻也不构成等待依据", &HTTPError{Code: 503, RetryAt: resetAt}, 0, false},

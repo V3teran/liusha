@@ -31,16 +31,16 @@ func TestStoreSemanticsPostgres(t *testing.T) {
 	s := NewStore(pool)
 
 	keyed := ProviderParams{
-		Code: "keyed", DisplayName: "主力", Type: ProviderTypeAnthropic, BaseURL: "https://api.example.com",
-		DefaultModel: "m", ContextWindow: 1000, MaxTokens: 8192, ThinkingBudgetTokens: 2048,
+		Code: "keyed", DisplayName: "主力", Type: ProviderTypeAnthropicMessages, BaseURL: "https://api.example.com",
+		DefaultModel: "m", ContextWindow: 1000, MaxTokens: 8192, ReasoningEffort: "high",
 		EncryptedAPIKey: []byte("sealed"), APIKeyLast4: "abcd", Enabled: true,
 	}
 	created, err := s.CreateProvider(ctx, keyed)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if created.ThinkingBudgetTokens != 2048 {
-		t.Fatalf("思考预算应落库: %+v", created)
+	if created.ReasoningEffort != "high" {
+		t.Fatalf("思考深度应落库: %+v", created)
 	}
 	if created.AuthScheme != AuthXAPIKey || created.OutputLimitParam != OutputLimitMaxTokens {
 		t.Fatalf("请求画像应按协议缺省落库: %+v", created)
@@ -68,7 +68,7 @@ func TestStoreSemanticsPostgres(t *testing.T) {
 
 	update := keyed
 	update.KeepExistingKey, update.EncryptedAPIKey, update.APIKeyLast4 = true, nil, ""
-	update.ThinkingBudgetTokens = 3000
+	update.ReasoningEffort = "max"
 	update.AuthScheme = AuthBearer
 	update.BaseURL = "https://api.example.com/v1/messages/"
 	updated, err := s.UpdateProvider(ctx, update)
@@ -78,8 +78,8 @@ func TestStoreSemanticsPostgres(t *testing.T) {
 	if updated.AuthScheme != AuthBearer || updated.BaseURL != "https://api.example.com" {
 		t.Fatalf("协商出的鉴权方式应落库、Base URL 应归一: %+v", updated)
 	}
-	if updated.ThinkingBudgetTokens != 3000 || string(updated.EncryptedAPIKey) != "sealed" {
-		t.Fatalf("更新应改思考预算、保留已存密钥: %+v", updated)
+	if updated.ReasoningEffort != "max" || string(updated.EncryptedAPIKey) != "sealed" {
+		t.Fatalf("更新应改思考深度、保留已存密钥: %+v", updated)
 	}
 	ghost := update
 	ghost.Code = "ghost"
@@ -98,7 +98,7 @@ func TestStoreSemanticsPostgres(t *testing.T) {
 		t.Fatalf("合法档位: %v", err)
 	}
 
-	if _, err := s.CreateProvider(ctx, ProviderParams{Code: "bad", Type: ProviderTypeOpenAICompat, BaseURL: "u", DefaultModel: "m", ContextWindow: 1}); !errors.Is(err, ErrInvalid) {
+	if _, err := s.CreateProvider(ctx, ProviderParams{Code: "bad", Type: ProviderTypeOpenAIChatCompletions, BaseURL: "u", DefaultModel: "m", ContextWindow: 1}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("落库前同样校验，got %v", err)
 	}
 }

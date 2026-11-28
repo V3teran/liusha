@@ -160,6 +160,12 @@ func (p *instrumentedProvider) Stream(ctx context.Context, req Request) (<-chan 
 				if shadow.Thinking != nil {
 					shadow.Thinking.Signature = ev.Signature
 				}
+				if len(ev.ReasoningItem) > 0 {
+					if shadow.Thinking == nil {
+						shadow.Thinking = &ThinkingBlock{}
+					}
+					shadow.Thinking.ReasoningItem = ev.ReasoningItem
+				}
 			case StreamError:
 				failure = newStreamFailure(ev.Err)
 			}

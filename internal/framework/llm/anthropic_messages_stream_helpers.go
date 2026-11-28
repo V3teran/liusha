@@ -10,11 +10,10 @@ import (
 )
 
 // anthropicRequest 组装一次 messages 请求。maxTokens 是调用方按 provider 配置给定的输出上限——
-// 协议必填；请求级预算（调用方按任务收窄，如 judge 1500）可能小于 provider 级 thinking budget
-// （如 4096）——协议硬约束 budget < max_tokens（严格实现直接 400，宽容后端则思考吞光正文预算），
-// 所以此处把 budget clamp 到 maxTokens 的 3/4：思考有上限、正文恒留 1/4 余量，两边都不违约。
-// 开启思考时流式路径不设 temperature——该模式下协议只允许 1，不设即协议默认。
-func anthropicRequest(systemBlocks []anthropic.TextBlockParam, msgs []anthropic.MessageParam, tools []anthropic.ToolUnionParam, model anthropic.Model, maxTokens, thinkingBudget int64) anthropic.MessageNewParams {
+// 协议必填。设置了思考深度就开启自适应思考并按 output_config.effort 给出档位：模型自己决定
+// 想多少，档位是给它的软性指引；不再按 token 给预算（budget_tokens 已被弃用，最新的模型直接
+// 拒绝）。开启思考时流式路径不设 temperature——该模式下最新的模型只接受默认值。
+func anthropicRequest(systemBlocks []anthropic.TextBlockParam, msgs []anthropic.MessageParam, tools []anthropic.ToolUnionParam, model anthropic.Model, maxTokens int64, effort ReasoningEffort) anthropic.MessageNewParams {
 	params := anthropic.MessageNewParams{
 		Model:     model,
 		MaxTokens: maxTokens,
@@ -26,19 +25,11 @@ func anthropicRequest(systemBlocks []anthropic.TextBlockParam, msgs []anthropic.
 	if len(tools) > 0 {
 		params.Tools = tools
 	}
-	if thinkingBudget > 0 {
-		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(clampThinkingBudget(thinkingBudget, maxTokens))
+	if effort != "" {
+		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}}
+		params.OutputConfig.Effort = anthropic.OutputConfigEffort(effort)
 	}
 	return params
-}
-
-// clampThinkingBudget 把思考预算钳到 maxTokens 的 3/4：协议硬约束 budget < max_tokens，
-// 请求级上限收窄时（如判定 1500）思考有上限、正文恒留 1/4 余量。流式与非流式共用。
-func clampThinkingBudget(thinkingBudget, maxTokens int64) int64 {
-	if ceiling := maxTokens * 3 / 4; thinkingBudget > ceiling {
-		return ceiling
-	}
-	return thinkingBudget
 }
 
 // processAnthropicStream 处理 Anthropic 流式响应

@@ -43,7 +43,7 @@ func EstimateTokens(text string) int {
 }
 
 // EstimateMessageTokens 估算单条消息的 token 数：正文 + 扩展思考 + 工具调用
-// 名与参数的合计。思考块随多轮 tool_use 规范回传（thinking_budget 是既有
+// 名与参数的合计。思考块随多轮 tool_use 规范回传（思考深度是既有
 // 配置，非边角），真实消耗上下文——不计入会让预算系统性低估、压缩触发
 // 过晚，wire 请求反超模型窗口。参数是模型产出/消费的 wire 内容，计费时
 // 同样真实存在。

@@ -15,15 +15,15 @@ import (
 func TestNewAnthropic_RequiresOutputLimit(t *testing.T) {
 	client := anthropic.NewClient(option.WithAPIKey("test"))
 	pool := NewClientPool()
-	for name, cfg := range map[string]AnthropicConfig{
+	for name, cfg := range map[string]AnthropicMessagesConfig{
 		"没给": {Model: "m"},
 		"为零": {Model: "m", Limit: pool.OutputLimitFor("https://x", "k", "m", 0)},
 	} {
-		if _, err := NewAnthropic(context.Background(), "p", cfg, &client); err == nil || !strings.Contains(err.Error(), "输出上限必填") {
+		if _, err := NewAnthropicMessages(context.Background(), "p", cfg, &client); err == nil || !strings.Contains(err.Error(), "输出上限必填") {
 			t.Errorf("%s输出上限应报错，实际 %v", name, err)
 		}
 	}
-	if _, err := NewOpenAICompat(context.Background(), "p", OpenAICompatConfig{Model: "m"}, openai.NewClient("test")); err == nil || !strings.Contains(err.Error(), "输出上限必填") {
+	if _, err := NewOpenAIChatCompletions(context.Background(), "p", OpenAIChatCompletionsConfig{Model: "m"}, openai.NewClient("test")); err == nil || !strings.Contains(err.Error(), "输出上限必填") {
 		t.Errorf("Chat Completions 没给输出上限应报错，实际 %v", err)
 	}
 }

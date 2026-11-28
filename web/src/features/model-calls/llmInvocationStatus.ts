@@ -39,8 +39,8 @@ export function invocationStatus(v: StatusInput, timeoutMs?: number): Invocation
   if (timeoutMs !== undefined && isTimeout(v, timeoutMs)) {
     return { level: 'critical', label: '超时', detail: `达到 LLM 看门狗上限（${limitLabel(timeoutMs)}），未获得响应` }
   }
-  // 截断两provider两叫法：OpenAI=length，Anthropic=max_tokens（stop_reason 直存）
-  if (v.finish_reason === 'length' || v.finish_reason === 'max_tokens') {
+  // 截断三种协议各一个叫法：OpenAI Chat Completions=length，OpenAI Responses=max_output_tokens，Anthropic=max_tokens（原值直存）
+  if (v.finish_reason === 'length' || v.finish_reason === 'max_tokens' || v.finish_reason === 'max_output_tokens') {
     return { level: 'warn', label: '截断', detail: '输出达到 max_tokens 上限，内容可能不完整' }
   }
   if (v.finish_reason === 'content_filter') {

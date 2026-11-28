@@ -51,7 +51,7 @@ data: {"type":"message_stop"}
 `
 	srv := sseServer(t, body)
 	client := anthropic.NewClient(option.WithAPIKey("test"), option.WithBaseURL(srv.URL))
-	gen, err := NewAnthropic(context.Background(), "p", AnthropicConfig{Model: "m", Limit: NewClientPool().OutputLimitFor(srv.URL, "test", "m", 4096)}, &client)
+	gen, err := NewAnthropicMessages(context.Background(), "p", AnthropicMessagesConfig{Model: "m", Limit: NewClientPool().OutputLimitFor(srv.URL, "test", "m", 4096)}, &client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ data: {"type":"message_stop"}
 
 // OpenAI 兼容流的结束原因在最后一个带 finish_reason 的 chunk 里：length 同样是截断，且
 // 该 chunk 之后流就结束了（待发的工具调用照常发出）。
-func TestOpenAICompatStreamCarriesFinishReason(t *testing.T) {
+func TestChatCompletionsStreamCarriesFinishReason(t *testing.T) {
 	const body = `data: {"id":"c1","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"role":"assistant","content":"{\"a\":"},"finish_reason":null}]}
 
 data: {"id":"c1","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}
@@ -88,7 +88,7 @@ data: [DONE]
 	cfg := openai.DefaultConfig("test")
 	cfg.BaseURL = srv.URL + "/v1"
 	client := openai.NewClientWithConfig(cfg)
-	gen, err := NewOpenAICompat(context.Background(), "p", OpenAICompatConfig{Model: "m", Limit: NewClientPool().OutputLimitFor(srv.URL, "test", "m", 4096)}, client)
+	gen, err := NewOpenAIChatCompletions(context.Background(), "p", OpenAIChatCompletionsConfig{Model: "m", Limit: NewClientPool().OutputLimitFor(srv.URL, "test", "m", 4096)}, client)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -103,7 +103,8 @@ type ClientPool struct {
 	mu        sync.Mutex
 	openai    map[string]*openai.Client
 	anthropic map[string]*anthropic.Client
-	transport []*http.Client // 池内创建的 HTTP client（Close 释放其空闲连接）
+	http      map[string]*http.Client // 不经 SDK、直接发 HTTP 的适配器（Responses）共用的 client
+	transport []*http.Client          // 池内创建的 HTTP client（Close 释放其空闲连接）
 	// outputLimits 记住各账户（服务地址 + 密钥）上各模型被上游接受过的最大输出上限：配置的值
 	// 被上游嫌大而拒绝时降下来重发，结论记在这里（见 OutputLimit）。
 	outputLimits map[string]int
@@ -114,6 +115,7 @@ func NewClientPool() *ClientPool {
 	return &ClientPool{
 		openai:    make(map[string]*openai.Client),
 		anthropic: make(map[string]*anthropic.Client),
+		http:      make(map[string]*http.Client),
 	}
 }
 
@@ -129,7 +131,7 @@ func (p *ClientPool) GetOrCreateOpenAI(baseURL, apiKey string, scheme AuthScheme
 		return nil, fmt.Errorf("ClientPool: openai apikey 必填")
 	}
 	if scheme == "" {
-		scheme = DefaultAuthScheme(ProviderTypeOpenAICompat)
+		scheme = DefaultAuthScheme(ProviderTypeOpenAIChatCompletions)
 	}
 	key := poolKey(baseURL, apiKey, scheme)
 	p.mu.Lock()
@@ -147,14 +149,14 @@ func (p *ClientPool) GetOrCreateOpenAI(baseURL, apiKey string, scheme AuthScheme
 	return c, nil
 }
 
-// GetOrCreateAnthropic 按 baseURL+apiKey+鉴权方式共享 Anthropic client。
+// GetOrCreateAnthropicMessages 按 baseURL+apiKey+鉴权方式共享 Anthropic client。
 // scheme 空 = x-api-key（协议标准）。
-func (p *ClientPool) GetOrCreateAnthropic(baseURL, apiKey string, scheme AuthScheme) (*anthropic.Client, error) {
+func (p *ClientPool) GetOrCreateAnthropicMessages(baseURL, apiKey string, scheme AuthScheme) (*anthropic.Client, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("ClientPool: anthropic apikey 必填")
 	}
 	if scheme == "" {
-		scheme = DefaultAuthScheme(ProviderTypeAnthropic)
+		scheme = DefaultAuthScheme(ProviderTypeAnthropicMessages)
 	}
 	key := poolKey(baseURL, apiKey, scheme)
 	p.mu.Lock()
@@ -172,6 +174,27 @@ func (p *ClientPool) GetOrCreateAnthropic(baseURL, apiKey string, scheme AuthSch
 	c := anthropic.NewClient(opts...)
 	p.anthropic[key] = &c
 	return &c, nil
+}
+
+// GetOrCreateHTTP 按 baseURL+apiKey+鉴权方式共享一个带凭据的 HTTP client，给不经 SDK、
+// 直接发 HTTP 的适配器（Responses）用：出站凭据只有这一个出口，与两个 SDK client 同一套
+// 传输层（清掉外来凭据头、只写记录的那一种、跨源重定向不带密钥）。
+func (p *ClientPool) GetOrCreateHTTP(baseURL, apiKey string, scheme AuthScheme) (*http.Client, error) {
+	if apiKey == "" {
+		return nil, fmt.Errorf("ClientPool: http apikey 必填")
+	}
+	if scheme == "" {
+		scheme = DefaultAuthScheme(ProviderTypeOpenAIChatCompletions)
+	}
+	key := poolKey(baseURL, apiKey, scheme)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if c, ok := p.http[key]; ok {
+		return c, nil
+	}
+	c := p.newHTTPClient(apiKey, scheme)
+	p.http[key] = c
+	return c, nil
 }
 
 // newHTTPClient 创建按鉴权方式改写凭据头的 HTTP client 并登记（调用方持锁）。

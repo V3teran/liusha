@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -74,6 +75,10 @@ type ToolCall struct {
 type ThinkingBlock struct {
 	Text      string `json:"text"`
 	Signature string `json:"signature,omitempty"`
+	// ReasoningItem 是需要原样回传的推理项原文（OpenAI Responses 的 reasoning 项：带 id 与
+	// 加密的推理内容）。该协议的多轮工具调用要求把推理项随它之后的调用项一起传回，否则
+	// 请求被拒；适配器把收到的原文存在这里，下一轮原样放回输入。
+	ReasoningItem json.RawMessage `json:"reasoning_item,omitempty"`
 }
 
 // ToolSchema 描述一个工具的元信息（名字 + 描述 + JSON Schema 参数）。
@@ -125,7 +130,7 @@ type Generator interface {
 type GenerateOptions struct {
 	Temperature *float64 // 采样温度；nil = 默认
 	// MaxTokens 是本次调用的输出 token 上限；<= 0 = 走模型配置（与流式同口径）。业务调用
-	// 不设：单次输出上限是模型配置里的事实（配置页按它校验思考预算），调用点设得更低
+	// 不设：单次输出上限是模型配置里的事实，调用点设得更低
 	// 会让推理模型的思考吃满上限、正文为空。只有收尾重试这类按需放大预算的机制才设。
 	MaxTokens int
 }
@@ -134,6 +139,21 @@ type GenerateOptions struct {
 // 适配器实现它后，Provider 桥接层会把 Request.Temperature 透传到协议请求。
 type OptionsGenerator interface {
 	GenerateWithOptions(ctx context.Context, messages []Message, tools []ToolSchema, opts GenerateOptions) (Result, error)
+}
+
+// UpstreamError 是适配器直接发 HTTP 时拿到的上游错误响应：状态码与响应体原文。包进
+// HTTPError 交给重试分类与审计；探测据响应体取上游的说明文字。
+type UpstreamError struct {
+	Status int
+	Body   []byte
+}
+
+func (e *UpstreamError) Error() string {
+	body := strings.TrimSpace(string(e.Body))
+	if n := 300; len(body) > n {
+		body = body[:n] + "…"
+	}
+	return fmt.Sprintf("upstream %d: %s", e.Status, body)
 }
 
 // HTTPError 是上游 HTTP 错误的统一表示。

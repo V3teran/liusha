@@ -1,7 +1,7 @@
 // Package llm 的 Anthropic Generator：直接用 anthropics/anthropic-sdk-go 调
 // `/v1/messages` 原生协议（不绕道 OpenAI compat），tool_use / tool_result 用 SDK 原生类型。
 //
-// 与 openai_compat.go 的关键差异：
+// 与 openai_chat_completions.go 的关键差异：
 //   - system 不能进 messages，单独走 MessageNewParams.System
 //   - tool_result 必须放在 user role 的 content block 里
 //   - 一次响应可能含多个 content block（text + tool_use 混合），需要遍历组合
@@ -19,64 +19,63 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 )
 
-// AnthropicConfig 描述 Anthropic 连接参数。
+// AnthropicMessagesConfig 描述 Anthropic 连接参数。
 // 密钥不在此结构——底层 *anthropic.Client 已带 apikey，由调用方从 ClientPool 注入。
-type AnthropicConfig struct {
+type AnthropicMessagesConfig struct {
 	BaseURL string // 空 = 官方 https://api.anthropic.com
 	Model   string // 如 claude-sonnet-4-6
 	// Limit 是这个账户上这个模型的输出上限（ClientPool.OutputLimitFor 构造）：协议要求 max_tokens
 	// 必填，所以配置的值必须大于 0；被上游嫌大而拒绝时自动下调。
 	Limit *OutputLimit
-	// ThinkingBudget 是扩展思考预算（thinking.budget_tokens）。>0 时请求开启
-	// 扩展思考：模型先流式产出 thinking block（内部 CoT），再产出正文/tool_use。
-	// 0 = 不开启。必须 < MaxTokens。
-	ThinkingBudget int64
+	// ReasoningEffort 是思考深度：设置了就开启自适应思考（thinking.type = adaptive）并按
+	// output_config.effort 给出档位；空 = 不下发，思考与否由模型自己的默认决定。
+	ReasoningEffort ReasoningEffort
 }
 
-// anthropicGen 实现 Generator。
+// anthropicMessagesGen 实现 Generator。
 //
 // 无状态：tools 不再构造时绑定，而是每次 Generate(ctx, msgs, tools) 动态传入，
 // 修复 v1 Factory 缓存 Generator 导致跨 task tools 错乱的并发 bug。
-type anthropicGen struct {
-	client         anthropic.Client
-	model          anthropic.Model
-	limit          *OutputLimit
-	thinkingBudget int64
-	provider       string
+type anthropicMessagesGen struct {
+	client          anthropic.Client
+	model           anthropic.Model
+	limit           *OutputLimit
+	reasoningEffort ReasoningEffort
+	provider        string
 }
 
-// NewAnthropic 构造无状态 Generator。
+// NewAnthropicMessages 构造无状态 Generator。
 //
 // client 由调用方从 ClientPool 取（共享 HTTP 连接池）；tools 不在此绑定。
 // 输出上限必填且必须大于 0：协议要求 max_tokens 显式给出，框架不替调用方猜一个缺省——缺省只有
 // 一个出处（业务侧 llmconfig.DefaultMaxTokens），在配置入口落定，这里拿不到值就是调用方的错。
-func NewAnthropic(_ context.Context, providerCode string, c AnthropicConfig, client *anthropic.Client) (Generator, error) {
+func NewAnthropicMessages(_ context.Context, providerCode string, c AnthropicMessagesConfig, client *anthropic.Client) (Generator, error) {
 	if client == nil {
-		return nil, errors.New("anthropic: client 必填（从 ClientPool 取）")
+		return nil, errors.New("anthropic messages: client 必填（从 ClientPool 取）")
 	}
 	if c.Model == "" {
-		return nil, errors.New("anthropic: model 必填")
+		return nil, errors.New("anthropic messages: model 必填")
 	}
 	if c.Limit == nil || c.Limit.configured <= 0 {
-		return nil, errors.New("anthropic: 输出上限必填且必须大于 0（协议要求 max_tokens 显式给出，由调用方按 provider 配置给值：ClientPool.OutputLimitFor）")
+		return nil, errors.New("anthropic messages: 输出上限必填且必须大于 0（协议要求 max_tokens 显式给出，由调用方按 provider 配置给值：ClientPool.OutputLimitFor）")
 	}
-	if c.ThinkingBudget > 0 && c.ThinkingBudget >= int64(c.Limit.configured) {
-		return nil, fmt.Errorf("anthropic: thinking budget %d 必须小于 max_tokens %d", c.ThinkingBudget, c.Limit.configured)
+	if !c.ReasoningEffort.Valid() {
+		return nil, c.ReasoningEffort.invalidErr("anthropic messages")
 	}
-	return &anthropicGen{
-		client:         *client,
-		model:          c.Model,
-		limit:          c.Limit,
-		thinkingBudget: c.ThinkingBudget,
-		provider:       providerCode,
+	return &anthropicMessagesGen{
+		client:          *client,
+		model:           c.Model,
+		limit:           c.Limit,
+		reasoningEffort: c.ReasoningEffort,
+		provider:        providerCode,
 	}, nil
 }
 
-func (g *anthropicGen) Provider() string { return g.provider }
-func (g *anthropicGen) Model() string    { return g.model }
+func (g *anthropicMessagesGen) Provider() string { return g.provider }
+func (g *anthropicMessagesGen) Model() string    { return g.model }
 
 // Generate 发起一次 messages 调用；tools 每次动态传入。
-func (g *anthropicGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
+func (g *anthropicMessagesGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
 	return g.GenerateWithOptions(ctx, msgs, tools, GenerateOptions{})
 }
 
@@ -85,14 +84,14 @@ func (g *anthropicGen) Generate(ctx context.Context, msgs []Message, tools []Too
 // 非流式接口也走流式再聚合：协议的非流式请求在服务端以 10 分钟为上限，输出上限一大（SDK 按
 // 「1 小时 × 上限 ÷ 128000」估算超过 10 分钟）就不再接受非流式调用。适配器只保留流式这一条
 // 链路——聚合出的结果与非流式同构，也免得两条链路各自出偏差。
-func (g *anthropicGen) GenerateWithOptions(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenerateOptions) (Result, error) {
+func (g *anthropicMessagesGen) GenerateWithOptions(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenerateOptions) (Result, error) {
 	ch, err := g.stream(ctx, msgs, tools, opts.MaxTokens, opts.Temperature)
 	if err != nil {
 		return Result{}, err
 	}
 	resp, err := CollectStream(ctx, ch, nil, nil)
 	if err != nil {
-		return Result{}, fmt.Errorf("anthropic generate: %w", err)
+		return Result{}, fmt.Errorf("anthropic messages generate: %w", err)
 	}
 	return resultOf(resp, g.provider, g.model), nil
 }
@@ -280,13 +279,14 @@ func toAnthropicTools(tools []ToolSchema) ([]anthropic.ToolUnionParam, error) {
 // ─── StreamChat（Provider 桥接用可选能力） ──────────────────────────────────────
 
 // StreamChat 流式生成：thinking/text 增量 + 聚合 tool_call + done（带 SDK Accumulate 的 usage）。
-func (g *anthropicGen) StreamChat(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error) {
+func (g *anthropicMessagesGen) StreamChat(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error) {
 	return g.stream(ctx, msgs, tools, maxTokens, nil)
 }
 
 // stream 建一条事件流。上游嫌输出上限过大时在处理协程里降一半重建（建流的错误要到首次读取
-// 才出现）。temperature 只在不开启扩展思考时下发：该模式下协议只允许 1，不设即协议默认。
-func (g *anthropicGen) stream(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int, temperature *float64) (<-chan StreamEvent, error) {
+// 才出现）。temperature 只在没设置思考深度时下发：开着思考的请求带上非默认温度，最新的模型
+// 会直接拒绝（400），不设即协议默认。
+func (g *anthropicMessagesGen) stream(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int, temperature *float64) (<-chan StreamEvent, error) {
 	systemBlocks, anthropicMsgs, err := toAnthropicMessages(msgs)
 	if err != nil {
 		return nil, fmt.Errorf("convert messages: %w", err)
@@ -299,8 +299,8 @@ func (g *anthropicGen) stream(ctx context.Context, msgs []Message, tools []ToolS
 	limit := g.limit.forCall(maxTokens)
 	ch := make(chan StreamEvent, 32)
 	go processAnthropicStream(ctx, ch, g.limit, limit, func(limit int) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
-		params := anthropicRequest(systemBlocks, anthropicMsgs, anthropicTools, g.model, int64(limit), g.thinkingBudget)
-		if g.thinkingBudget == 0 && temperature != nil {
+		params := anthropicRequest(systemBlocks, anthropicMsgs, anthropicTools, g.model, int64(limit), g.reasoningEffort)
+		if g.reasoningEffort == "" && temperature != nil {
 			params.Temperature = anthropic.Float(*temperature)
 		}
 		return g.client.Messages.NewStreaming(ctx, params)

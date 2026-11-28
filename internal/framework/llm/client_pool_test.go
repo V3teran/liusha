@@ -58,15 +58,15 @@ func TestClientPool_SendsExactlyTheRecordedCredential(t *testing.T) {
 		wantValue  string
 		absent     []string
 	}{
-		{"anthropic 标准", ProviderTypeAnthropic, "", "X-Api-Key", "real-key", []string{"Authorization"}},
-		{"anthropic Bearer", ProviderTypeAnthropic, AuthBearer, "Authorization", "Bearer real-key", []string{"X-Api-Key"}},
-		{"openai 标准", ProviderTypeOpenAICompat, "", "Authorization", "Bearer real-key", []string{"X-Api-Key"}},
-		{"openai x-api-key", ProviderTypeOpenAICompat, AuthXAPIKey, "X-Api-Key", "real-key", []string{"Authorization"}},
+		{"anthropic 标准", ProviderTypeAnthropicMessages, "", "X-Api-Key", "real-key", []string{"Authorization"}},
+		{"anthropic Bearer", ProviderTypeAnthropicMessages, AuthBearer, "Authorization", "Bearer real-key", []string{"X-Api-Key"}},
+		{"openai 标准", ProviderTypeOpenAIChatCompletions, "", "Authorization", "Bearer real-key", []string{"X-Api-Key"}},
+		{"openai x-api-key", ProviderTypeOpenAIChatCompletions, AuthXAPIKey, "X-Api-Key", "real-key", []string{"Authorization"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			body := openAIOK
-			if tc.protocol == ProviderTypeAnthropic {
+			if tc.protocol == ProviderTypeAnthropicMessages {
 				body = anthropicSSE
 			}
 			srv, got := captureServer(t, body)
@@ -109,9 +109,9 @@ func TestClientPool_KeysByAuthScheme(t *testing.T) {
 // Close 后池清空：再取同一配置得到新 client（生命周期有界的池用完即弃，不驻留密钥）。
 func TestClientPool_CloseReleasesClients(t *testing.T) {
 	pool := NewClientPool()
-	before, _ := pool.GetOrCreateAnthropic("https://x", "k", "")
+	before, _ := pool.GetOrCreateAnthropicMessages("https://x", "k", "")
 	pool.Close()
-	after, _ := pool.GetOrCreateAnthropic("https://x", "k", "")
+	after, _ := pool.GetOrCreateAnthropicMessages("https://x", "k", "")
 	if before == after {
 		t.Fatal("Close 后应重新创建 client")
 	}

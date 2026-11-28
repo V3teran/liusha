@@ -9,8 +9,10 @@ import {
   blankProvider,
   chatRequestUrl,
   normalizeBaseUrl,
+  outputLimitParamOf,
   providerInvalid,
-  thinkingBudgetError,
+  REASONING_EFFORT_OPTIONS,
+  reasoningEffortLabel,
 } from './providerRules'
 import type { ProviderConfig } from '@/api/types'
 
@@ -20,7 +22,7 @@ import type { ProviderConfig } from '@/api/types'
 const draft = (over: Partial<ProviderConfig> = {}): ProviderConfig => ({
   ...blankProvider(),
   display_name: '主力',
-  type: 'openai_compat',
+  type: 'openai_chat_completions',
   base_url: 'https://x.example',
   default_model: 'm1',
   api_key: 'k',
@@ -125,50 +127,45 @@ describe('providerForm 校验（与后端 llmconfig.Validate 同口径）', () =
     expect(providerInvalid(draft({ base_url: 'u' }), true)).toBe(true)
   })
 
-  it('扩展思考预算：仅 Anthropic 生效，开启时 ≥1024 且小于 max_tokens（没填按缺省 131072，与后端同口径）', () => {
-    const a = (budget: number | '', maxTokens: number | '' = 8192) =>
-      draft({ type: 'anthropic', thinking_budget_tokens: budget, max_tokens: maxTokens })
-    expect(thinkingBudgetError(a(0))).toBeUndefined()
-    expect(thinkingBudgetError(a(4096))).toBeUndefined()
-    expect(thinkingBudgetError(a(512))).toBeTruthy()
-    expect(thinkingBudgetError(a(8192))).toBeTruthy()
-    expect(thinkingBudgetError(a(65536, 0))).toBeUndefined()
-    expect(thinkingBudgetError(a(131072, 0))).toBeTruthy()
-    expect(thinkingBudgetError(a(131072, ''))).toBeTruthy()
-    expect(thinkingBudgetError(draft({ type: 'openai_compat', thinking_budget_tokens: 512 }))).toBeUndefined()
-    expect(providerInvalid(a(512), true)).toBe(true)
-    expect(providerInvalid(a(4096), true)).toBe(false)
+  // 思考深度是模型的能力，不属于哪个协议：每种协议下都有同一个下拉，四档由低到高，初值是
+  // 「按模型默认」（没设置，不下发这个参数）。
+  for (const type of ['openai_chat_completions', 'openai_responses', 'anthropic_messages'] as const) {
+    it(`思考深度：${type} 下四档由低到高，初值是「按模型默认」`, () => {
+      renderForm({ type })
+      const select = screen.getByLabelText(/思考深度/) as HTMLSelectElement
+      expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['按模型默认', '低', '中', '高', '最高'])
+      expect(select.value).toBe('')
+    })
+  }
+
+  it('思考深度的档位表与展示名', () => {
+    expect(blankProvider().reasoning_effort).toBe('')
+    expect(REASONING_EFFORT_OPTIONS.map((o) => o.value)).toEqual(['low', 'medium', 'high', 'max'])
+    expect(reasoningEffortLabel('max')).toBe('最高')
+    expect(reasoningEffortLabel('')).toBe('按模型默认')
   })
 
-  it('思考预算字段只在 Anthropic 协议下出现', () => {
-    renderForm({ type: 'openai_compat' })
-    expect(screen.queryByLabelText(/扩展思考预算/)).toBeNull()
-  })
-
-  it('Anthropic 协议下可编辑思考预算并就地提示违规', async () => {
+  it('选择思考深度即回写草稿', async () => {
     const user = userEvent.setup()
-    const { patchSpy } = renderForm({ type: 'anthropic', thinking_budget_tokens: 512, max_tokens: 8192 })
-    expect(screen.getByRole('alert').textContent).toContain('至少 1024')
-    const input = screen.getByLabelText(/扩展思考预算/)
-    await user.clear(input)
-    await user.type(input, '2048')
-    const calls = patchSpy.mock.calls.map((c) => c[0].thinking_budget_tokens).filter((v) => v !== undefined)
-    expect(calls[calls.length - 1]).toBe(2048)
+    const { patchSpy } = renderForm({ type: 'anthropic_messages' })
+    await user.selectOptions(screen.getByLabelText(/思考深度/), 'max')
+    const calls = patchSpy.mock.calls.map((c) => c[0].reasoning_effort).filter((v) => v !== undefined)
+    expect(calls[calls.length - 1]).toBe('max')
   })
 })
 
 describe('协议与 Base URL（只认协议规则，不认具体服务）', () => {
   it('地址归一与后端同口径：去尾斜杠、去误粘的操作路径；Anthropic 再去末尾 /v1', () => {
-    expect(normalizeBaseUrl('openai_compat', ' https://api.example.com/v1/ ')).toBe('https://api.example.com/v1')
-    expect(normalizeBaseUrl('openai_compat', 'https://api.example.com/v1/chat/completions')).toBe('https://api.example.com/v1')
-    expect(normalizeBaseUrl('anthropic', 'https://api.example.com/anthropic/v1/messages')).toBe('https://api.example.com/anthropic')
-    expect(normalizeBaseUrl('anthropic', 'https://api.example.com/v1')).toBe('https://api.example.com')
-    expect(normalizeBaseUrl('openai_compat', 'not a url')).toBe('not a url')
+    expect(normalizeBaseUrl('openai_chat_completions', ' https://api.example.com/v1/ ')).toBe('https://api.example.com/v1')
+    expect(normalizeBaseUrl('openai_chat_completions', 'https://api.example.com/v1/chat/completions')).toBe('https://api.example.com/v1')
+    expect(normalizeBaseUrl('anthropic_messages', 'https://api.example.com/anthropic/v1/messages')).toBe('https://api.example.com/anthropic')
+    expect(normalizeBaseUrl('anthropic_messages', 'https://api.example.com/v1')).toBe('https://api.example.com')
+    expect(normalizeBaseUrl('openai_chat_completions', 'not a url')).toBe('not a url')
   })
 
   it('实际请求地址与 SDK 拼接规则一致', () => {
-    expect(chatRequestUrl('openai_compat', 'https://api.example.com/v1')).toBe('https://api.example.com/v1/chat/completions')
-    expect(chatRequestUrl('anthropic', 'https://api.example.com/anthropic')).toBe('https://api.example.com/anthropic/v1/messages')
+    expect(chatRequestUrl('openai_chat_completions', 'https://api.example.com/v1')).toBe('https://api.example.com/v1/chat/completions')
+    expect(chatRequestUrl('anthropic_messages', 'https://api.example.com/anthropic')).toBe('https://api.example.com/anthropic/v1/messages')
   })
 
   it('未选协议时表单无效', () => {
@@ -188,19 +185,45 @@ describe('协议与 Base URL（只认协议规则，不认具体服务）', () =
     await user.click(screen.getByRole('radio', { name: /Anthropic/ }))
     expect(screen.getByRole('radio', { name: /Anthropic/ }).getAttribute('aria-checked')).toBe('true')
     expect((screen.getByLabelText(/鉴权方式/) as HTMLSelectElement).value).toBe('x-api-key')
-    await user.click(screen.getByRole('radio', { name: /OpenAI 兼容/ }))
+    await user.click(screen.getByRole('radio', { name: 'OpenAI Chat Completions' }))
     expect((screen.getByLabelText(/鉴权方式/) as HTMLSelectElement).value).toBe('bearer')
   })
 
   it('Base URL 下方实时预览归一后的实际请求地址', async () => {
     const user = userEvent.setup()
-    render(<Harness initial={{ ...draft(), type: 'anthropic', base_url: '' }} />)
+    render(<Harness initial={{ ...draft(), type: 'anthropic_messages', base_url: '' }} />)
     await user.type(screen.getByPlaceholderText('https://api.example.com/anthropic'), 'https://api.example.com/anthropic/v1/messages')
     expect(screen.getByText('实际请求：POST https://api.example.com/anthropic/v1/messages')).toBeTruthy()
   })
 
-  it('输出上限字段只在 OpenAI 兼容协议下出现', () => {
-    render(<Harness initial={{ ...draft(), type: 'anthropic' }} />)
+  it('输出上限字段只在 OpenAI Chat Completions 协议下出现', () => {
+    render(<Harness initial={{ ...draft(), type: 'anthropic_messages' }} />)
+    expect(screen.queryByLabelText(/输出上限字段/)).toBeNull()
+  })
+})
+
+describe('OpenAI Responses 协议（前端）', () => {
+  it('协议选单有三项，无障碍名称是厂商 + 接口名', async () => {
+    renderForm()
+    for (const name of ['OpenAI Chat Completions', 'OpenAI Responses', 'Anthropic Messages']) {
+      expect(screen.getByRole('radio', { name })).toBeTruthy()
+    }
+  })
+
+  it('地址归一去掉误粘的 /responses，请求地址预览落在 /responses', () => {
+    expect(normalizeBaseUrl('openai_responses', 'https://api.example.com/v1/responses')).toBe('https://api.example.com/v1')
+    expect(chatRequestUrl('openai_responses', 'https://api.example.com/v1/')).toBe('https://api.example.com/v1/responses')
+  })
+
+  it('输出上限字段随协议落定，Chat Completions 由实测决定', () => {
+    expect(outputLimitParamOf('openai_responses', 'max_tokens')).toBe('max_output_tokens')
+    expect(outputLimitParamOf('anthropic_messages', 'max_completion_tokens')).toBe('max_tokens')
+    expect(outputLimitParamOf('openai_chat_completions', 'max_completion_tokens')).toBe('max_completion_tokens')
+    expect(outputLimitParamOf('openai_chat_completions', 'max_output_tokens')).toBe('max_tokens')
+  })
+
+  it('选了 Responses 不出现「输出上限字段」（它只有一个字段）', () => {
+    renderForm({ type: 'openai_responses' })
     expect(screen.queryByLabelText(/输出上限字段/)).toBeNull()
   })
 })

@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, KeyRound, RefreshCw } from 'lucide-react'
-import type { AuthScheme, OutputLimitParam, ProviderConfig, ProviderType } from '@/api/types'
+import type { AuthScheme, OutputLimitParam, ProviderConfig, ProviderType, ReasoningEffort } from '@/api/types'
 import { Switch } from '@/components/ui/Switch'
 import { Field } from '@/features/config/ConfigDrawer'
 import { FIELD_LABEL_CLASS, INPUT_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui/control'
@@ -13,27 +13,35 @@ import {
   defaultAuthScheme,
   DEFAULT_MAX_TOKENS,
   normalizeBaseUrl,
-  thinkingBudgetError,
+  REASONING_EFFORT_OPTIONS,
 } from './providerRules'
 import { Button } from '@/components/ui/Button'
 import { ModelField } from './ModelField'
 
-// 协议类型展示标签（后端枚举值不变，仅前端呈现）。
+// 协议的展示名：厂商 + 接口名，与后端取值一一对应——同一家有多种协议时只写厂商分不清。
 export const TYPE_LABEL: Record<ProviderType, string> = {
-  openai_compat: 'OpenAI 兼容',
-  anthropic: 'Anthropic',
+  openai_chat_completions: 'OpenAI Chat Completions',
+  openai_responses: 'OpenAI Responses',
+  anthropic_messages: 'Anthropic Messages',
 }
 
-// 协议选项：以协议的接口名区分，不列举任何具体服务；Base URL 的写法由占位示例与「实际请求」预览表达。
+// 协议选项：只列协议，不列举任何具体服务；Base URL 的写法由占位示例与「实际请求」预览表达。
+// title 取厂商、desc 取接口名：同一家有几个协议时它们在选单里挨在一起，看得出是同一家的不同接口。
 const PROTOCOLS: { value: ProviderType; title: string; desc: string; placeholder: string }[] = [
   {
-    value: 'openai_compat',
-    title: 'OpenAI 兼容',
+    value: 'openai_chat_completions',
+    title: 'OpenAI',
     desc: 'Chat Completions',
     placeholder: 'https://api.example.com/v1',
   },
   {
-    value: 'anthropic',
+    value: 'openai_responses',
+    title: 'OpenAI',
+    desc: 'Responses',
+    placeholder: 'https://api.example.com/v1',
+  },
+  {
+    value: 'anthropic_messages',
     title: 'Anthropic',
     desc: 'Messages',
     placeholder: 'https://api.example.com/anthropic',
@@ -45,7 +53,7 @@ const AUTH_SCHEME_LABEL: Record<AuthScheme, string> = {
   'x-api-key': 'x-api-key 头',
 }
 
-// 协议选择：两种协议并列单选。新建时不预设——协议决定报文格式与请求路径，选错是接入失败
+// 协议选择：三种协议并列单选。新建时不预设——协议决定报文格式与请求路径，选错是接入失败
 // 的头号原因，必须由用户明确选择；切换协议时鉴权方式回到该协议的标准方式（测试连接可改写）。
 function ProtocolPicker({
   value,
@@ -61,7 +69,7 @@ function ProtocolPicker({
       <span id="provider-protocol-label" className={FIELD_LABEL_CLASS}>
         协议
       </span>
-      <div role="radiogroup" aria-labelledby="provider-protocol-label" className="grid grid-cols-2 gap-2">
+      <div role="radiogroup" aria-labelledby="provider-protocol-label" className="grid gap-2 sm:grid-cols-3">
         {PROTOCOLS.map((p) => {
           const checked = value === p.value
           return (
@@ -70,6 +78,7 @@ function ProtocolPicker({
               type="button"
               role="radio"
               aria-checked={checked}
+              aria-label={TYPE_LABEL[p.value]}
               onClick={() => onChange(p.value)}
               className={cn(
                 'flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors',
@@ -341,7 +350,7 @@ function ToggleField({
 
 
 // ProviderFormBody 是 provider 详情表单主体：先选协议，再填连接与能力（单页分组，无二级 tab）。
-// 协议未选时只展示协议选择——后续字段的写法（Base URL 约定、鉴权方式、思考预算）都取决于它。
+// 协议未选时只展示协议选择——后续字段的写法（Base URL 约定、鉴权方式、输出上限字段）都取决于它。
 // diagnosis 是测试连接面板，紧跟在连接参数（地址、密钥、鉴权方式、模型）之后——填完即可
 // 就地测试，回填的字段也都在近旁。
 export function ProviderFormBody({
@@ -405,7 +414,7 @@ export function ProviderFormBody({
             min={0}
             onValue={(v) => patch({ max_tokens: v })}
           />
-          {draft.type === 'openai_compat' && (
+          {draft.type === 'openai_chat_completions' && (
             <Field label="输出上限字段">
               <Select
                 className="w-full"
@@ -417,16 +426,20 @@ export function ProviderFormBody({
               </Select>
             </Field>
           )}
-          {draft.type === 'anthropic' && (
-            <NumberField
-              label="扩展思考预算"
-              hint="仅部分推理模型支持，不确定就留 0；须小于单次最大输出"
-              value={draft.thinking_budget_tokens}
-              min={0}
-              error={thinkingBudgetError(draft)}
-              onValue={(v) => patch({ thinking_budget_tokens: v })}
-            />
-          )}
+          <Field label="思考深度" hint="推理模型投入多少推理；按模型默认即不下发这个参数。只对带推理的模型有意义">
+            <Select
+              className="w-full"
+              value={draft.reasoning_effort}
+              onChange={(e) => patch({ reasoning_effort: e.target.value as ReasoningEffort | '' })}
+            >
+              <option value="">按模型默认</option>
+              {REASONING_EFFORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
           {/* 工具/视觉能力：工具调用由测试连接实测后自动勾选；视觉无法低成本实测，按服务实际能力声明。 */}
           <ToggleField
             label="支持工具调用"

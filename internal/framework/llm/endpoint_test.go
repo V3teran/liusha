@@ -16,9 +16,9 @@ func TestOperationURL_MatchesSDKRequests(t *testing.T) {
 		path     string // 服务端挂载的前缀路径
 		body     string
 	}{
-		{ProviderTypeOpenAICompat, "/api/paas/v4", openAIOK},
-		{ProviderTypeAnthropic, "/api/anthropic", anthropicSSE},
-		{ProviderTypeAnthropic, "", anthropicSSE},
+		{ProviderTypeOpenAIChatCompletions, "/api/paas/v4", openAIOK},
+		{ProviderTypeAnthropicMessages, "/api/anthropic", anthropicSSE},
+		{ProviderTypeAnthropicMessages, "", anthropicSSE},
 	} {
 		var gotPath string
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +54,7 @@ func TestAnthropic_UnexpectedResponseOnlyWhenNotAMessageStream(t *testing.T) {
 	for body, unexpected := range cases {
 		srv, _ := captureServer(t, body)
 		gen, err := BuildGeneratorWithKey(context.Background(), ProviderSpec{
-			Code: "p", Type: ProviderTypeAnthropic, BaseURL: srv.URL, Model: "m", APIKey: "k", MaxTokens: 8,
+			Code: "p", Type: ProviderTypeAnthropicMessages, BaseURL: srv.URL, Model: "m", APIKey: "k", MaxTokens: 8,
 		}, NewClientPool())
 		if err != nil {
 			t.Fatal(err)
@@ -63,5 +63,32 @@ func TestAnthropic_UnexpectedResponseOnlyWhenNotAMessageStream(t *testing.T) {
 		if got := errors.Is(err, ErrUnexpectedResponse); got != unexpected {
 			t.Fatalf("%s: 不符合协议判定 want %v, got err=%v", body[:min(60, len(body))], unexpected, err)
 		}
+	}
+}
+
+// Responses 适配器直接发 HTTP：对话请求落在 Base URL 后的 /responses，与 OperationURL 一致。
+func TestResponses_OperationURLMatchesRequests(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.Method+" "+r.URL.Path)
+		_, _ = w.Write([]byte(responsesOK))
+	}))
+	defer srv.Close()
+	gen, err := BuildGeneratorWithKey(context.Background(), ProviderSpec{
+		Code: "p", Type: ProviderTypeOpenAIResponses, BaseURL: srv.URL + "/v1", Model: "m", APIKey: "k",
+		MaxTokens: 8, OutputLimitParam: OutputLimitMaxOutputTokens,
+	}, NewClientPool())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gen.Generate(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := OperationURL(ProviderTypeOpenAIResponses, srv.URL+"/v1", OpChat)
+	if len(paths) != 1 || want != "http://"+strings.TrimPrefix(srv.URL, "http://")+"/v1/responses" || paths[0] != "POST "+"/v1/responses" {
+		t.Fatalf("适配器请求 %v，OperationURL 给出 %s", paths, want)
+	}
+	if got := OperationURL(ProviderTypeOpenAIResponses, srv.URL+"/v1", OpModels); got != srv.URL+"/v1/models" {
+		t.Fatalf("Responses 的模型列表地址应为 %s，实际 %s", srv.URL+"/v1/models", got)
 	}
 }

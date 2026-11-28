@@ -23,7 +23,7 @@ type Store struct {
 func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 
 // provColsSelect 是 provider 所有 SELECT/RETURNING 的统一列序，与 scanProvider 一一对应。
-const provColsSelect = "code, type, base_url, default_model, encrypted_api_key, api_key_last4, auth_scheme, output_limit_param, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, thinking_budget_tokens, created_at, updated_at"
+const provColsSelect = "code, type, base_url, default_model, encrypted_api_key, api_key_last4, auth_scheme, output_limit_param, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, reasoning_effort, created_at, updated_at"
 
 // ── provider CRUD ─────────────────────────────────────────────────────
 
@@ -34,11 +34,11 @@ func (s *Store) CreateProvider(ctx context.Context, p ProviderParams) (Provider,
 		return Provider{}, err
 	}
 	row := s.pool.QueryRow(ctx, `
-		INSERT INTO llm_provider (code, type, base_url, default_model, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, thinking_budget_tokens, auth_scheme, output_limit_param)
+		INSERT INTO llm_provider (code, type, base_url, default_model, encrypted_api_key, api_key_last4, max_tokens, supports_tools, supports_vision, context_window, display_name, description, sort_order, enabled, reasoning_effort, auth_scheme, output_limit_param)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		RETURNING `+provColsSelect,
 		p.Code, p.Type, p.BaseURL, p.DefaultModel, p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
-		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.DisplayName, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens,
+		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.DisplayName, p.Description, p.SortOrder, p.Enabled, p.ReasoningEffort,
 		p.AuthScheme, p.OutputLimitParam)
 	var pr Provider
 	if err := scanProvider(row, &pr); err != nil {
@@ -84,12 +84,12 @@ func (s *Store) UpdateProvider(ctx context.Context, p ProviderParams) (Provider,
 	row := s.pool.QueryRow(ctx, `
 		UPDATE llm_provider
 		SET type=$2, base_url=$3, default_model=$4, encrypted_api_key=`+keyExpr+`, api_key_last4=`+last4Expr+`, max_tokens=$7,
-		    supports_tools=$8, supports_vision=$9, context_window=$10, display_name=$11, description=$12, sort_order=$13, enabled=$14, thinking_budget_tokens=$15,
+		    supports_tools=$8, supports_vision=$9, context_window=$10, display_name=$11, description=$12, sort_order=$13, enabled=$14, reasoning_effort=$15,
 		    auth_scheme=$16, output_limit_param=$17, updated_at=now()
 		WHERE code=$1
 		RETURNING `+provColsSelect,
 		p.Code, p.Type, p.BaseURL, p.DefaultModel, p.EncryptedAPIKey, nullableText(p.APIKeyLast4),
-		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.DisplayName, p.Description, p.SortOrder, p.Enabled, p.ThinkingBudgetTokens,
+		p.MaxTokens, p.SupportsTools, p.SupportsVision, p.ContextWindow, p.DisplayName, p.Description, p.SortOrder, p.Enabled, p.ReasoningEffort,
 		p.AuthScheme, p.OutputLimitParam)
 	var pr Provider
 	if err := scanProvider(row, &pr); err != nil {
@@ -225,7 +225,7 @@ func scanProvider(r db.RowScanner, p *Provider) error {
 	var displayName sql.NullString
 	if err := r.Scan(&p.Code, &p.Type, &p.BaseURL, &p.DefaultModel, &p.EncryptedAPIKey, &apiKeyLast4,
 		&p.AuthScheme, &p.OutputLimitParam, &p.MaxTokens, &p.SupportsTools, &p.SupportsVision, &p.ContextWindow, &displayName,
-		&p.Description, &p.SortOrder, &p.Enabled, &p.ThinkingBudgetTokens, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		&p.Description, &p.SortOrder, &p.Enabled, &p.ReasoningEffort, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return err
 	}
 	p.APIKeyLast4 = apiKeyLast4.String

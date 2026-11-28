@@ -11,10 +11,12 @@
 import { get, post, put, del } from './client'
 import type {
   Diagnosis,
+  OutputLimitParam,
   ProviderConfig,
   ProviderDiagnoseRequest,
   ProviderModelList,
   ProviderProbeTarget,
+  ProviderType,
   RetrievalDiagnosis,
   RetrievalModelConfig,
   RoleRouteConfig,
@@ -23,6 +25,17 @@ import type {
 import type { RetrievalModelDraft } from './types'
 
 // ── provider ───────────────────────────────────────────────────────
+
+/**
+ * 协议声明的输出上限字段（与后端 framework/llm.OutputLimitParamOf 同口径）：只有一个字段的协议随协议
+ * 落定（Anthropic Messages 的 max_tokens、OpenAI Responses 的 max_output_tokens）；OpenAI Chat
+ * Completions 由测试连接实测后记录，记录的不是它认的两个字段之一时按 max_tokens。
+ */
+export function outputLimitParamOf(protocol: ProviderType | '', recorded: OutputLimitParam): OutputLimitParam {
+  if (protocol === 'anthropic_messages') return 'max_tokens'
+  if (protocol === 'openai_responses') return 'max_output_tokens'
+  return recorded === 'max_tokens' || recorded === 'max_completion_tokens' ? recorded : 'max_tokens'
+}
 
 /** 拉全量 provider（含 disabled，供路由绑定选择器一次拉全）。 */
 export async function listProviders(): Promise<ProviderConfig[]> {
@@ -44,10 +57,9 @@ export async function saveProvider(
     default_model: p.default_model.trim(),
     api_key: p.api_key ?? '',
     auth_scheme: p.auth_scheme,
-    output_limit_param: p.type === 'anthropic' ? 'max_tokens' : p.output_limit_param,
+    output_limit_param: outputLimitParamOf(p.type, p.output_limit_param),
     max_tokens: p.max_tokens === '' ? 0 : p.max_tokens,
-    thinking_budget_tokens:
-      p.type === 'anthropic' && p.thinking_budget_tokens !== '' ? p.thinking_budget_tokens : 0,
+    reasoning_effort: p.reasoning_effort,
     supports_tools: p.supports_tools,
     supports_vision: p.supports_vision,
     context_window: p.context_window === '' ? 0 : p.context_window,

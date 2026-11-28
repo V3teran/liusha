@@ -1,14 +1,14 @@
-import type { ProviderConfig, ProviderProbeTarget, ProviderType } from '@/api/types'
+import type { ProviderConfig, ProviderProbeTarget, ProviderType, ReasoningEffort } from '@/api/types'
 
 // provider 配置的纯规则：与后端同名规则一一对应（llmconfig.NormalizeBaseURL /
 // llmconfig.ProviderParams.Validate / framework/llm.OperationURL），前端用于实时预览
 // 「实际请求」与就地校验。只认协议，不认任何具体服务。
 
 /** 用户常把完整端点粘进 Base URL 时带上的操作路径——由 SDK 自行拼接，不属于 Base URL。 */
-const OPERATION_SUFFIXES = ['/chat/completions', '/completions', '/messages', '/models']
+const OPERATION_SUFFIXES = ['/chat/completions', '/completions', '/responses', '/messages', '/models']
 
 /**
- * 按协议规则归一 Base URL：去首尾空白与末尾斜杠、去掉误粘的操作路径；Anthropic 协议
+ * 按协议规则归一 Base URL：去首尾空白与末尾斜杠、去掉误粘的操作路径；Anthropic Messages 协议
  * 再去掉末尾的 /v1（SDK 自行拼 /v1/messages）。无法解析的地址原样返回。
  */
 export function normalizeBaseUrl(protocol: ProviderType | '', raw: string): string {
@@ -24,7 +24,7 @@ export function normalizeBaseUrl(protocol: ProviderType | '', raw: string): stri
   const lower = path.toLowerCase()
   const suffix = OPERATION_SUFFIXES.find((s) => lower.endsWith(s))
   if (suffix) path = path.slice(0, path.length - suffix.length)
-  if (protocol === 'anthropic' && path.toLowerCase().endsWith('/v1')) path = path.slice(0, -3)
+  if (protocol === 'anthropic_messages' && path.toLowerCase().endsWith('/v1')) path = path.slice(0, -3)
   path = path.replace(/\/+$/, '')
   return `${u.protocol}//${u.host}${path}${u.search}`
 }
@@ -32,8 +32,12 @@ export function normalizeBaseUrl(protocol: ProviderType | '', raw: string): stri
 /** 协议对话操作的实际请求地址（与 SDK 拼接规则一致）。 */
 export function chatRequestUrl(protocol: ProviderType, baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, '')
-  return protocol === 'anthropic' ? `${base}/v1/messages` : `${base}/chat/completions`
+  if (protocol === 'anthropic_messages') return `${base}/v1/messages`
+  if (protocol === 'openai_responses') return `${base}/responses`
+  return `${base}/chat/completions`
 }
+
+export { outputLimitParamOf } from '@/api/models'
 
 /** Base URL 必须是带主机名的完整 http(s) 地址；空值不报（必填由 providerInvalid 兜）。 */
 export function baseUrlError(raw: string): string | undefined {
@@ -48,30 +52,29 @@ export function baseUrlError(raw: string): string | undefined {
   return '需填完整地址，以 http:// 或 https:// 开头'
 }
 
-// 扩展思考预算的协议约束（与后端同口径）：开启时 ≥ 1024，且小于单次最大输出 tokens。
-const MIN_THINKING_BUDGET = 1024
-
 // 上下文窗口与单次最大输出的缺省，与后端唯一的出处（llmconfig.DefaultContextWindow /
 // DefaultMaxTokens）同值：取当前旗舰模型的官方上限（上下文 1M、单次输出 128K）。它们只是上限，
 // 不多花钱；上限低于缺省的模型，上游拒绝输出上限时运行期自动下调。
 export const DEFAULT_CONTEXT_WINDOW = 1048576
 export const DEFAULT_MAX_TOKENS = 131072
 
-/** 扩展思考预算校验：仅 Anthropic 协议生效；0 = 关闭。 */
-export function thinkingBudgetError(d: ProviderConfig): string | undefined {
-  if (d.type !== 'anthropic') return undefined
-  const budget = d.thinking_budget_tokens
-  if (budget === '' || budget === 0) return undefined
-  if (budget < 0) return '不能为负'
-  if (budget < MIN_THINKING_BUDGET) return `开启时至少 ${MIN_THINKING_BUDGET}`
-  const maxTokens = typeof d.max_tokens === 'number' && d.max_tokens > 0 ? d.max_tokens : DEFAULT_MAX_TOKENS
-  if (budget >= maxTokens) return `必须小于单次最大输出 tokens（当前 ${maxTokens}）`
-  return undefined
+// 思考深度的档位表与展示名（与后端唯一的出处 framework/llm.ReasoningEfforts 同序）：由低到高四档。
+// 空串不是一档，是「没设置」——下拉框以「按模型默认」表示它。
+export const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+  { value: 'max', label: '最高' },
+]
+
+/** 思考深度的展示名；没设置时说明按模型默认。 */
+export function reasoningEffortLabel(effort: ReasoningEffort | ''): string {
+  return REASONING_EFFORT_OPTIONS.find((o) => o.value === effort)?.label ?? '按模型默认'
 }
 
 /**
  * 保存前置：协议已选、base_url/default_model 必填且格式合法、context_window > 0、
- * 思考预算满足协议约束（与后端校验对齐）。新建必须带密钥；编辑留空 = 沿用已存密钥。
+ * 新建必须带密钥；编辑留空 = 沿用已存密钥。
  */
 export function providerInvalid(d: ProviderConfig | null, isNew: boolean): boolean {
   if (!d) return true
@@ -84,8 +87,7 @@ export function providerInvalid(d: ProviderConfig | null, isNew: boolean): boole
     !d.default_model.trim() ||
     (isNew && !d.api_key) ||
     // 数字字段编辑期允许空串草稿（NumberField 契约），保存时视为未填（无效）
-    !(typeof cw === 'number' && cw > 0) ||
-    !!thinkingBudgetError(d)
+    !(typeof cw === 'number' && cw > 0)
   )
 }
 
@@ -106,7 +108,7 @@ export function blankProvider(): ProviderConfig {
     auth_scheme: 'bearer',
     output_limit_param: 'max_tokens',
     max_tokens: DEFAULT_MAX_TOKENS,
-    thinking_budget_tokens: 0,
+    reasoning_effort: '',
     supports_tools: true,
     supports_vision: false,
     context_window: DEFAULT_CONTEXT_WINDOW,
@@ -118,7 +120,7 @@ export function blankProvider(): ProviderConfig {
 
 /** 协议的标准鉴权方式（选协议时作为初值，测试连接可改写）。 */
 export function defaultAuthScheme(protocol: ProviderType): ProviderConfig['auth_scheme'] {
-  return protocol === 'anthropic' ? 'x-api-key' : 'bearer'
+  return protocol === 'anthropic_messages' ? 'x-api-key' : 'bearer'
 }
 
 
