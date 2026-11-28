@@ -13,8 +13,16 @@ import (
 	"github.com/V3teran/liusha/internal/constants"
 )
 
-// previewMax 是 output_preview 列的字节上限（截到字符边界）。截断只在这里做一次。
+// output_preview 是工具输出的预览（字节上限 previewMax，截到字符边界）。工具交出的输出在这里之前
+// 不被裁剪（工具结果进模型上下文的窗口在运行时，另算），所以预览的开头就是输出的开头。
 const previewMax = 4096
+
+// 预览超过 previewMax 时留开头与结尾：结尾是命令结果里退出码、完整输出文件路径所在——只取开头
+// 会把末尾连同 exit code 一起切掉。留位算上中间的说明，预览总长不超过 previewMax。
+const (
+	previewTailBytes = 1000
+	previewHeadBytes = previewMax - previewTailBytes - 96
+)
 
 // insertTimeout 是单条写入的时间上限：审计是尽力而为，数据库迟迟不响应时不能把调用方
 // （工具执行的收尾）拖住。
@@ -122,11 +130,26 @@ func (s *Store) AggregateByTaskRole(ctx context.Context, taskID string) ([]RoleA
 	return out, rows.Err()
 }
 
-// preview 生成落库的输出预览：先把非法字节替换为替换字符，再按字节上限截到字符边界。
-// 不猜测其它编码：截断不当或混入二进制都会让串非法，把它按某种编码重新解码只会造出乱码。
+// preview 生成落库的输出预览：不超过 previewMax 时原样（只清洗非法字节）；超过时留开头与结尾，
+// 中间写明省略了多少字节。不猜测其它编码：截断不当或混入二进制都会让串非法，把它按某种编码
+// 重新解码只会造出乱码。
 func preview(s string) string {
-	// 先截再清洗：输出可能有数 MB，没必要整段清洗；替换字符比坏字节长，清洗后再截一次。
-	return truncateUTF8(sanitizeUTF8(truncateUTF8(s, previewMax)), previewMax)
+	if len(s) <= previewMax {
+		return sanitizeUTF8(s)
+	}
+	// 先截再清洗：输出可能有数 MB，没必要整段清洗；替换字符比坏字节长，清洗后各自再截一次。
+	head := truncateUTF8(sanitizeUTF8(truncateUTF8(s, previewHeadBytes)), previewHeadBytes)
+	tail := truncateUTF8(sanitizeUTF8(tailUTF8(s, previewTailBytes)), previewTailBytes)
+	return head + fmt.Sprintf("…（中间省略 %d 字节）…", len(s)-len(head)-len(tail)) + tail
+}
+
+// tailUTF8 取 s 的末尾至多 limit 字节，开头退回到字符边界。
+func tailUTF8(s string, limit int) string {
+	start := len(s) - max(limit, 0)
+	for start > 0 && start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:]
 }
 
 // sanitizeUTF8 把非法 UTF-8 字节序列替换为替换字符（PG text 列要求合法 UTF-8）。

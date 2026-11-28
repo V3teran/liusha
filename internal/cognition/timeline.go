@@ -7,6 +7,7 @@ package cognition
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,9 +18,16 @@ import (
 	"github.com/V3teran/liusha/internal/registry"
 )
 
-// maxToolEventRunes 是时间线事件单字段截断上限（args 与 result 各自适用）：
-// 时间线要的是可读过程，完整原文在 tool_invocation（遥测）与证据链里。
-const maxToolEventRunes = 4000
+// 时间线事件的单字段窗口（args 与 result 各自适用，按字符计）：时间线要的是可读过程，不是全文。
+// 超过时留开头与结尾、中间写明省略了多少字符——结尾必须留：命令结果的退出码、完整输出的
+// 文件路径都在末尾（此前只取开头，一份长输出的末尾连同 exit code 一起被切掉，还看不出被切过）。
+// 完整内容另有去处：命令输出超过工具结果窗口时由沙盒落盘到任务工作区，模型看到的那一份留在
+// llm_invocation 的消息历史里。
+const (
+	maxToolEventRunes  = 4000 // 没超过就原样
+	toolEventHeadRunes = 3000
+	toolEventTailRunes = maxToolEventRunes - toolEventHeadRunes
+)
 
 // timelineWriter 时间线事件的落库通道（*conversation.Store 满足）。
 type timelineWriter interface {
@@ -63,7 +71,7 @@ func (e *toolTimelineEvents) interceptor(conversationID string) registry.Interce
 			"call_id":    callID,
 			"agent_name": agent,
 			"tool_name":  t.Name(),
-			"args":       truncateEventRunes(string(args)),
+			"args":       windowEventRunes(string(args)),
 		}, roundID))
 
 		start := time.Now()
@@ -80,9 +88,9 @@ func (e *toolTimelineEvents) interceptor(conversationID string) registry.Interce
 			"call_id":     callID,
 			"agent_name":  agent,
 			"tool_name":   t.Name(),
-			"result":      truncateEventRunes(res.Output),
+			"result":      windowEventRunes(res.Output),
 			"duration_ms": time.Since(start).Milliseconds(),
-			"err":         truncateEventRunes(errMsg),
+			"err":         windowEventRunes(errMsg),
 		}, roundID))
 		return res, err
 	}
@@ -143,11 +151,13 @@ func (d *Deps) toolTimelineEvents() *toolTimelineEvents {
 	return newToolTimelineEvents(w, p, d.Logger)
 }
 
-// truncateEventRunes 按 rune 截断并追加省略标记（上限 maxToolEventRunes）。
-func truncateEventRunes(s string) string {
+// windowEventRunes 把时间线事件的一个字段收进 maxToolEventRunes 个字符：没超过原样；超过时开头
+// 留 toolEventHeadRunes 个字符、结尾留 toolEventTailRunes 个字符，中间写明省略了多少字符。
+func windowEventRunes(s string) string {
 	runes := []rune(s)
 	if len(runes) <= maxToolEventRunes {
 		return s
 	}
-	return string(runes[:maxToolEventRunes]) + "…（截断）"
+	omitted := len(runes) - toolEventHeadRunes - toolEventTailRunes
+	return string(runes[:toolEventHeadRunes]) + fmt.Sprintf("…（中间省略 %d 字）…", omitted) + string(runes[len(runes)-toolEventTailRunes:])
 }
