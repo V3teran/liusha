@@ -210,8 +210,8 @@ func TestRejectAndWatermarkKeepIdentityPostgres(t *testing.T) {
 }
 
 // 线索的处置在 PG 下真实落图，过得了库里的 CHECK 约束：新动作认领一条线索（pursues
-// 边）；另一条线索被规划层按类别关闭，批注在它身上（metadata 浅合并）。opens_deeper
-// 标志与节点来源都不受影响。
+// 边）；另一条线索被规划层按类别关闭，批注在它身上（与线索同为类型化字段）。线索的三样
+// 与节点来源都不受影响。
 func TestLeadAccountingPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("跳过集成测试")
@@ -236,7 +236,7 @@ func TestLeadAccountingPostgres(t *testing.T) {
 	for _, id := range []string{claimedID, closedID} {
 		_, err = store.CreateNode(ctx, Node{ID: id, TaskID: taskID, Kind: core.KindObservation,
 			SourceType: SourceExecutor, Content: []byte(`{"category":"access","statement":"探通一条路"}`),
-			Metadata: OpensDeeperMetadata()})
+			Lead: &LeadSpec{Next: "n", Question: "q", Potential: "p"}})
 		require.NoError(t, err)
 	}
 
@@ -289,8 +289,51 @@ func TestLeadAccountingPostgres(t *testing.T) {
 	for _, id := range []string{claimedID, closedID} {
 		lead, err := store.GetNode(ctx, id)
 		require.NoError(t, err)
-		assert.True(t, lead.OpensDeeper(), "处置不抹掉 opens_deeper 标志")
+		require.NotNil(t, lead.Lead, "处置不抹掉线索")
+		assert.Equal(t, LeadSpec{Next: "n", Question: "q", Potential: "p"}, *lead.Lead, "线索的三样经存储读回不变")
 		assert.Equal(t, SourceExecutor, lead.SourceType, "处置不触碰节点来源")
+		assert.Empty(t, lead.Metadata, "线索与关闭批注是类型化字段，不进无类型的扩展字段")
+	}
+	closed, err := store.GetNode(ctx, closedID)
+	require.NoError(t, err)
+	require.NotNil(t, closed.LeadClosed, "规划层的关闭批注是类型化字段，读得回来")
+	assert.Equal(t, LeadClosure{Kind: ClosureOutOfScope, Reason: "超出任务目标"}, *closed.LeadClosed)
+	claimedNode, err := store.GetNode(ctx, claimedID)
+	require.NoError(t, err)
+	assert.Nil(t, claimedNode.LeadClosed, "被认领的线索没有规划层的关闭批注")
+}
+
+// 线索的形状由库约束兜底（ck_exploration_node_lead）：线索只属于事实观察，假设与动作带上它
+// 被拒；关闭批注只落在线索上。
+func TestLeadShapeEnforcedByPostgres(t *testing.T) {
+	if testing.Short() {
+		t.Skip("跳过集成测试")
+	}
+	ctx := context.Background()
+	pool := setupTestDB(t)
+	defer pool.Close()
+	store := NewStore(pool)
+
+	const taskID = "bbbbbbb5-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	dbtest.SeedTask(t, pool, taskID)
+	open := StateOpen
+	pending := VerificationPending
+	spec := &LeadSpec{Next: "n", Question: "q", Potential: "p"}
+	for name, n := range map[string]Node{
+		"动作带线索": {ID: "5b2f6a9e-1111-4111-8111-0000000000a1", TaskID: taskID, Kind: core.KindAction, State: &open,
+			SourceType: SourcePlanner, Lead: spec, Content: []byte(`{"instruction":"x"}`)},
+		"假设带线索": {ID: "5b2f6a9e-1111-4111-8111-0000000000a2", TaskID: taskID, Kind: core.KindObservation,
+			SourceType: SourceExecutor, VerificationStatus: &pending, Lead: spec, Content: []byte(`{"statement":"s"}`)},
+		"没有线索的观察带关闭批注": {ID: "5b2f6a9e-1111-4111-8111-0000000000a3", TaskID: taskID, Kind: core.KindObservation,
+			SourceType: SourceExecutor, LeadClosed: &LeadClosure{Kind: ClosureBlocked, Reason: "r"}, Content: []byte(`{"statement":"s"}`)},
+	} {
+		if _, err := store.CreateNode(ctx, n); err == nil {
+			t.Errorf("%s：应被库约束拒绝", name)
+		}
+	}
+	if _, err := store.CreateNode(ctx, Node{ID: "5b2f6a9e-1111-4111-8111-0000000000a4", TaskID: taskID, Kind: core.KindObservation,
+		SourceType: SourceExecutor, Lead: spec, Content: []byte(`{"statement":"s"}`)}); err != nil {
+		t.Fatalf("事实观察带线索应可写入: %v", err)
 	}
 }
 

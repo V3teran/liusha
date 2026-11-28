@@ -11,7 +11,7 @@
 import type { LucideIcon } from 'lucide-react'
 import { Crosshair, Zap, Eye, ShieldCheck, CircleHelp } from 'lucide-react'
 import { PRIORITY_META } from '@/lib/priority'
-import type { GraphNode, NodeKind, VerificationStatus } from '@/api/explorationgraph'
+import type { GraphNode, LeadClosure, LeadSpec, NodeKind, VerificationStatus } from '@/api/explorationgraph'
 
 export interface KindProfile {
   icon: LucideIcon
@@ -133,6 +133,20 @@ export interface LeadMeta {
   closed: boolean
   /** 关闭原因全文：类别加理由（仅已关闭、且记下了原因时有） */
   detail: string
+  /** 线索的三样：下一步、要弄清、能换来什么。线索成为结构化字段之前落图的没有（都是空串） */
+  spec: LeadSpec
+}
+
+/** 线索的三样里有没有写得出的（旧线索三样皆空） */
+export function leadHasSpec(spec: LeadSpec): boolean {
+  return spec.next !== '' || spec.question !== '' || spec.potential !== ''
+}
+
+/** 线索的悬停说明：三样各一行；旧线索只有一句通用的说明 */
+export function leadHint(meta: LeadMeta): string {
+  const generic = '执行者已踩通、尚未推进到结论的路径'
+  if (!leadHasSpec(meta.spec)) return `线索：${generic}`
+  return ['线索：' + generic, `下一步：${meta.spec.next}`, `要弄清：${meta.spec.question}`, `能换来：${meta.spec.potential}`].join('\n')
 }
 
 function metadataOf(node: GraphNode): Record<string, unknown> {
@@ -140,18 +154,19 @@ function metadataOf(node: GraphNode): Record<string, unknown> {
 }
 
 /**
- * 线索是执行者在事实观察上留下的信号（metadata.opens_deeper）：这条路走得通、还没走到结论。
- * 假设观察不成线索；关闭时 metadata.lead_closed 记下类别与理由。
+ * 线索是事实观察带的延伸说明（节点的顶层字段 lead）：这条路走得通、还没走到结论，连同
+ * 下一步做什么、要弄清什么、能换来什么。假设观察不成线索；规划层关闭它时记下类别与理由
+ * （lead_closed）。
  */
 export function leadMeta(node: GraphNode): LeadMeta | null {
-  if (node.kind !== 'observation' || node.verification_status || metadataOf(node).opens_deeper !== true) return null
-  const closure = metadataOf(node).lead_closed
-  if (!closure || typeof closure !== 'object') return { closed: false, detail: '' }
-  const { kind, reason } = closure as { kind?: unknown; reason?: unknown }
-  const kindLabel = typeof kind === 'string' ? (LEAD_CLOSURE_META[kind] ?? kind) : ''
-  const reasonText = typeof reason === 'string' ? reason.trim() : ''
-  if (kindLabel && reasonText) return { closed: true, detail: `${kindLabel}：${reasonText}` }
-  return { closed: true, detail: kindLabel || reasonText }
+  if (node.kind !== 'observation' || node.verification_status || !node.lead) return null
+  const spec = node.lead
+  const closure: LeadClosure | undefined = node.lead_closed
+  if (!closure) return { closed: false, detail: '', spec }
+  const kindLabel = LEAD_CLOSURE_META[closure.kind] ?? closure.kind
+  const reasonText = closure.reason.trim()
+  if (kindLabel && reasonText) return { closed: true, detail: `${kindLabel}：${reasonText}`, spec }
+  return { closed: true, detail: kindLabel || reasonText, spec }
 }
 
 /** 动作否决的范围（metadata.rejected_scope）：只否决这一步，还是连它跟进的线索一起。用户否决一律只否决这一步。 */
@@ -188,10 +203,10 @@ export interface NodeChips {
   category?: string
   /** 验证状态文字标签（仅假设观察） */
   verification?: string
-  /** 高优先级（节点优先级；仅 P0/P1 上卡，避免噪音） */
+  /** 高优先级（假设与结果的优先级即严重度；仅 P0/P1 上卡，避免噪音） */
   priority?: { code: string; className: string }
-  /** 线索（仅被标为线索的事实观察）：卡片上的标记见 ExplorationNodeCard */
-  lead?: { label: string; closed: boolean; detail: string }
+  /** 线索（事实观察带的 lead）：卡片上的标记见 ExplorationNodeCard */
+  lead?: { label: string; closed: boolean; detail: string; spec: LeadSpec }
 }
 
 /** 卡片底部徽章行的取值（详情面板另有更全的展示） */
@@ -210,7 +225,7 @@ export function nodeChips(node: GraphNode): NodeChips {
     chips.verification = verificationMeta(node.verification_status) ?? undefined
   }
   const lead = leadMeta(node)
-  if (lead) chips.lead = { label: lead.closed ? '已关闭' : '线索', closed: lead.closed, detail: lead.detail }
+  if (lead) chips.lead = { label: lead.closed ? '已关闭' : '线索', closed: lead.closed, detail: lead.detail, spec: lead.spec }
 
   if (node.priority === 'critical' || node.priority === 'high') {
     chips.priority = {

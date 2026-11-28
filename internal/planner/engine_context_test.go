@@ -145,14 +145,14 @@ func TestGatherContext_FactsGroupedByCategory(t *testing.T) {
 func TestGatherContext_Leads(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
 	ctx := context.Background()
+	spec := explorationgraph.LeadSpec{Next: "用 admin 会话测其余模块", Question: "low 下是否同样可利用", Potential: "每多一个模块多一条主张"}
 	openLead := contextObservation("lead-open", "access", "管理入口未鉴权可达", nil, "", 1*time.Second)
-	openLead.Metadata = explorationgraph.OpensDeeperMetadata()
+	openLead.Lead = &spec
 	held := contextObservation("lead-held", "behavior", "参数回显了输入", nil, "", 2*time.Second)
-	held.Metadata = explorationgraph.OpensDeeperMetadata()
+	held.Lead = &explorationgraph.LeadSpec{Next: "n", Question: "q", Potential: "p"}
 	shut := contextObservation("lead-shut", "entity", "旧版本提示", nil, "", 3*time.Second)
-	shut.Metadata, _ = json.Marshal(map[string]interface{}{
-		"opens_deeper": true, "lead_closed": map[string]interface{}{"kind": "out_of_scope", "reason": "超出任务目标"},
-	})
+	shut.Lead = &explorationgraph.LeadSpec{Next: "n", Question: "q", Potential: "p"}
+	shut.LeadClosed = &explorationgraph.LeadClosure{Kind: explorationgraph.ClosureOutOfScope, Reason: "超出任务目标"}
 	plain := contextObservation("plain", "entity", "目标为 nginx", nil, "", 4*time.Second)
 
 	for _, n := range []explorationgraph.Node{
@@ -171,7 +171,7 @@ func TestGatherContext_Leads(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, planCtx.OpenLeads, 1, "只有没被跟进、没被关闭的线索待深挖")
-	assert.Equal(t, OpenLead{ID: "lead-open", Statement: "管理入口未鉴权可达", CreatedAt: openLead.CreatedAt}, planCtx.OpenLeads[0])
+	assert.Equal(t, OpenLead{ID: "lead-open", Statement: "管理入口未鉴权可达", Next: spec.Next, Question: spec.Question, Potential: spec.Potential, CreatedAt: openLead.CreatedAt}, planCtx.OpenLeads[0])
 
 	require.Equal(t, []ClosedLead{{Statement: "旧版本提示", Kind: explorationgraph.ClosureOutOfScope, Reason: "超出任务目标"}}, planCtx.ClosedLeads)
 

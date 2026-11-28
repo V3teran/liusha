@@ -146,6 +146,14 @@ type Node struct {
 	// 假设观察专用：验证状态（pending/confirmed/refuted）。事实观察与 result 没有。
 	VerificationStatus *VerificationStatus `json:"verification_status,omitempty"`
 
+	// Lead 是事实观察带的线索（见 LeadSpec）：这条路走得通、但还没走到结论。假设观察、
+	// 动作、目标与结果没有。
+	Lead *LeadSpec `json:"lead,omitempty"`
+
+	// LeadClosed 是规划层关闭这条线索时记下的类别与理由（见 LeadClosure）。nil 表示没有
+	// 这条批注：线索仍开着，或由跟进它的动作的结局推导关闭（见 lead.go）。
+	LeadClosed *LeadClosure `json:"lead_closed,omitempty"`
+
 	// 通用字段
 	// Priority 是优先级，只有两处有含义：假设（坐实后即发现的严重度）与用户指派的动作
 	// （执行者派发的先后）。规划者排出的动作与方向不带——模型自评的优先级校准差。
@@ -222,47 +230,35 @@ func (n *Node) IsAnalyzed() bool {
 	return analyzed
 }
 
-// metaOpensDeeper 是事实观察上的线索信号键：执行者标记本条观察揭示了一条走得通、
-// 但尚未推进到结论的路径。线索之后怎么走不写在标志上，由图上的跟进关系与不追批注
-// 推导（见 lead.go）。
-const metaOpensDeeper = "opens_deeper"
-
-// OpensDeeperMetadata 构造线索信号的节点 metadata（供执行者跨包写入，不暴露键字面量）。
-func OpensDeeperMetadata() json.RawMessage {
-	b, _ := json.Marshal(map[string]interface{}{metaOpensDeeper: true})
-	return b
+// LeadSpec 是一条线索的写法，三样缺一不成线索：沿着产出它的那条事实再走一步，具体做什么
+// （Next）；走完这一步，哪个还没答案的问题会有答案（Question）；答案若是肯定的，能换来
+// 什么（Potential）。三样都写得出，这条事实才成其为线索——写不出的只是环境里的一件事实。
+// 执行者写入时把关（见 executor 的 leadSpec），这里不存模型给的价值分数：值不值得追，由
+// 规划者读 Potential 判断。线索之后是否有人跟进、跟进到哪一步，不写在这里，由图上的跟进
+// 关系与关闭批注推导（见 lead.go）。
+type LeadSpec struct {
+	Next      string `json:"next"`      // 下一步：沿这条事实具体做什么
+	Question  string `json:"question"`  // 要弄清的结论
+	Potential string `json:"potential"` // 推进价值：走通了能换来什么
 }
 
-// OpensDeeper 判断事实观察是否被执行者标为线索（见 metaOpensDeeper）。
-func (n *Node) OpensDeeper() bool {
-	flag, _ := n.meta()[metaOpensDeeper].(bool)
-	return n.IsFact() && flag
+// IsLead 判断节点是不是一条线索：带 Lead 的事实观察。
+func (n *Node) IsLead() bool {
+	return n.IsFact() && n.Lead != nil
 }
 
-// metaLeadClosed 是线索上规划层关闭决定的批注键：规划层判定这条线索不再跟进，值是
-// {"kind": …, "reason": …}（类别见 LeadClosureKind）。随关闭它的那次规划修订同事务写入
+// metaLeadClosed 是线索上规划层关闭决定的存储键（与 Node.LeadClosed 同一事实）：规划层
+// 判定这条线索不再跟进，值是 {"kind": …, "reason": …}。随关闭它的那次规划修订同事务写入
 // （RevisePlan）；批注是一次性的，同一条线索不会被规划层关闭两遍。
 const metaLeadClosed = "lead_closed"
 
+// metaLead 是线索写法的存储键（与 Node.Lead 同一事实）。
+const metaLead = "lead"
+
 // LeadClosure 是一条线索因何关闭：类别与理由。
 type LeadClosure struct {
-	Kind   LeadClosureKind
-	Reason string
-}
-
-// LeadClosure 返回规划层关闭这条线索时记下的类别与理由；第二个返回值为假表示线索上
-// 没有这条批注（它仍开着，或由跟进的结局推导关闭，见 lead.go）。
-func (n *Node) LeadClosure() (LeadClosure, bool) {
-	var m struct {
-		Closed *struct {
-			Kind   LeadClosureKind `json:"kind"`
-			Reason string          `json:"reason"`
-		} `json:"lead_closed"`
-	}
-	if len(n.Metadata) == 0 || json.Unmarshal(n.Metadata, &m) != nil || m.Closed == nil {
-		return LeadClosure{}, false
-	}
-	return LeadClosure{Kind: m.Closed.Kind, Reason: m.Closed.Reason}, true
+	Kind   LeadClosureKind `json:"kind"`
+	Reason string          `json:"reason"`
 }
 
 // Category 返回观察的类别（非观察或内容缺失时为空）。

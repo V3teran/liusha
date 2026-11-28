@@ -15,11 +15,13 @@ import (
 
 var leadBase = time.Unix(1700000000, 0)
 
-// factLead 建一条标了 opens_deeper 的事实观察（无验证状态=事实）。
+// factLead 建一条带线索的事实观察（无验证状态=事实）。
 func factLead(id string) Node {
 	return Node{
 		ID: id, TaskID: revTask, Kind: core.KindObservation, SourceType: SourceExecutor,
-		Content: []byte(`{"category":"access","statement":"探通了一条路"}`), Metadata: OpensDeeperMetadata(),
+		Content: []byte(`{"category":"access","statement":"探通了一条路"}`),
+		Lead:    &LeadSpec{Next: "顺着它再走一步", Question: "结论是什么", Potential: "一条可坐实的主张"},
+		// 线索成为结构化字段之前落图的线索没有三样：空的三样也是线索
 		CreatedAt: leadBase,
 	}
 }
@@ -74,41 +76,61 @@ func endedAt(n Node, offset time.Duration) Node {
 	return n
 }
 
-// OpensDeeper 只认事实观察：事实标了即 true；假设即便 metadata 带 opens_deeper 也不是
-// 线索（假设在复现门里推进，不走线索通道）；没标的事实不是线索。
-func TestNode_OpensDeeper(t *testing.T) {
+// IsLead 只认带 Lead 的事实观察：三样为空的线索也是线索；没带的事实不是；假设即便带 Lead
+// 也不是（假设在复现门里推进，不走线索通道）。
+func TestNode_IsLead(t *testing.T) {
 	l1 := factLead("l1")
-	assert.True(t, l1.OpensDeeper(), "标了 opens_deeper 的事实")
+	assert.True(t, l1.IsLead(), "带三样的事实是线索")
+
+	legacy := factLead("l0")
+	legacy.Lead = &LeadSpec{}
+	assert.True(t, legacy.IsLead(), "三样为空的线索也是线索")
 
 	plain := Node{ID: "l2", Kind: core.KindObservation, Content: []byte(`{"category":"access","statement":"x"}`)}
-	assert.False(t, plain.OpensDeeper(), "没标 opens_deeper 不是线索")
+	assert.False(t, plain.IsLead(), "没带 Lead 的事实不是线索")
 
 	pending := VerificationPending
 	hypo := Node{ID: "h1", Kind: core.KindObservation, VerificationStatus: &pending,
-		Metadata: OpensDeeperMetadata(), Content: []byte(`{"category":"hypothesis","statement":"s"}`)}
-	assert.False(t, hypo.OpensDeeper(), "假设即便带 opens_deeper 也不是线索")
+		Lead: &LeadSpec{Next: "n", Question: "q", Potential: "p"}, Content: []byte(`{"category":"hypothesis","statement":"s"}`)}
+	assert.False(t, hypo.IsLead(), "假设即便带 Lead 也不是线索")
 }
 
-// 规划层的关闭批注从线索上读：类别与理由都在；没有批注、批注损坏都按「没有」处理，不 panic。
-func TestNode_LeadClosure(t *testing.T) {
+// 线索与关闭批注在存储里是对象，经 JSON 往返还原成类型：空对象还原成空的三样（仍是线索），
+// 存坏了的按「没有这个字段」处理，不 panic。
+func TestTypedLeadFieldsRoundTrip(t *testing.T) {
+	spec := typedFromMetadata[LeadSpec](map[string]interface{}{"next": "n", "question": "q", "potential": "p"})
+	require.NotNil(t, spec)
+	assert.Equal(t, LeadSpec{Next: "n", Question: "q", Potential: "p"}, *spec)
+
+	empty := typedFromMetadata[LeadSpec](map[string]interface{}{})
+	require.NotNil(t, empty, "空对象是没写三样的线索，不是没有线索")
+	assert.Equal(t, LeadSpec{}, *empty)
+
+	assert.Nil(t, typedFromMetadata[LeadSpec]("损坏的线索"), "形状不对按没有处理")
+	assert.Nil(t, typedFromMetadata[LeadSpec](nil))
+
+	closure := typedFromMetadata[LeadClosure](map[string]interface{}{"kind": "out_of_scope", "reason": "超出任务目标"})
+	require.NotNil(t, closure)
+	assert.Equal(t, LeadClosure{Kind: ClosureOutOfScope, Reason: "超出任务目标"}, *closure)
+	assert.Nil(t, typedFromMetadata[LeadClosure]("损坏的批注"))
+	assert.Equal(t, map[string]interface{}{"kind": "blocked", "reason": "受阻"}, typedToMetadata(LeadClosure{Kind: ClosureBlocked, Reason: "受阻"}))
+}
+
+// 线索与关闭批注是节点上的类型化字段：经存储写回读回不丢，也不再躺在无类型的扩展字段里。
+func TestLeadFieldsSurviveStorage(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
 	lead := factLead("l1")
-	_, ok := lead.LeadClosure()
-	assert.False(t, ok, "没有批注")
+	lead.LeadClosed = &LeadClosure{Kind: ClosureBlocked, Reason: "受阻"}
+	seedNode(t, store, lead)
 
-	lead.Metadata, _ = json.Marshal(map[string]interface{}{
-		"opens_deeper": true, "lead_closed": map[string]interface{}{"kind": "out_of_scope", "reason": "超出任务目标"},
-	})
-	closure, ok := lead.LeadClosure()
-	require.True(t, ok)
-	assert.Equal(t, LeadClosure{Kind: ClosureOutOfScope, Reason: "超出任务目标"}, closure)
-
-	lead.Metadata = json.RawMessage(`{"lead_closed":"损坏的批注"}`)
-	_, ok = lead.LeadClosure()
-	assert.False(t, ok, "批注形状不对")
-
-	lead.Metadata = json.RawMessage(`not json`)
-	_, ok = lead.LeadClosure()
-	assert.False(t, ok, "metadata 解析失败")
+	got, err := store.GetNode(ctx, "l1")
+	require.NoError(t, err)
+	require.NotNil(t, got.Lead)
+	assert.Equal(t, *lead.Lead, *got.Lead)
+	require.NotNil(t, got.LeadClosed)
+	assert.Equal(t, *lead.LeadClosed, *got.LeadClosed)
+	assert.Empty(t, got.Metadata, "线索与关闭批注是类型化字段，不进扩展字段")
 }
 
 // 只有规划者判定的类别能进规划修订；由结局推导的类别（有结论、推进、干涸、被否决）不行。
@@ -425,10 +447,10 @@ func TestRevisePlan_ClosesLead(t *testing.T) {
 
 	lead, err := store.GetNode(ctx, "lead-1")
 	require.NoError(t, err)
-	closure, ok := lead.LeadClosure()
-	require.True(t, ok)
-	assert.Equal(t, LeadClosure{Kind: ClosureOutOfScope, Reason: "超出任务目标"}, closure, "类别与理由落在线索上（理由去首尾空白）")
-	assert.True(t, lead.OpensDeeper(), "关闭不抹掉线索信号")
+	require.NotNil(t, lead.LeadClosed, "类别与理由落在线索上（理由去首尾空白）")
+	assert.Equal(t, LeadClosure{Kind: ClosureOutOfScope, Reason: "超出任务目标"}, *lead.LeadClosed)
+	assert.True(t, lead.IsLead(), "关闭不抹掉线索")
+	require.NotNil(t, lead.Lead, "关闭不抹掉线索的三样")
 	assert.Equal(t, SourceExecutor, lead.SourceType, "关闭不触碰节点来源")
 
 	open, err := store.OpenLeads(ctx, revTask)
@@ -464,8 +486,7 @@ func TestRevisePlan_ClosingRejectsStaleAndMalformed(t *testing.T) {
 	}
 	lead, err := store.GetNode(ctx, "reasonless")
 	require.NoError(t, err)
-	_, ok := lead.LeadClosure()
-	assert.False(t, ok, "没给理由的不批注")
+	assert.Nil(t, lead.LeadClosed, "没给理由的不批注")
 
 	open, err := store.OpenLeads(ctx, revTask)
 	require.NoError(t, err)

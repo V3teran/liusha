@@ -44,14 +44,14 @@ const CHAIN: ExplorationGraph = {
   nodes: [
     node(),
     node({ id: 'a1', kind: 'action', state: 'completed', content: { instruction: '摸入口' } }),
-    node({ id: 'l1', kind: 'observation', content: { statement: '探通一条路' }, metadata: { opens_deeper: true } }),
+    node({ id: 'l1', kind: 'observation', content: { statement: '探通一条路' }, lead: { next: 'n', question: 'q', potential: 'p' } }),
     node({ id: 'a2', kind: 'action', state: 'completed', content: { instruction: '沿这条路深入' } }),
     node({ id: 'o2', kind: 'observation', content: { statement: '拿到了凭据' } }),
     node({ id: 'r', kind: 'result', content: { statement: '弱口令坐实' } }),
     node({ id: 'd1', source_type: 'planner', state: 'open', content: { description: '换一个登录入口' } }),
     node({ id: 'a3', kind: 'action', state: 'open', content: { instruction: '试另一个入口' } }),
     node({ id: 'a4', kind: 'action', state: 'running', content: { instruction: '翻上传页' } }),
-    node({ id: 'l2', kind: 'observation', content: { statement: '又探通一条' }, metadata: { opens_deeper: true } }),
+    node({ id: 'l2', kind: 'observation', content: { statement: '又探通一条' }, lead: { next: 'n', question: 'q', potential: 'p' } }),
   ],
   edges: [
     edge('n-obj', 'a1', 'generates'),

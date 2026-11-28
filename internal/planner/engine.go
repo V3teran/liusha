@@ -208,6 +208,12 @@ type OpenLead struct {
 	ID        string
 	Statement string
 
+	// 线索的写法（执行者写下，见 explorationgraph.LeadSpec）：沿它再走一步具体做什么、走完要
+	// 弄清的结论、走通了能换来什么。线索成为结构化字段之前落图的线索没有这三样，都是空串。
+	Next      string
+	Question  string
+	Potential string
+
 	ProducerID string    // 产出它的动作（没有为空）
 	CreatedAt  time.Time // 线索出现的时刻
 
@@ -627,12 +633,16 @@ func newOpenLead(lead explorationgraph.Lead) (OpenLead, bool) {
 	if statement == "" {
 		return OpenLead{}, false
 	}
-	return OpenLead{
+	open := OpenLead{
 		ID: lead.ID, Statement: statement,
 		ProducerID: lead.ProducerID, CreatedAt: lead.CreatedAt,
 		Truncated: lead.Truncated, TruncationStreak: lead.TruncationStreak, Faults: lead.Faults,
 		Progressed: lead.Progressed, Vetoes: lead.Vetoes, LastVetoReason: lead.LastVetoReason,
-	}, true
+	}
+	if lead.Lead != nil {
+		open.Next, open.Question, open.Potential = lead.Lead.Next, lead.Lead.Question, lead.Lead.Potential
+	}
+	return open, true
 }
 
 // refreshRound 把规划进行期间图上新出现的待深挖线索补进本轮的清单。

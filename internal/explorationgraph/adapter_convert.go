@@ -63,6 +63,10 @@ func (s *Store) graphNodeToNode(graphNode *core.GraphNode) *Node {
 		node.VerificationStatus = &v
 	}
 
+	// 线索与其关闭批注（仅事实观察）：存的是对象，经 JSON 往返还原成类型
+	node.Lead = typedFromMetadata[LeadSpec](graphNode.Metadata[metaLead])
+	node.LeadClosed = typedFromMetadata[LeadClosure](graphNode.Metadata[metaLeadClosed])
+
 	// 其余键 → Node.Metadata（refute_reason / rejected_by 等业务扩展位）
 	leftover := make(map[string]interface{}, len(graphNode.Metadata))
 	for k, v := range graphNode.Metadata {
