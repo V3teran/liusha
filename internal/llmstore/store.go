@@ -319,6 +319,6 @@ func (a *RouterStoreAdapter) GetProviderSpec(ctx context.Context, code string) (
 		APIKey: apiKey, AuthScheme: fwllm.AuthScheme(p.AuthScheme),
 		OutputLimitParam: fwllm.OutputLimitParam(p.OutputLimitParam),
 		MaxTokens:        p.MaxTokens, SupportsVision: p.SupportsVision,
-		ThinkingBudget: p.ThinkingBudgetTokens, ContextWindow: p.ContextWindow,
+		ReasoningEffort: fwllm.ReasoningEffort(p.ReasoningEffort), ContextWindow: p.ContextWindow,
 	}, nil
 }

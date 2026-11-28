@@ -36,7 +36,7 @@ function prov(key: string, enabled = true): ProviderConfig {
     default_model: 'm',
     key_present: true,
     max_tokens: DEFAULT_MAX_TOKENS,
-    thinking_budget_tokens: 0,
+    reasoning_effort: '',
     auth_scheme: 'bearer',
     output_limit_param: 'max_tokens',
     supports_tools: true,

@@ -264,6 +264,9 @@ FORBIDDEN=(
   #   openai_compat / OpenAICompat：协议取值改为「厂商 + 接口名」（openai_chat_completions / anthropic_messages，
   #   迁移 0267）——同一家有多种协议时旧名分不清是哪个接口。
   'openai_compat'
+  #   thinking_budget / ThinkingBudget：按 token 的扩展思考预算换成思考深度档位（reasoning_effort，迁移 0268）。
+  'thinking_budget'
+  'ThinkingBudget'
 )
 
 # 术语豁免：某条术语在含「豁免串」的行里不算残留。写法是「术语||豁免串」——分隔符用两个竖线，

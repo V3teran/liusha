@@ -283,8 +283,8 @@ func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool
 		}
 		return NewAnthropicMessages(ctx, p.Code, AnthropicMessagesConfig{
 			BaseURL: p.BaseURL, Model: p.Model,
-			Limit:          pool.OutputLimitFor(p.BaseURL, p.APIKey, p.Model, p.MaxTokens),
-			ThinkingBudget: p.ThinkingBudget,
+			Limit:           pool.OutputLimitFor(p.BaseURL, p.APIKey, p.Model, p.MaxTokens),
+			ReasoningEffort: p.ReasoningEffort,
 		}, cli)
 	case ProviderTypeOpenAIChatCompletions, "":
 		cli, err := pool.GetOrCreateOpenAI(p.BaseURL, p.APIKey, p.AuthScheme)
@@ -295,6 +295,7 @@ func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool
 			BaseURL: p.BaseURL, Model: p.Model,
 			Limit:          pool.OutputLimitFor(p.BaseURL, p.APIKey, p.Model, p.MaxTokens),
 			SupportsVision: p.SupportsVision, OutputLimitParam: p.OutputLimitParam,
+			ReasoningEffort: p.ReasoningEffort,
 		}, cli)
 	}
 	return nil, fmt.Errorf("provider %q 类型 %q 未知（支持: %s）", p.Code, p.Type, strings.Join(ProviderTypes, " / "))

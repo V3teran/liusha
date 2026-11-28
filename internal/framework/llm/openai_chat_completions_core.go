@@ -19,6 +19,8 @@ type OpenAIChatCompletionsConfig struct {
 	// 被上游嫌大而拒绝时自动下调。必填——单次最大输出是 provider 配置里的事实，适配器不替它猜。
 	Limit          *OutputLimit
 	SupportsVision bool // true=image_url 走 MultiContent 真识图；false=stripImagesToText 降级文本占位
+	// ReasoningEffort 是思考深度，经 reasoning_effort 下发；空 = 不下发。
+	ReasoningEffort ReasoningEffort
 	// OutputLimitParam 是输出上限字段的初值（空 = max_tokens）；上游明确拒绝时自适应切换。
 	OutputLimitParam OutputLimitParam
 }
@@ -28,12 +30,13 @@ type OpenAIChatCompletionsConfig struct {
 // 无状态：tools 不再构造时绑定，而是每次 Generate(ctx, msgs, tools) 动态传入，
 // 修复 v1 Factory 缓存 Generator 导致跨 task tools 错乱的并发 bug。
 type chatCompletionsGen struct {
-	client         *openai.Client
-	model          string
-	limit          *OutputLimit
-	provider       string
-	supportsVision bool           // 透传自 OpenAIChatCompletionsConfig.SupportsVision，控制 ContentParts 走 MultiContent vs 降级
-	compat         *requestCompat // 可选请求字段的兼容结论（运行期自适应）
+	client          *openai.Client
+	model           string
+	limit           *OutputLimit
+	reasoningEffort ReasoningEffort
+	provider        string
+	supportsVision  bool           // 透传自 OpenAIChatCompletionsConfig.SupportsVision，控制 ContentParts 走 MultiContent vs 降级
+	compat          *requestCompat // 可选请求字段的兼容结论（运行期自适应）
 }
 
 // maxCompatRetries 是同一请求因字段被拒而改写重发的上限（输出上限字段、温度各一次）。
@@ -53,13 +56,17 @@ func NewOpenAIChatCompletions(_ context.Context, providerCode string, c OpenAICh
 	if c.Limit == nil {
 		return nil, errors.New("OpenAI Chat Completions: 输出上限必填（ClientPool.OutputLimitFor）")
 	}
+	if !c.ReasoningEffort.Valid() {
+		return nil, c.ReasoningEffort.invalidErr("OpenAI Chat Completions")
+	}
 	return &chatCompletionsGen{
-		client:         client,
-		model:          c.Model,
-		limit:          c.Limit,
-		provider:       providerCode,
-		supportsVision: c.SupportsVision,
-		compat:         newRequestCompat(c.OutputLimitParam),
+		client:          client,
+		model:           c.Model,
+		limit:           c.Limit,
+		reasoningEffort: c.ReasoningEffort,
+		provider:        providerCode,
+		supportsVision:  c.SupportsVision,
+		compat:          newRequestCompat(c.OutputLimitParam),
 	}, nil
 }
 
@@ -102,6 +109,9 @@ func (g *chatCompletionsGen) GenerateWithOptions(ctx context.Context, msgs []Mes
 	limit := g.limit.forCall(opts.MaxTokens)
 	if len(openaiTools) > 0 {
 		req.Tools = openaiTools
+	}
+	if g.reasoningEffort != "" {
+		req.ReasoningEffort = string(g.reasoningEffort)
 	}
 
 	var resp openai.ChatCompletionResponse

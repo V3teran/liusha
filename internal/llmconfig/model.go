@@ -92,11 +92,11 @@ type Provider struct {
 	Description      string
 	SortOrder        int
 	Enabled          bool
-	// ThinkingBudgetTokens 是扩展思考预算（anthropic thinking.budget_tokens）。
-	// >0 = 开启扩展思考；0 = 不开启。仅 Anthropic Messages 协议消费。
-	ThinkingBudgetTokens int64
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	// ReasoningEffort 是推理模型的思考深度（low / medium / high / max）；空 = 没设置，
+	// 不下发这个参数、按模型自己的默认。各协议按自己的字段下发。
+	ReasoningEffort string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // HasKey 报告该 provider 是否已设置密钥（与 ResolveAPIKey 的判定同口径，只是不解密）。
@@ -179,10 +179,8 @@ func NormalizeBaseURL(protocol, raw string) string {
 	return u.String()
 }
 
-// Validate 校验 provider 配置——HTTP 写入与 store 落库共用的唯一口径：
-// 协议类型、绝对 http(s) Base URL、显示名称、默认模型、上下文窗口、输出上限，以及扩展思考
-// 预算的协议约束（仅 Anthropic Messages 协议；开启时 ≥ MinThinkingBudgetTokens 且小于实际 max_tokens——
-// 运行期构造 client 时同样校验，不合法的 provider会让整档不可用）。
+// Validate 校验 provider 配置——HTTP 写入与 store 落库共用的唯一口径：协议类型、绝对 http(s)
+// Base URL、显示名称、默认模型、上下文窗口、输出上限、鉴权方式、输出上限字段与思考深度。
 func (p ProviderParams) Validate() error {
 	if !slices.Contains(ProviderTypes, p.Type) {
 		return invalidf("非法 provider 协议 %q（应为 %s）", p.Type, strings.Join(ProviderTypes, " 或 "))
@@ -208,19 +206,17 @@ func (p ProviderParams) Validate() error {
 	if p.MaxTokens <= 0 {
 		return invalidf("单次最大输出 tokens 必须大于 0")
 	}
-	if p.ThinkingBudgetTokens < 0 {
-		return invalidf("扩展思考预算不能为负")
+	if err := ReasoningEffortError(p.ReasoningEffort); err != nil {
+		return err
 	}
-	if p.ThinkingBudgetTokens > 0 {
-		if p.Type != ProviderTypeAnthropicMessages {
-			return invalidf("扩展思考预算仅适用于 Anthropic 协议")
-		}
-		if p.ThinkingBudgetTokens < MinThinkingBudgetTokens {
-			return invalidf("扩展思考预算开启时至少 %d tokens", MinThinkingBudgetTokens)
-		}
-		if p.ThinkingBudgetTokens >= int64(p.MaxTokens) {
-			return invalidf("扩展思考预算（%d）必须小于单次最大输出 tokens（%d）", p.ThinkingBudgetTokens, p.MaxTokens)
-		}
+	return nil
+}
+
+// ReasoningEffortError 校验思考深度的取值：空（不设置）或档位表里的一个。provider 保存与
+// 测试连接的入口共用。
+func ReasoningEffortError(effort string) error {
+	if !fwllm.ReasoningEffort(effort).Valid() {
+		return invalidf("非法思考深度 %q（应为 %s 之一或不设置）", effort, strings.Join(fwllm.ReasoningEffortNames(), " / "))
 	}
 	return nil
 }
@@ -237,10 +233,6 @@ func ValidateBaseURL(raw string) error {
 // ErrConflict 标记与既有状态冲突的写操作（code 已存在、无环境变量可回落时清除
 // 已存密钥等）；HTTP 层收敛为 409。
 var ErrConflict = errors.New("模型配置冲突")
-
-// 扩展思考预算的协议约束（anthropic thinking.budget_tokens）：开启时至少 1024，
-// 且必须小于单次最大输出 tokens。
-const MinThinkingBudgetTokens = 1024
 
 // DefaultMaxTokens 与 DefaultContextWindow 是 provider 没填上下文窗口、单次最大输出时的缺省，
 // 也是全系统唯一的出处：表单初值、库列缺省（迁移 0266）、这里落定缺省值，三处同值——
@@ -262,24 +254,24 @@ const (
 // 这里只收密文字节。KeepExistingKey=true 时 Update 不改动 encrypted_api_key 列（前端编辑
 // 表单不重新填密钥即保留原值，符合「已设置」不回显明文的交互）。
 type ProviderParams struct {
-	Code                 string // 稳定引用标识（角色路由 FK 指向；列名 code）
-	Type                 string
-	BaseURL              string
-	DefaultModel         string
-	EncryptedAPIKey      []byte // 已加密的密文；nil 且 KeepExistingKey=false 时清空密钥
-	APIKeyLast4          string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
-	KeepExistingKey      bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）
-	AuthScheme           string // 鉴权方式；空 = 协议标准方式（Normalize 填充）
-	OutputLimitParam     string // 输出上限字段；空 = max_tokens（Normalize 填充；Anthropic Messages 恒为 max_tokens）
-	DisplayName          string // 显示名称：必填、不区分大小写唯一（见 Provider.DisplayName）
-	MaxTokens            int
-	SupportsTools        bool
-	SupportsVision       bool
-	ContextWindow        int
-	Description          string
-	SortOrder            int
-	Enabled              bool
-	ThinkingBudgetTokens int64
+	Code             string // 稳定引用标识（角色路由 FK 指向；列名 code）
+	Type             string
+	BaseURL          string
+	DefaultModel     string
+	EncryptedAPIKey  []byte // 已加密的密文；nil 且 KeepExistingKey=false 时清空密钥
+	APIKeyLast4      string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
+	KeepExistingKey  bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）
+	AuthScheme       string // 鉴权方式；空 = 协议标准方式（Normalize 填充）
+	OutputLimitParam string // 输出上限字段；空 = max_tokens（Normalize 填充；Anthropic Messages 恒为 max_tokens）
+	DisplayName      string // 显示名称：必填、不区分大小写唯一（见 Provider.DisplayName）
+	MaxTokens        int
+	SupportsTools    bool
+	SupportsVision   bool
+	ContextWindow    int
+	Description      string
+	SortOrder        int
+	Enabled          bool
+	ReasoningEffort  string
 }
 
 // RoleRoute 是「档 → provider code」的一行绑定（complex→glm 等）。

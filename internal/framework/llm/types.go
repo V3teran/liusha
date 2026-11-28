@@ -125,7 +125,7 @@ type Generator interface {
 type GenerateOptions struct {
 	Temperature *float64 // 采样温度；nil = 默认
 	// MaxTokens 是本次调用的输出 token 上限；<= 0 = 走模型配置（与流式同口径）。业务调用
-	// 不设：单次输出上限是模型配置里的事实（配置页按它校验思考预算），调用点设得更低
+	// 不设：单次输出上限是模型配置里的事实，调用点设得更低
 	// 会让推理模型的思考吃满上限、正文为空。只有收尾重试这类按需放大预算的机制才设。
 	MaxTokens int
 }

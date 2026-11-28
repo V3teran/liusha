@@ -115,7 +115,7 @@ func (f *fakeModel) UpdateProvider(_ context.Context, p llmconfig.ProviderParams
 func providerFromParams(p llmconfig.ProviderParams) llmconfig.Provider {
 	return llmconfig.Provider{
 		Code: p.Code, Type: p.Type, BaseURL: p.BaseURL, DefaultModel: p.DefaultModel,
-		EncryptedAPIKey: p.EncryptedAPIKey, MaxTokens: p.MaxTokens, ThinkingBudgetTokens: p.ThinkingBudgetTokens,
+		EncryptedAPIKey: p.EncryptedAPIKey, MaxTokens: p.MaxTokens, ReasoningEffort: p.ReasoningEffort,
 		SupportsTools: p.SupportsTools, SupportsVision: p.SupportsVision, ContextWindow: p.ContextWindow,
 		Description: p.Description, SortOrder: p.SortOrder, Enabled: p.Enabled,
 	}
@@ -213,10 +213,7 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 		{"新建缺 api_key", map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "context_window": 1}},
 		{"context_window 为负", map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": -1}},
 		{"max_tokens 为负", map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "max_tokens": -1}},
-		{"思考预算用于非 anthropic", map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": 2048}},
-		{"思考预算过小", map[string]any{"type": "anthropic_messages", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 8192, "thinking_budget_tokens": 512}},
-		{"思考预算不小于 max_tokens", map[string]any{"type": "anthropic_messages", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 4096, "thinking_budget_tokens": 4096}},
-		{"思考预算不小于默认 max_tokens", map[string]any{"type": "anthropic_messages", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": llmconfig.DefaultMaxTokens}},
+		{"思考深度不在档位表里", map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "reasoning_effort": "xhigh"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -231,7 +228,7 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 	}
 }
 
-// TestSaveProvider_WiresParams：合法 POST → CreateProvider 收到加密后的密文（非明文）与思考预算。
+// TestSaveProvider_WiresParams：合法 POST → CreateProvider 收到加密后的密文（非明文）与思考深度。
 func TestSaveProvider_WiresParams(t *testing.T) {
 	fm := &fakeModel{}
 	srv := newTestServer(t, Deps{Models: fm, KeyEncrypter: fakeEncrypter{}})
@@ -240,7 +237,7 @@ func TestSaveProvider_WiresParams(t *testing.T) {
 	code, _ := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
 		"code": "anthropic", "type": "anthropic_messages", "base_url": "https://api.anthropic.com",
 		"display_name": "n", "default_model": "claude", "api_key": "sk-real-secret", "context_window": 200000,
-		"supports_vision": true, "enabled": true, "max_tokens": 8192, "thinking_budget_tokens": 4096,
+		"supports_vision": true, "enabled": true, "max_tokens": 8192, "reasoning_effort": "high",
 	})
 	if code != 200 {
 		t.Fatalf("status=%d", code)
@@ -248,7 +245,7 @@ func TestSaveProvider_WiresParams(t *testing.T) {
 	if fm.savedProvider == nil {
 		t.Fatal("CreateProvider 未被调用")
 	}
-	if fm.savedProvider.Code != "anthropic" || !fm.savedProvider.SupportsVision || fm.savedProvider.ThinkingBudgetTokens != 4096 {
+	if fm.savedProvider.Code != "anthropic" || !fm.savedProvider.SupportsVision || fm.savedProvider.ReasoningEffort != "high" {
 		t.Fatalf("参数未透传: %+v", fm.savedProvider)
 	}
 	if string(fm.savedProvider.EncryptedAPIKey) != "sealed:sk-real-secret" {
@@ -502,7 +499,7 @@ func TestSaveRoleRoute_InvalidTier(t *testing.T) {
 }
 
 // TestProviderJSON_KeyPresent：key_present 反映是否已设置密钥；响应不含任何密钥来源以外的
-// 字段（不再有 api_key_env）；思考预算随响应返回。
+// 字段（不再有 api_key_env）；思考深度随响应返回。
 func TestProviderJSON_KeyPresent(t *testing.T) {
 	got := providerJSON(llmconfig.Provider{})
 	if got["key_present"] != false {
@@ -511,9 +508,9 @@ func TestProviderJSON_KeyPresent(t *testing.T) {
 	if _, ok := got["api_key_env"]; ok {
 		t.Fatalf("响应不应再有 api_key_env: %v", got)
 	}
-	got = providerJSON(llmconfig.Provider{EncryptedAPIKey: []byte("sealed"), APIKeyLast4: "9f2c", ThinkingBudgetTokens: 2048})
-	if got["key_present"] != true || got["key_last4"] != "9f2c" || got["thinking_budget_tokens"] != int64(2048) {
-		t.Fatalf("已设置密钥应 key_present=true 且带尾号与思考预算: %v", got)
+	got = providerJSON(llmconfig.Provider{EncryptedAPIKey: []byte("sealed"), APIKeyLast4: "9f2c", ReasoningEffort: "medium"})
+	if got["key_present"] != true || got["key_last4"] != "9f2c" || got["reasoning_effort"] != "medium" {
+		t.Fatalf("已设置密钥应 key_present=true 且带尾号与思考深度: %v", got)
 	}
 }
 

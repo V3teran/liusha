@@ -10,7 +10,8 @@ import {
   chatRequestUrl,
   normalizeBaseUrl,
   providerInvalid,
-  thinkingBudgetError,
+  REASONING_EFFORT_OPTIONS,
+  reasoningEffortLabel,
 } from './providerRules'
 import type { ProviderConfig } from '@/api/types'
 
@@ -125,35 +126,30 @@ describe('providerForm 校验（与后端 llmconfig.Validate 同口径）', () =
     expect(providerInvalid(draft({ base_url: 'u' }), true)).toBe(true)
   })
 
-  it('扩展思考预算：仅 Anthropic Messages 生效，开启时 ≥1024 且小于 max_tokens（没填按缺省 131072，与后端同口径）', () => {
-    const a = (budget: number | '', maxTokens: number | '' = 8192) =>
-      draft({ type: 'anthropic_messages', thinking_budget_tokens: budget, max_tokens: maxTokens })
-    expect(thinkingBudgetError(a(0))).toBeUndefined()
-    expect(thinkingBudgetError(a(4096))).toBeUndefined()
-    expect(thinkingBudgetError(a(512))).toBeTruthy()
-    expect(thinkingBudgetError(a(8192))).toBeTruthy()
-    expect(thinkingBudgetError(a(65536, 0))).toBeUndefined()
-    expect(thinkingBudgetError(a(131072, 0))).toBeTruthy()
-    expect(thinkingBudgetError(a(131072, ''))).toBeTruthy()
-    expect(thinkingBudgetError(draft({ type: 'openai_chat_completions', thinking_budget_tokens: 512 }))).toBeUndefined()
-    expect(providerInvalid(a(512), true)).toBe(true)
-    expect(providerInvalid(a(4096), true)).toBe(false)
+  // 思考深度是模型的能力，不属于哪个协议：每种协议下都有同一个下拉，四档由低到高，初值是
+  // 「按模型默认」（没设置，不下发这个参数）。
+  for (const type of ['openai_chat_completions', 'anthropic_messages'] as const) {
+    it(`思考深度：${type} 下四档由低到高，初值是「按模型默认」`, () => {
+      renderForm({ type })
+      const select = screen.getByLabelText(/思考深度/) as HTMLSelectElement
+      expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['按模型默认', '低', '中', '高', '最高'])
+      expect(select.value).toBe('')
+    })
+  }
+
+  it('思考深度的档位表与展示名', () => {
+    expect(blankProvider().reasoning_effort).toBe('')
+    expect(REASONING_EFFORT_OPTIONS.map((o) => o.value)).toEqual(['low', 'medium', 'high', 'max'])
+    expect(reasoningEffortLabel('max')).toBe('最高')
+    expect(reasoningEffortLabel('')).toBe('按模型默认')
   })
 
-  it('思考预算字段只在 Anthropic Messages 协议下出现', () => {
-    renderForm({ type: 'openai_chat_completions' })
-    expect(screen.queryByLabelText(/扩展思考预算/)).toBeNull()
-  })
-
-  it('Anthropic 协议下可编辑思考预算并就地提示违规', async () => {
+  it('选择思考深度即回写草稿', async () => {
     const user = userEvent.setup()
-    const { patchSpy } = renderForm({ type: 'anthropic_messages', thinking_budget_tokens: 512, max_tokens: 8192 })
-    expect(screen.getByRole('alert').textContent).toContain('至少 1024')
-    const input = screen.getByLabelText(/扩展思考预算/)
-    await user.clear(input)
-    await user.type(input, '2048')
-    const calls = patchSpy.mock.calls.map((c) => c[0].thinking_budget_tokens).filter((v) => v !== undefined)
-    expect(calls[calls.length - 1]).toBe(2048)
+    const { patchSpy } = renderForm({ type: 'anthropic_messages' })
+    await user.selectOptions(screen.getByLabelText(/思考深度/), 'max')
+    const calls = patchSpy.mock.calls.map((c) => c[0].reasoning_effort).filter((v) => v !== undefined)
+    expect(calls[calls.length - 1]).toBe('max')
   })
 })
 

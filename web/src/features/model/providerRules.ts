@@ -1,4 +1,4 @@
-import type { ProviderConfig, ProviderProbeTarget, ProviderType } from '@/api/types'
+import type { ProviderConfig, ProviderProbeTarget, ProviderType, ReasoningEffort } from '@/api/types'
 
 // provider 配置的纯规则：与后端同名规则一一对应（llmconfig.NormalizeBaseURL /
 // llmconfig.ProviderParams.Validate / framework/llm.OperationURL），前端用于实时预览
@@ -48,30 +48,29 @@ export function baseUrlError(raw: string): string | undefined {
   return '需填完整地址，以 http:// 或 https:// 开头'
 }
 
-// 扩展思考预算的协议约束（与后端同口径）：开启时 ≥ 1024，且小于单次最大输出 tokens。
-const MIN_THINKING_BUDGET = 1024
-
 // 上下文窗口与单次最大输出的缺省，与后端唯一的出处（llmconfig.DefaultContextWindow /
 // DefaultMaxTokens）同值：取当前旗舰模型的官方上限（上下文 1M、单次输出 128K）。它们只是上限，
 // 不多花钱；上限低于缺省的模型，上游拒绝输出上限时运行期自动下调。
 export const DEFAULT_CONTEXT_WINDOW = 1048576
 export const DEFAULT_MAX_TOKENS = 131072
 
-/** 扩展思考预算校验：仅 Anthropic Messages 协议生效；0 = 关闭。 */
-export function thinkingBudgetError(d: ProviderConfig): string | undefined {
-  if (d.type !== 'anthropic_messages') return undefined
-  const budget = d.thinking_budget_tokens
-  if (budget === '' || budget === 0) return undefined
-  if (budget < 0) return '不能为负'
-  if (budget < MIN_THINKING_BUDGET) return `开启时至少 ${MIN_THINKING_BUDGET}`
-  const maxTokens = typeof d.max_tokens === 'number' && d.max_tokens > 0 ? d.max_tokens : DEFAULT_MAX_TOKENS
-  if (budget >= maxTokens) return `必须小于单次最大输出 tokens（当前 ${maxTokens}）`
-  return undefined
+// 思考深度的档位表与展示名（与后端唯一的出处 framework/llm.ReasoningEfforts 同序）：由低到高四档。
+// 空串不是一档，是「没设置」——下拉框以「按模型默认」表示它。
+export const REASONING_EFFORT_OPTIONS: { value: ReasoningEffort; label: string }[] = [
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中' },
+  { value: 'high', label: '高' },
+  { value: 'max', label: '最高' },
+]
+
+/** 思考深度的展示名；没设置时说明按模型默认。 */
+export function reasoningEffortLabel(effort: ReasoningEffort | ''): string {
+  return REASONING_EFFORT_OPTIONS.find((o) => o.value === effort)?.label ?? '按模型默认'
 }
 
 /**
  * 保存前置：协议已选、base_url/default_model 必填且格式合法、context_window > 0、
- * 思考预算满足协议约束（与后端校验对齐）。新建必须带密钥；编辑留空 = 沿用已存密钥。
+ * 新建必须带密钥；编辑留空 = 沿用已存密钥。
  */
 export function providerInvalid(d: ProviderConfig | null, isNew: boolean): boolean {
   if (!d) return true
@@ -84,8 +83,7 @@ export function providerInvalid(d: ProviderConfig | null, isNew: boolean): boole
     !d.default_model.trim() ||
     (isNew && !d.api_key) ||
     // 数字字段编辑期允许空串草稿（NumberField 契约），保存时视为未填（无效）
-    !(typeof cw === 'number' && cw > 0) ||
-    !!thinkingBudgetError(d)
+    !(typeof cw === 'number' && cw > 0)
   )
 }
 
@@ -106,7 +104,7 @@ export function blankProvider(): ProviderConfig {
     auth_scheme: 'bearer',
     output_limit_param: 'max_tokens',
     max_tokens: DEFAULT_MAX_TOKENS,
-    thinking_budget_tokens: 0,
+    reasoning_effort: '',
     supports_tools: true,
     supports_vision: false,
     context_window: DEFAULT_CONTEXT_WINDOW,

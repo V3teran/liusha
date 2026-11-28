@@ -26,8 +26,8 @@ import (
 
 // ProviderProbeSpec 是实测的入参规格（表单当前值）。
 // APIKey 非空 → 用它（新建或更换密钥）；为空 → 据 Code 取已存 provider 的密钥。
-// AuthScheme / OutputLimitParam 是当前记录值，作为协商的首选。DefaultModel 与
-// OutputLimitParam 只有测试连接用得到（拉取模型列表不发对话请求）。
+// AuthScheme / OutputLimitParam 是当前记录值，作为协商的首选。DefaultModel、OutputLimitParam 与
+// ReasoningEffort 只有测试连接用得到（拉取模型列表不发对话请求）。
 type ProviderProbeSpec struct {
 	Code             string
 	Type             string
@@ -36,6 +36,7 @@ type ProviderProbeSpec struct {
 	APIKey           string
 	AuthScheme       string
 	OutputLimitParam string
+	ReasoningEffort  string
 }
 
 // 测试连接的检查项与各项状态。清单按依赖顺序排列（前端按返回顺序渲染）：工具调用依赖
@@ -118,6 +119,7 @@ type diagnoseBody struct {
 	probeTargetBody
 	DefaultModel     string `json:"default_model"`
 	OutputLimitParam string `json:"output_limit_param"`
+	ReasoningEffort  string `json:"reasoning_effort"`
 }
 
 // validProbeTarget 在边界校验实测目标；不合法时写好 400 并返回 false。
@@ -156,6 +158,10 @@ func diagnoseProviderHandler(p ProviderProber) gin.HandlerFunc {
 		if !validProbeTarget(c, b.probeTargetBody) {
 			return
 		}
+		if err := llmconfig.ReasoningEffortError(b.ReasoningEffort); err != nil {
+			respondErr(c, http.StatusBadRequest, err)
+			return
+		}
 		model := strings.TrimSpace(b.DefaultModel)
 		if model == "" {
 			// 可用性只能由对话请求证明：没有模型就没有结论可给
@@ -163,7 +169,7 @@ func diagnoseProviderHandler(p ProviderProber) gin.HandlerFunc {
 			return
 		}
 		spec := b.spec()
-		spec.DefaultModel, spec.OutputLimitParam = model, b.OutputLimitParam
+		spec.DefaultModel, spec.OutputLimitParam, spec.ReasoningEffort = model, b.OutputLimitParam, b.ReasoningEffort
 		res, err := p.Diagnose(c.Request.Context(), spec)
 		if err != nil {
 			respondErr(c, http.StatusInternalServerError, err)

@@ -85,22 +85,22 @@ func getProviderHandler(api ModelAPI) gin.HandlerFunc {
 // code 只在 POST 时可选携带（脚本/导入场景指定标识，缺省由系统生成 UUID）；PUT 的
 // 标识只认路径，请求体携带且与路径不一致时拒绝，避免改错对象。
 type providerBody struct {
-	Code                 string `json:"code"`
-	Type                 string `json:"type"`
-	BaseURL              string `json:"base_url"`
-	DefaultModel         string `json:"default_model"`
-	APIKey               string `json:"api_key"`
-	AuthScheme           string `json:"auth_scheme"`        // 空 = 协议标准方式
-	OutputLimitParam     string `json:"output_limit_param"` // 空 = max_tokens
-	MaxTokens            int    `json:"max_tokens"`
-	ThinkingBudgetTokens int64  `json:"thinking_budget_tokens"`
-	SupportsTools        bool   `json:"supports_tools"`
-	SupportsVision       bool   `json:"supports_vision"`
-	ContextWindow        int    `json:"context_window"`
-	DisplayName          string `json:"display_name"`
-	Description          string `json:"description"`
-	SortOrder            int    `json:"sort_order"`
-	Enabled              bool   `json:"enabled"`
+	Code             string `json:"code"`
+	Type             string `json:"type"`
+	BaseURL          string `json:"base_url"`
+	DefaultModel     string `json:"default_model"`
+	APIKey           string `json:"api_key"`
+	AuthScheme       string `json:"auth_scheme"`        // 空 = 协议标准方式
+	OutputLimitParam string `json:"output_limit_param"` // 空 = max_tokens
+	MaxTokens        int    `json:"max_tokens"`
+	ReasoningEffort  string `json:"reasoning_effort"` // 空 = 不设置（按模型默认）
+	SupportsTools    bool   `json:"supports_tools"`
+	SupportsVision   bool   `json:"supports_vision"`
+	ContextWindow    int    `json:"context_window"`
+	DisplayName      string `json:"display_name"`
+	Description      string `json:"description"`
+	SortOrder        int    `json:"sort_order"`
+	Enabled          bool   `json:"enabled"`
 }
 
 // params 把请求体组装为落库入参：明文密钥在此加密（留空 = 沿用已存密钥）。
@@ -108,7 +108,7 @@ func (b providerBody) params(code string, enc KeyEncrypter) (llmconfig.ProviderP
 	p := llmconfig.ProviderParams{
 		Code: code, Type: b.Type, BaseURL: b.BaseURL, DefaultModel: b.DefaultModel,
 		AuthScheme: b.AuthScheme, OutputLimitParam: b.OutputLimitParam,
-		MaxTokens: b.MaxTokens, ThinkingBudgetTokens: b.ThinkingBudgetTokens,
+		MaxTokens: b.MaxTokens, ReasoningEffort: b.ReasoningEffort,
 		SupportsTools: b.SupportsTools, SupportsVision: b.SupportsVision, ContextWindow: b.ContextWindow,
 		DisplayName: strings.TrimSpace(b.DisplayName), Description: b.Description, SortOrder: b.SortOrder, Enabled: b.Enabled,
 	}
@@ -221,7 +221,7 @@ func providerJSON(p llmconfig.Provider) gin.H {
 		"code": p.Code, "type": p.Type, "base_url": p.BaseURL, "default_model": p.DefaultModel,
 		"key_present": p.HasKey(), "key_last4": p.APIKeyLast4,
 		"auth_scheme": p.AuthScheme, "output_limit_param": p.OutputLimitParam,
-		"max_tokens": p.MaxTokens, "thinking_budget_tokens": p.ThinkingBudgetTokens,
+		"max_tokens": p.MaxTokens, "reasoning_effort": p.ReasoningEffort,
 		"supports_tools": p.SupportsTools, "supports_vision": p.SupportsVision, "context_window": p.ContextWindow,
 		"display_name": p.DisplayName, "description": p.Description, "sort_order": p.SortOrder, "enabled": p.Enabled,
 		"created_at": p.CreatedAt, "updated_at": p.UpdatedAt,

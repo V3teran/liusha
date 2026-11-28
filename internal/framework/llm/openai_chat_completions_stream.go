@@ -14,6 +14,9 @@ func (g *chatCompletionsGen) StreamChat(ctx context.Context, msgs []Message, too
 	if err != nil {
 		return nil, err
 	}
+	if g.reasoningEffort != "" {
+		creq.ReasoningEffort = string(g.reasoningEffort)
+	}
 	limit := g.limit.forCall(maxTokens)
 
 	// 2. 创建流式请求（字段被拒在建流时即以 4xx 返回：按新结论改写后重建；输出上限过大则减半）

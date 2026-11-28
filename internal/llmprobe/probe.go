@@ -110,6 +110,7 @@ func (d *probeRun) diagnose(ctx context.Context, spec httpapi.ProviderProbeSpec,
 		key:      key,
 		model:    spec.DefaultModel,
 		limit:    fwllm.OutputLimitParam(spec.OutputLimitParam),
+		effort:   fwllm.ReasoningEffort(spec.ReasoningEffort),
 	}
 	report := httpapi.Diagnosis{BaseURL: target.baseURL}
 	reach, attempts := d.negotiate(ctx, target, baseCandidates(target), schemeCandidates(spec.Type, spec.AuthScheme))
@@ -146,6 +147,7 @@ type profileTarget struct {
 	key      string
 	model    string
 	limit    fwllm.OutputLimitParam
+	effort   fwllm.ReasoningEffort
 }
 
 // reachResult 是对话请求打通时的配置与证据。
@@ -386,6 +388,7 @@ func (d *probeRun) generator(ctx context.Context, t profileTarget, scheme fwllm.
 	return fwllm.BuildGeneratorWithKey(ctx, fwllm.ProviderSpec{
 		Code: "probe", Type: t.protocol, BaseURL: t.baseURL, Model: t.model, APIKey: t.key,
 		AuthScheme: scheme, OutputLimitParam: t.limit, MaxTokens: maxTokens,
+		ReasoningEffort: t.effort,
 	}, d.pool)
 }
 

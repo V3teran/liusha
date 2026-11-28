@@ -31,7 +31,7 @@ function prov(o: Partial<ProviderConfig> = {}): ProviderConfig {
     key_present: true,
     key_last4: '1234',
     max_tokens: DEFAULT_MAX_TOKENS,
-    thinking_budget_tokens: 0,
+    reasoning_effort: '',
     auth_scheme: 'bearer',
     output_limit_param: 'max_tokens',
     supports_tools: true,

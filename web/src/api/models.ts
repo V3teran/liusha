@@ -46,8 +46,7 @@ export async function saveProvider(
     auth_scheme: p.auth_scheme,
     output_limit_param: p.type === 'anthropic_messages' ? 'max_tokens' : p.output_limit_param,
     max_tokens: p.max_tokens === '' ? 0 : p.max_tokens,
-    thinking_budget_tokens:
-      p.type === 'anthropic_messages' && p.thinking_budget_tokens !== '' ? p.thinking_budget_tokens : 0,
+    reasoning_effort: p.reasoning_effort,
     supports_tools: p.supports_tools,
     supports_vision: p.supports_vision,
     context_window: p.context_window === '' ? 0 : p.context_window,

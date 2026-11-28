@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Eye, EyeOff, KeyRound, RefreshCw } from 'lucide-react'
-import type { AuthScheme, OutputLimitParam, ProviderConfig, ProviderType } from '@/api/types'
+import type { AuthScheme, OutputLimitParam, ProviderConfig, ProviderType, ReasoningEffort } from '@/api/types'
 import { Switch } from '@/components/ui/Switch'
 import { Field } from '@/features/config/ConfigDrawer'
 import { FIELD_LABEL_CLASS, INPUT_CLASS, NUMBER_INPUT_CLASS } from '@/components/ui/control'
@@ -13,7 +13,7 @@ import {
   defaultAuthScheme,
   DEFAULT_MAX_TOKENS,
   normalizeBaseUrl,
-  thinkingBudgetError,
+  REASONING_EFFORT_OPTIONS,
 } from './providerRules'
 import { Button } from '@/components/ui/Button'
 import { ModelField } from './ModelField'
@@ -343,7 +343,7 @@ function ToggleField({
 
 
 // ProviderFormBody 是 provider 详情表单主体：先选协议，再填连接与能力（单页分组，无二级 tab）。
-// 协议未选时只展示协议选择——后续字段的写法（Base URL 约定、鉴权方式、思考预算）都取决于它。
+// 协议未选时只展示协议选择——后续字段的写法（Base URL 约定、鉴权方式、输出上限字段）都取决于它。
 // diagnosis 是测试连接面板，紧跟在连接参数（地址、密钥、鉴权方式、模型）之后——填完即可
 // 就地测试，回填的字段也都在近旁。
 export function ProviderFormBody({
@@ -419,16 +419,20 @@ export function ProviderFormBody({
               </Select>
             </Field>
           )}
-          {draft.type === 'anthropic_messages' && (
-            <NumberField
-              label="扩展思考预算"
-              hint="仅部分推理模型支持，不确定就留 0；须小于单次最大输出"
-              value={draft.thinking_budget_tokens}
-              min={0}
-              error={thinkingBudgetError(draft)}
-              onValue={(v) => patch({ thinking_budget_tokens: v })}
-            />
-          )}
+          <Field label="思考深度" hint="推理模型投入多少推理；按模型默认即不下发这个参数。只对带推理的模型有意义">
+            <Select
+              className="w-full"
+              value={draft.reasoning_effort}
+              onChange={(e) => patch({ reasoning_effort: e.target.value as ReasoningEffort | '' })}
+            >
+              <option value="">按模型默认</option>
+              {REASONING_EFFORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
           {/* 工具/视觉能力：工具调用由测试连接实测后自动勾选；视觉无法低成本实测，按服务实际能力声明。 */}
           <ToggleField
             label="支持工具调用"
