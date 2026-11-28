@@ -146,10 +146,11 @@ func routeCandidates(c Complexity) []Complexity {
 func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, error) {
 	var g Generator
 	var account string
+	var outputLimit int
 	_, err := r.resolve(ctx, complexity, func(spec ProviderSpec) error {
 		built, err := BuildGeneratorWithKey(ctx, spec, r.pool)
 		if err == nil {
-			g, account = built, quotaIdentity(spec.BaseURL, spec.APIKey)
+			g, account, outputLimit = built, quotaIdentity(spec.BaseURL, spec.APIKey), spec.MaxTokens
 		}
 		return err
 	})
@@ -160,8 +161,37 @@ func (r *Router) build(ctx context.Context, complexity Complexity) (Provider, er
 	if r.providerWrapper != nil {
 		prov = r.providerWrapper(prov)
 	}
-	return prov, nil
+	// 上限标在全部装饰之外：装饰钩子是开放的，标在里面会被它挡住。
+	return withOutputLimit(prov, outputLimit), nil
 }
+
+// OutputLimiter 是能报告自己单次输出上限的 Provider：Router 给构造出的 provider 标上 spec
+// 里的值（provider 配置的「单次最大输出」）。运行时的收尾据此请求输出预算——低于它，收尾
+// 会比常规调用更容易被截断。
+type OutputLimiter interface {
+	OutputLimit() int
+}
+
+// OutputLimitOf 取 provider 的单次输出上限（token 数）；没标的返回 0。
+func OutputLimitOf(p Provider) int {
+	l, ok := p.(OutputLimiter)
+	if !ok {
+		return 0
+	}
+	return l.OutputLimit()
+}
+
+// limitedProvider 给 provider 标上单次输出上限，其余一律透传。
+type limitedProvider struct {
+	Provider
+	limit int
+}
+
+func withOutputLimit(p Provider, limit int) Provider {
+	return limitedProvider{Provider: p, limit: limit}
+}
+
+func (p limitedProvider) OutputLimit() int { return p.limit }
 
 // resolve 按候选序（显式档 → 就近降级）找第一个可用的 provider spec。accept 为 nil 时
 // 只要求 spec 可解析；非 nil 时还要求 accept(spec) 无错（如能构造出 client）。

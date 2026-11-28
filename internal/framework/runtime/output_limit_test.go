@@ -81,3 +81,47 @@ func TestRun_TruncatedEmptyResponseGoesStraightToWrapUp(t *testing.T) {
 	assert.Equal(t, planJSON, result.FinalAnswer)
 	assert.Nil(t, result.InternalError)
 }
+
+// limitedProvider 是标了单次输出上限的 provider（Router 给运行期 provider 标的正是这个）。
+type limitedProvider struct {
+	*recordingProvider
+	limit int
+}
+
+func (p limitedProvider) OutputLimit() int { return p.limit }
+
+// 收尾的输出预算跟随 provider 配置的单次最大输出：它调大之后，收尾若仍按固定的 16384 请求，
+// 会比常规调用更容易被截断。
+func TestRun_ForcedBudgetFollowsProviderOutputLimit(t *testing.T) {
+	provider := &limitedProvider{recordingProvider: &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{
+		{Content: truncatedPlan, FinishReason: "max_tokens", Usage: llm.Usage{OutTokens: 65536}},
+		{Content: planJSON},
+	}}}, limit: 65536}
+
+	result, err := NewReActRuntime().Run(context.Background(), structuredConfig(provider))
+	require.NoError(t, err)
+	require.Len(t, provider.requests, 2)
+	assert.Equal(t, 0, provider.requests[0].MaxTokens, "常规调用走 provider 自己的上限")
+	assert.Equal(t, 65536, provider.requests[1].MaxTokens, "收尾按 provider 配置的上限请求，不被固定封顶压低")
+	assert.Equal(t, planJSON, result.FinalAnswer)
+}
+
+// provider 配置的上限低于固定封顶时，收尾仍可翻倍放大：上限是部署方填的值，上游未必只许这么多。
+func TestRun_ForcedBudgetDoublesUpToTheFixedCeiling(t *testing.T) {
+	provider := &limitedProvider{recordingProvider: &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{
+		{Content: "", FinishReason: "length", Usage: llm.Usage{OutTokens: 4096}},
+		{Content: truncatedPlan, FinishReason: "length", Usage: llm.Usage{OutTokens: 4096}},
+		{Content: truncatedPlan, FinishReason: "length", Usage: llm.Usage{OutTokens: 8192}},
+		{Content: planJSON, Usage: llm.Usage{OutTokens: 900}},
+	}}}, limit: 4096}
+
+	result, err := NewReActRuntime().Run(context.Background(), structuredConfig(provider))
+	require.NoError(t, err)
+	require.Len(t, provider.requests, 4)
+	budgets := []int{}
+	for _, req := range provider.requests[1:] {
+		budgets = append(budgets, req.MaxTokens)
+	}
+	assert.Equal(t, []int{4096, 8192, 16384}, budgets, "从 provider 的上限起，逐次翻倍到固定封顶")
+	assert.Equal(t, planJSON, result.FinalAnswer)
+}
