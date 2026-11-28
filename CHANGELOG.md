@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.16.1](https://github.com/V3teran/liusha/compare/v0.16.0...v0.16.1) (2026-11-28)
+
+
+### 问题修复
+
+* **exploration:** 加急改警示琥珀，走过脚印更醒目 ([1d67d74](https://github.com/V3teran/liusha/commit/1d67d74659aa7f13d961c3b56baedcaa4872b20e))
+* **exploration:** 灰脚印改回认领边判定，图例收成一条「线索」 ([62ae9e9](https://github.com/V3teran/liusha/commit/62ae9e952bb608f4a344152d50bdf5a396e507c1))
+* **exploration:** 线索收紧为高价值的意外发现，脚印改为三态 ([9ea8c27](https://github.com/V3teran/liusha/commit/9ea8c27a9996466eaada59054a365d358279b260))
+
 ## [0.16.0](https://github.com/V3teran/liusha/compare/v0.15.1...v0.16.0) (2026-11-28)
 
 
