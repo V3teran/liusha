@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // 规划摘要的字节预算。
@@ -14,10 +15,15 @@ import (
 // 实测一个跑了 44 个动作的任务，摘要涨到约 10 万字节后被校验哨兵拒绝，此后每一轮规划都在
 // 发出去之前失败，任务又空转了两个多小时。
 //
-// 所以摘要在这里设预算：装不下时按各段实际占用等比收紧，每一段都留最新的条目、把更早的
-// 折叠成一行计数（细节经 graph_read 按需读）。这一轮要处理的事——待深挖的线索、在办与待
-// 验证的工作——不参与折叠。预算比硬上限留出余量：摘要只是第一条输入，同一轮里系统提示、
-// 追问与工具结果各自成条。
+// 所以摘要在这里设预算。装不下时分两步，按「哪些内容可以让」的次序：
+//  1. 背景段（做过的动作、事实、已关闭的线索、已坐实的结果……）按各段实际占用等比收紧，
+//     每一段都留最新的条目、把更早的折叠成一行计数（细节经 graph_read 按需读）；
+//  2. 背景段收到最低保留数之后仍然装不下，就缩写每条的长度（见 tightenSteps）：先缩背景段
+//     留下的条目，再缩必须看见的条目，最后才动任务目标这类整行文本。
+//
+// 这一轮要处理的事——待深挖的线索、在办与待验证的工作、目标与统计——不折叠：它们自己也
+// 随图增长（方向在任务期间只增不减，待验证的假设会积压），超预算时只缩写、不丢条目。
+// 预算比硬上限留出余量：摘要只是第一条输入，同一轮里系统提示、追问与工具结果各自成条。
 const planningPromptBudget = 60 * 1024
 
 // minKeepItems 是一个条目组被收紧时至少留下的条数：不到这个数的组不动，收紧落在条目多的
@@ -26,7 +32,8 @@ const minKeepItems = 5
 
 // promptSection 是规划摘要里的一段。
 type promptSection struct {
-	// name 是折叠行里对条目的称呼（「已完成动作」「事实」…）；空表示这一段不折叠。
+	// name 是折叠行里对条目的称呼（「已完成动作」「事实」…）；空表示这一段不折叠，超预算时
+	// 它的条目只缩写、不丢。
 	name string
 	// newestFirst：段内条目新的在前（事实按类别分桶、桶内近者在前），折叠从末尾旧的去；
 	// 否则条目按时间先后排列，折叠从开头旧的去。
@@ -41,11 +48,13 @@ var (
 	headingPattern  = regexp.MustCompile(`^##+ `)
 )
 
-// sectionLines 是一段可折叠的内容解析后的样子：一串按原顺序排列的块，原样保留的行
-// （标题、说明、空行）与条目组相间。
+// sectionLines 是一段内容解析后的样子：一串按原顺序排列的块，原样保留的行（标题、说明、
+// 空行）与条目组相间。
 type sectionLines struct {
 	blocks          []sectionBlock
 	trailingNewline bool
+	// foldable：背景段，可以折叠条目；否则是必须看见的段，只缩写。
+	foldable bool
 }
 
 // sectionBlock 要么是原样保留的一行，要么是一个条目组。
@@ -110,7 +119,7 @@ func (g *itemGroup) dropNext() {
 }
 
 func parseSection(s promptSection) *sectionLines {
-	sl := &sectionLines{trailingNewline: strings.HasSuffix(s.text, "\n")}
+	sl := &sectionLines{trailingNewline: strings.HasSuffix(s.text, "\n"), foldable: s.name != ""}
 	name := s.name
 	for _, line := range strings.Split(strings.TrimSuffix(s.text, "\n"), "\n") {
 		switch {
@@ -165,7 +174,27 @@ func (sl *sectionLines) render() string {
 	return sb.String()
 }
 
-// fitPrompt 把各段拼成摘要；超出 budget 字节时折叠更早的条目，直到装得下。
+// tightenStep 是缩写的一档：每类行保留的最大字节数，0 表示这一档不动它。
+type tightenStep struct {
+	backgroundItem int
+	mustSeeItem    int
+	mustSeeOther   int
+}
+
+// tightenSteps 是背景段折叠到最低保留数之后仍然超预算时的缩写档位，由松到紧。先缩背景段
+// 留下的条目，再缩必须看见的条目，最后才动任务目标这类整行文本——必须看见的内容只缩写、
+// 不丢条目，而且总是最后被动。行首的短号与标记（[L1]、[D2]、[ID: …]）都在行首，缩写只动
+// 行尾。
+var tightenSteps = []tightenStep{
+	{backgroundItem: 240},
+	{backgroundItem: 120, mustSeeItem: 480},
+	{backgroundItem: 120, mustSeeItem: 240},
+	{backgroundItem: 120, mustSeeItem: 120, mustSeeOther: 480},
+	{backgroundItem: 120, mustSeeItem: 60, mustSeeOther: 240},
+}
+
+// fitPrompt 把各段拼成摘要；超出 budget 字节时先折叠背景段更早的条目，再按档缩写，直到
+// 装得下。
 func fitPrompt(sections []promptSection, budget int) string {
 	joined := concat(sections)
 	if len(joined) <= budget {
@@ -174,9 +203,7 @@ func fitPrompt(sections []promptSection, budget int) string {
 
 	parsed := make([]*sectionLines, len(sections))
 	for i, s := range sections {
-		if s.name != "" {
-			parsed[i] = parseSection(s)
-		}
+		parsed[i] = parseSection(s)
 	}
 
 	// 等比收紧：每一轮把当前超出量按「可让出的字节」摊给各个条目组，从最旧的条目起整条去掉；
@@ -214,11 +241,55 @@ func fitPrompt(sections []promptSection, budget int) string {
 		}
 		out = render(sections, parsed)
 	}
+	for _, step := range tightenSteps {
+		if len(out) <= budget {
+			return out
+		}
+		for _, sl := range parsed {
+			sl.tighten(step)
+		}
+		out = render(sections, parsed)
+	}
 	if len(out) <= budget {
 		return out
 	}
-	// 不该走到这里：不参与折叠的内容自己就超预算时截断，好过让规划者在发出去之前就失败。
+	// 不该走到这里：缩到最紧仍然装不下（条目多到光行首标记就超预算）时截断，好过让规划者
+	// 在发出去之前就失败。
 	return truncateToBudget(out, budget)
+}
+
+// tighten 按一档缩写本段的行；已经短于上限的不动。
+func (sl *sectionLines) tighten(step tightenStep) {
+	itemMax, otherMax := step.mustSeeItem, step.mustSeeOther
+	if sl.foldable {
+		itemMax, otherMax = step.backgroundItem, 0
+	}
+	for i := range sl.blocks {
+		b := &sl.blocks[i]
+		if b.group != nil {
+			for j, line := range b.group.lines {
+				b.group.lines[j] = cutLine(line, itemMax)
+			}
+			continue
+		}
+		if b.line != "" && !headingPattern.MatchString(b.line) {
+			b.line = cutLine(b.line, otherMax)
+		}
+	}
+}
+
+// cutLine 把一行缩到 max 字节以内：在字符边界上截断并以省略号收尾；不超限或上限为 0
+// （不限）时原样返回。
+func cutLine(line string, max int) string {
+	if max <= 0 || len(line) <= max {
+		return line
+	}
+	const ellipsis = "…"
+	end := max - len(ellipsis)
+	for end > 0 && !utf8.RuneStart(line[end]) {
+		end--
+	}
+	return line[:end] + ellipsis
 }
 
 // concat 是未经折叠的原文。
@@ -251,7 +322,7 @@ func render(sections []promptSection, parsed []*sectionLines) string {
 func trimmableGroups(parsed []*sectionLines) []*itemGroup {
 	var groups []*itemGroup
 	for _, sl := range parsed {
-		if sl == nil {
+		if sl == nil || !sl.foldable {
 			continue
 		}
 		for _, b := range sl.blocks {

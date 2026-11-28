@@ -49,8 +49,58 @@ func TestPlanFailure_OtherFailuresCoolDownWithBackoff(t *testing.T) {
 
 func TestPlanBackoff(t *testing.T) {
 	for failures, want := range map[int]time.Duration{0: 5 * time.Second, 1: 5 * time.Second, 2: 10 * time.Second, 3: 20 * time.Second, 4: 40 * time.Second, 5: 80 * time.Second, 6: 2 * time.Minute, 50: 2 * time.Minute} {
-		assert.Equal(t, want, planBackoff(failures), "连续失败 %d 次", failures)
+		assert.Equal(t, want, planBackoff(0, failures), "连续失败 %d 次", failures)
 	}
+	assert.Equal(t, time.Millisecond, planBackoff(time.Millisecond, 1))
+	assert.Equal(t, 24*time.Millisecond, planBackoff(time.Millisecond, 9), "封顶随起点缩放")
+}
+
+// 非瞬时的失败连续到上限：带着最后一次的原因终止本轮运行，不再只带着冷却撞下去。
+func TestPlanFailure_PersistentHardFailuresEndTheRun(t *testing.T) {
+	a := &Agent{logger: zerolog.Nop()}
+	for i := 1; i < persistentPlanFailures; i++ {
+		require.NoError(t, a.planFailure(errors.New("图库连接中断"), "定期规划"), "第 %d 次不应终止", i)
+	}
+	err := a.planFailure(errors.New("图库连接中断"), "定期规划")
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "图库连接中断")
+	assert.Contains(t, err.Error(), fmt.Sprintf("规划连续 %d 次失败", persistentPlanFailures))
+}
+
+// 模型服务的瞬时故障（额度窗口、网络、超时）不计上限，还会把连续非瞬时的计数清零；被停掉的
+// 那一轮不是规划的失败。
+func TestPlanFailure_TransientAndCanceledFailuresDoNotCount(t *testing.T) {
+	a := &Agent{logger: zerolog.Nop()}
+	for i := 1; i < persistentPlanFailures; i++ {
+		require.NoError(t, a.planFailure(errors.New("图库连接中断"), "定期规划"), "第 %d 次不应终止", i)
+	}
+	transient := fmt.Errorf("plan: 重试 3 次后仍失败: %w", context.DeadlineExceeded)
+	for i := 0; i < 3*persistentPlanFailures; i++ {
+		require.NoError(t, a.planFailure(transient, "定期规划"), "瞬时故障再多次也不终止")
+	}
+	require.NoError(t, a.planFailure(errors.New("图库连接中断"), "定期规划"), "瞬时故障之后计数已清零")
+	require.NoError(t, a.planFailure(fmt.Errorf("ReAct 规划失败: %w", context.Canceled), "定期规划"), "被取消的一轮不算失败")
+	for i := 2; i < persistentPlanFailures; i++ {
+		require.NoError(t, a.planFailure(errors.New("图库连接中断"), "定期规划"))
+	}
+	assert.Error(t, a.planFailure(errors.New("图库连接中断"), "定期规划"))
+}
+
+// 事件循环层面：规划一直非瞬时地失败，Run 在冷却走完之后带着原因退出，而不是被恢复监控
+// 当成僵尸收场。
+func TestRun_PersistentHardFailureEndsTheRunWithTheCause(t *testing.T) {
+	planner := &countingPlanner{err: errors.New("图库连接中断")}
+	a := runnableAgent(t, planner)
+	a.planBackoffBase = time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := a.Run(ctx)
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "图库连接中断")
+	assert.NotErrorIs(t, err, context.DeadlineExceeded, "是规划者自己退出，不是测试的超时")
+	assert.EqualValues(t, persistentPlanFailures, planner.calls)
 }
 
 // countingPlanner 每次规划都返回同一个错误，并数自己被调用了几次。

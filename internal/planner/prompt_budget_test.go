@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/V3teran/liusha/internal/explorationgraph"
 	"github.com/V3teran/liusha/internal/framework/core"
@@ -167,6 +168,122 @@ func TestFitPrompt_TruncatesWhenNothingIsFoldable(t *testing.T) {
 	out := fitPrompt(sections, 5_000)
 	if len(out) > 5_000 || !strings.HasSuffix(out, "- （摘要超出预算，已截断）\n") {
 		t.Fatalf("应截断到预算内并写明：%d 字节，结尾 %q", len(out), out[len(out)-40:])
+	}
+}
+
+// 解析再拼回去必须与原文一字不差（空行、没有结尾换行、多级标题）：预算内不走折叠，超预算时
+// 没被动的段也经由它重新拼出。
+func TestRender_ReproducesTheOriginalText(t *testing.T) {
+	sections := []promptSection{
+		{text: "## 多智能体分工\n- 规划者：…\n\n"},
+		{text: "## 任务目标\n没有结尾换行的目标"},
+		{name: "事实", newestFirst: true, text: "## 已确认的事实\n- （另有 3 条较早的对象类事实未逐条列出）\n### 有什么（对象与属性）\n- 甲\n- 乙\n\n### 其他\n- 丙\n"},
+		{text: ""},
+	}
+	parsed := make([]*sectionLines, len(sections))
+	for i, s := range sections {
+		parsed[i] = parseSection(s)
+	}
+	if got, want := render(sections, parsed), concat(sections); got != want {
+		t.Fatalf("解析再拼回应与原文一字不差\n得:\n%q\n期望:\n%q", got, want)
+	}
+}
+
+// leadsSection 造一段必须看见的内容：n 条线索，每条带着三样，约 330 字节。
+func leadsSection(n int) promptSection {
+	text := "## 待深挖的线索\n"
+	for i := 1; i <= n; i++ {
+		text += fmt.Sprintf("- [L%d] 线索 %d %s → 下一步：%s\n", i, i, strings.Repeat("述", 60), strings.Repeat("做", 40))
+	}
+	return promptSection{text: text + "\n"}
+}
+
+func leadHandles(out string) int {
+	return strings.Count(out, "- [L")
+}
+
+// 背景段收到最低保留数之后仍然超预算：按档缩写，先缩背景段留下的条目——缩到它们就够了时，
+// 必须看见的线索一条不动。
+func TestFitPrompt_BackgroundItemsShrinkBeforeMustSeeItems(t *testing.T) {
+	leads := leadsSection(150)
+	background := section("已完成动作", 8, 200, false)
+	budget := len(leads.text) + len(background.text) - 1_000
+	out := fitPrompt([]promptSection{leads, background}, budget)
+
+	if len(out) > budget {
+		t.Fatalf("缩写后 %d 字节，超出预算 %d", len(out), budget)
+	}
+	if !strings.Contains(out, strings.TrimSuffix(leads.text, "\n")) {
+		t.Fatalf("只差一点时必须看见的线索应原样保留")
+	}
+	if !strings.Contains(out, "已折叠，需要时用 graph_read 深挖") {
+		t.Fatalf("背景段应先折叠到最低保留数")
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "- 已完成动作") && len(line) > 121 {
+			t.Fatalf("背景条目应缩到 120 字节以内，得 %d 字节", len(line))
+		}
+	}
+}
+
+// 背景段缩到底仍然超预算：必须看见的条目一条不丢、只缩写，短号与身份留在行首。
+func TestFitPrompt_MustSeeItemsAreShortenedNotDropped(t *testing.T) {
+	leads := leadsSection(150) // 约 50 KB
+	out := fitPrompt([]promptSection{leads}, 36*1024)
+
+	if len(out) > 36*1024 {
+		t.Fatalf("缩写后 %d 字节，超出预算", len(out))
+	}
+	if got := leadHandles(out); got != 150 {
+		t.Fatalf("必须看见的线索一条都不能丢：得 %d 条", got)
+	}
+	for i := 1; i <= 150; i++ {
+		if !strings.Contains(out, fmt.Sprintf("[L%d] 线索 %d ", i, i)) {
+			t.Fatalf("线索 L%d 的短号与身份应留在行首:\n%s", i, out[:400])
+		}
+	}
+	if strings.Contains(out, "摘要超出预算") {
+		t.Fatalf("不该走到截断")
+	}
+	// 收在「必须看见的条目 240 字节」这一档
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "- [L") && (len(line) > 241 || !strings.HasSuffix(line, "…")) {
+			t.Fatalf("线索行应缩到 240 字节以内并以省略号收尾，得 %d 字节 %q", len(line), line[:40])
+		}
+	}
+}
+
+// 任务目标这类整行文本最后才被动：线索缩到 240 字节装得下时不动它；装不下才在字符边界上
+// 截断，此时线索已经缩到最紧。
+func TestFitPrompt_WholeLineTextIsTheLastToShrink(t *testing.T) {
+	leads := leadsSection(150)
+	goalOf := func(repeat int) promptSection {
+		return promptSection{text: "## 任务目标\n" + strings.Repeat("目标", repeat) + "\n\n"}
+	}
+
+	// 目标 24 KB：线索缩到 240 字节就装得下，目标一字不动
+	out := fitPrompt([]promptSection{goalOf(4_000), leads}, 60*1024)
+	if len(out) > 60*1024 || !strings.Contains(out, strings.Repeat("目标", 4_000)+"\n\n") {
+		t.Fatalf("装得下时任务目标不应被动：%d 字节", len(out))
+	}
+
+	// 目标 120 KB：线索先缩到最紧，目标最后截断
+	out = fitPrompt([]promptSection{goalOf(20_000), leads}, 60*1024)
+	if len(out) > 60*1024 || strings.Contains(out, "摘要超出预算") {
+		t.Fatalf("应在预算内、不截断：%d 字节", len(out))
+	}
+	if got := leadHandles(out); got != 150 {
+		t.Fatalf("线索一条不丢，得 %d 条", got)
+	}
+	first, _, _ := strings.Cut(out, "\n")
+	goalLine, _, _ := strings.Cut(out[len(first)+1:], "\n")
+	if first != "## 任务目标" || len(goalLine) > 480 || !strings.HasSuffix(goalLine, "…") || !utf8.ValidString(goalLine) {
+		t.Fatalf("任务目标应最后在字符边界上截断到 480 字节以内，得 %d 字节、结尾 %q", len(goalLine), goalLine[len(goalLine)-12:])
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "- [L") && (len(line) > 121 || !strings.HasSuffix(line, "…")) {
+			t.Fatalf("动任务目标之前线索应已缩到最紧（60 字节），得 %d 字节", len(line))
+		}
 	}
 }
 
