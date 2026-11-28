@@ -3,6 +3,7 @@ package planner
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/V3teran/liusha/internal/bus"
@@ -91,7 +92,7 @@ func (a *Agent) Run(ctx context.Context) error {
 // 指数增长（见 planBackoff），成功一次即清零。成功时也经由这里清零。
 func (a *Agent) planFailure(err error, phase string) error {
 	if err == nil {
-		a.planFailures = 0
+		a.planFailures, a.planHardFailures = 0, 0
 		a.planRetryAt = time.Time{}
 		return nil
 	}
@@ -103,23 +104,51 @@ func (a *Agent) planFailure(err error, phase string) error {
 		a.logger.Error().Err(err).Str("phase", phase).Msg("规划输入超过单条消息的上限，重试无济于事，规划无法继续")
 		return err
 	}
+	if errors.Is(err, context.Canceled) {
+		// 这一轮被停掉或被目标改写取代：不是规划的失败，循环的下一轮会看到 ctx 已结束
+		return nil
+	}
+	if llm.IsTransient(err) {
+		a.planHardFailures = 0
+	} else {
+		a.planHardFailures++
+	}
 	logx.ErrorUnlessCanceled(a.logger, err).Err(err).Str("phase", phase).
 		Int("consecutive_failures", a.planFailures+1).
-		Dur("cooldown", planBackoff(a.planFailures+1)).
+		Int("consecutive_hard_failures", a.planHardFailures).
+		Dur("cooldown", planBackoff(a.planBackoffBase, a.planFailures+1)).
 		Msg("规划失败（冷却后重试）")
 	a.planFailures++
-	a.planRetryAt = time.Now().Add(planBackoff(a.planFailures))
+	a.planRetryAt = time.Now().Add(planBackoff(a.planBackoffBase, a.planFailures))
+	if a.planHardFailures >= persistentPlanFailures {
+		a.logger.Error().Err(err).Str("phase", phase).
+			Int("consecutive_hard_failures", a.planHardFailures).
+			Msg("规划连续非瞬时失败达上限，带着最后一次的原因终止本轮运行")
+		return fmt.Errorf("规划连续 %d 次失败: %w", a.planHardFailures, err)
+	}
 	return nil
 }
 
-// planBackoff 是连续失败 n 次之后的冷却时长：5 秒起每次翻倍，封顶 2 分钟。
-func planBackoff(failures int) time.Duration {
-	const base, ceiling = 5 * time.Second, 2 * time.Minute
+// persistentPlanFailures 是连续非瞬时失败的上限：到了就带着最后一次的原因终止本轮运行。模型
+// 服务的瞬时故障（限流、网络、超时）不计——它可能是额度窗口，等得到；不计上限的确定性失败
+// 只会带着冷却一直撞下去，最后被恢复监控按「僵尸、重投」收场，时间线上看不到真正的原因
+// （按冷却节奏，10 次约 11 分钟；短暂的图库抖动够不着）。
+const persistentPlanFailures = 10
+
+// planBackoffBaseDefault 是冷却时长的起点。
+const planBackoffBaseDefault = 5 * time.Second
+
+// planBackoff 是连续失败 n 次之后的冷却时长：从 base 起每次翻倍，封顶 24 个 base（缺省
+// 5 秒起、封顶 2 分钟）。base 为零取缺省。
+func planBackoff(base time.Duration, failures int) time.Duration {
+	if base <= 0 {
+		base = planBackoffBaseDefault
+	}
 	if failures < 1 {
 		failures = 1
 	}
 	if failures > 5 {
-		return ceiling
+		return 24 * base
 	}
 	return base << (failures - 1)
 }

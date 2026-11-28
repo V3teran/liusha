@@ -53,9 +53,14 @@ type Agent struct {
 	stopCh chan struct{}
 
 	// 规划失败后的冷却：planFailures 是连续失败的次数（成功即清零），planRetryAt 是下一次
-	// 可以再规划的最早时刻（见 planFailure）。只在 Run 的事件循环内读写。
-	planFailures int
-	planRetryAt  time.Time
+	// 可以再规划的最早时刻；planHardFailures 是其中连续非瞬时的次数（见 planFailure）。只在
+	// Run 的事件循环内读写。
+	planFailures     int
+	planHardFailures int
+	planRetryAt      time.Time
+
+	// planBackoffBase 是冷却时长的起点（缺省 5 秒，见 planBackoff）；测试把它调小。
+	planBackoffBase time.Duration
 }
 
 // AgentConfig 配置
