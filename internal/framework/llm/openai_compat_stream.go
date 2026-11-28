@@ -14,18 +14,21 @@ func (g *openAICompatGen) StreamChat(ctx context.Context, msgs []Message, tools 
 	if err != nil {
 		return nil, err
 	}
-	limit := g.maxTokens
-	if maxTokens > 0 {
-		limit = maxTokens
-	}
+	limit := g.limit.forCall(maxTokens)
 
-	// 2. 创建流式请求（字段被拒在建流时即以 4xx 返回：按新结论改写后重建）
+	// 2. 创建流式请求（字段被拒在建流时即以 4xx 返回：按新结论改写后重建；输出上限过大则减半）
 	var stream *openai.ChatCompletionStream
 	for attempt := 0; ; attempt++ {
 		g.compat.apply(&creq, limit, nil)
 		stream, err = g.client.CreateChatCompletionStream(ctx, creq)
-		if err != nil && attempt < maxCompatRetries && g.compat.adapt(err, &creq) {
-			continue
+		if err != nil {
+			if next, ok := g.limit.rejected(wrapOpenAICompatErr(err), limit); ok {
+				limit = next
+				continue
+			}
+			if attempt < maxCompatRetries && g.compat.adapt(err, &creq) {
+				continue
+			}
 		}
 		break
 	}

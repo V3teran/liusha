@@ -16,14 +16,17 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 )
 
 // AnthropicConfig 描述 Anthropic 连接参数。
 // 密钥不在此结构——底层 *anthropic.Client 已带 apikey，由调用方从 ClientPool 注入。
 type AnthropicConfig struct {
-	BaseURL   string // 空 = 官方 https://api.anthropic.com
-	Model     string // 如 claude-sonnet-4-6
-	MaxTokens int    // 单次最大输出，协议必填：必须大于 0，由调用方按 provider 配置给值
+	BaseURL string // 空 = 官方 https://api.anthropic.com
+	Model   string // 如 claude-sonnet-4-6
+	// Limit 是这个账户上这个模型的输出上限（ClientPool.OutputLimitFor 构造）：协议要求 max_tokens
+	// 必填，所以配置的值必须大于 0；被上游嫌大而拒绝时自动下调。
+	Limit *OutputLimit
 	// ThinkingBudget 是扩展思考预算（thinking.budget_tokens）。>0 时请求开启
 	// 扩展思考：模型先流式产出 thinking block（内部 CoT），再产出正文/tool_use。
 	// 0 = 不开启。必须 < MaxTokens。
@@ -37,7 +40,7 @@ type AnthropicConfig struct {
 type anthropicGen struct {
 	client         anthropic.Client
 	model          anthropic.Model
-	maxTokens      int64
+	limit          *OutputLimit
 	thinkingBudget int64
 	provider       string
 }
@@ -45,8 +48,8 @@ type anthropicGen struct {
 // NewAnthropic 构造无状态 Generator。
 //
 // client 由调用方从 ClientPool 取（共享 HTTP 连接池）；tools 不在此绑定。
-// maxTokens 必须大于 0：协议要求这个字段必填，框架不替调用方猜一个缺省——缺省只有一个出处
-// （业务侧 llmconfig.DefaultMaxTokens），在配置入口落定，这里拿不到值就是调用方的错。
+// 输出上限必填且必须大于 0：协议要求 max_tokens 显式给出，框架不替调用方猜一个缺省——缺省只有
+// 一个出处（业务侧 llmconfig.DefaultMaxTokens），在配置入口落定，这里拿不到值就是调用方的错。
 func NewAnthropic(_ context.Context, providerCode string, c AnthropicConfig, client *anthropic.Client) (Generator, error) {
 	if client == nil {
 		return nil, errors.New("anthropic: client 必填（从 ClientPool 取）")
@@ -54,16 +57,16 @@ func NewAnthropic(_ context.Context, providerCode string, c AnthropicConfig, cli
 	if c.Model == "" {
 		return nil, errors.New("anthropic: model 必填")
 	}
-	if c.MaxTokens <= 0 {
-		return nil, errors.New("anthropic: max_tokens 必须大于 0（协议必填，由调用方按 provider 配置给值）")
+	if c.Limit == nil || c.Limit.configured <= 0 {
+		return nil, errors.New("anthropic: 输出上限必填且必须大于 0（协议要求 max_tokens 显式给出，由调用方按 provider 配置给值：ClientPool.OutputLimitFor）")
 	}
-	if c.ThinkingBudget > 0 && c.ThinkingBudget >= int64(c.MaxTokens) {
-		return nil, fmt.Errorf("anthropic: thinking budget %d 必须小于 max_tokens %d", c.ThinkingBudget, c.MaxTokens)
+	if c.ThinkingBudget > 0 && c.ThinkingBudget >= int64(c.Limit.configured) {
+		return nil, fmt.Errorf("anthropic: thinking budget %d 必须小于 max_tokens %d", c.ThinkingBudget, c.Limit.configured)
 	}
 	return &anthropicGen{
 		client:         *client,
 		model:          c.Model,
-		maxTokens:      int64(c.MaxTokens),
+		limit:          c.Limit,
 		thinkingBudget: c.ThinkingBudget,
 		provider:       providerCode,
 	}, nil
@@ -78,54 +81,20 @@ func (g *anthropicGen) Generate(ctx context.Context, msgs []Message, tools []Too
 }
 
 // GenerateWithOptions 实现 OptionsGenerator：按调用透传采样温度等可选参数。
+//
+// 非流式接口也走流式再聚合：协议的非流式请求在服务端以 10 分钟为上限，输出上限一大（SDK 按
+// 「1 小时 × 上限 ÷ 128000」估算超过 10 分钟）就不再接受非流式调用。适配器只保留流式这一条
+// 链路——聚合出的结果与非流式同构，也免得两条链路各自出偏差。
 func (g *anthropicGen) GenerateWithOptions(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenerateOptions) (Result, error) {
-	systemBlocks, anthropicMsgs, err := toAnthropicMessages(msgs)
+	ch, err := g.stream(ctx, msgs, tools, opts.MaxTokens, opts.Temperature)
 	if err != nil {
-		return Result{}, fmt.Errorf("convert messages: %w", err)
+		return Result{}, err
 	}
-	anthropicTools, err := toAnthropicTools(tools)
+	resp, err := CollectStream(ctx, ch, nil, nil)
 	if err != nil {
-		return Result{}, fmt.Errorf("convert tools: %w", err)
+		return Result{}, fmt.Errorf("anthropic generate: %w", err)
 	}
-
-	maxTokens := g.maxTokens
-	if opts.MaxTokens > 0 {
-		maxTokens = int64(opts.MaxTokens)
-	}
-	req := anthropic.MessageNewParams{
-		Model:     g.model,
-		MaxTokens: maxTokens,
-		Messages:  anthropicMsgs,
-	}
-	if len(systemBlocks) > 0 {
-		req.System = systemBlocks
-	}
-	if len(anthropicTools) > 0 {
-		req.Tools = anthropicTools
-	}
-	// 扩展思考：协议约束开启时 temperature 只能为 1，干脆不设（协议默认即 1）——
-	// 调用方传入的温度在该模式下被忽略，避免上游 400。
-	if g.thinkingBudget > 0 {
-		req.Thinking = anthropic.ThinkingConfigParamOfEnabled(clampThinkingBudget(g.thinkingBudget, maxTokens))
-	} else if opts.Temperature != nil {
-		req.Temperature = anthropic.Float(*opts.Temperature)
-	}
-
-	resp, err := g.client.Messages.New(ctx, req)
-	if err != nil {
-		return Result{}, fmt.Errorf("anthropic generate: %w", wrapAnthropicErr(err))
-	}
-	if !isAnthropicMessage(resp) {
-		return Result{}, fmt.Errorf("anthropic generate（provider=%s, model=%s）: 2xx 响应体不是消息: %w", g.provider, g.model, ErrUnexpectedResponse)
-	}
-	return fromAnthropicResponse(resp, g.provider, g.model), nil
-}
-
-// isAnthropicMessage 判定 2xx 响应体是否是一条消息：content / role / type 三个定义消息
-// 的字段至少出现一个。全部缺失说明响应体是别的东西（别的协议的响应、网关包成 200 的
-// 错误页）。只在三者全缺时才判定，个别字段缺失的宽松网关不受影响。
-func isAnthropicMessage(resp *anthropic.Message) bool {
-	return resp.JSON.Content.Valid() || resp.JSON.Role.Valid() || resp.JSON.Type.Valid()
+	return resultOf(resp, g.provider, g.model), nil
 }
 
 // toAnthropicMessages 把内部 Message 转成 Anthropic 原生类型。
@@ -308,66 +277,34 @@ func toAnthropicTools(tools []ToolSchema) ([]anthropic.ToolUnionParam, error) {
 	return out, nil
 }
 
-// fromAnthropicResponse 把 Message（响应）转成内部 Result。
-func fromAnthropicResponse(resp *anthropic.Message, provider, model string) Result {
-	res := Result{
-		FinishReason: string(resp.StopReason),
-		Provider:     provider,
-		Model:        model,
-		Usage: Usage{
-			InTokens:     int(resp.Usage.InputTokens),
-			OutTokens:    int(resp.Usage.OutputTokens),
-			CachedTokens: int(resp.Usage.CacheReadInputTokens),
-		},
-	}
-
-	var contentBuilder []byte
-	for _, block := range resp.Content {
-		switch block.Type {
-		case "thinking":
-			// 扩展思考块：保留原文与签名（签名供多轮 tool_use 回传校验）。
-			if block.Thinking != "" {
-				res.Thinking = &ThinkingBlock{Text: block.Thinking, Signature: block.Signature}
-			}
-		case "text":
-			if block.Text != "" {
-				if len(contentBuilder) > 0 {
-					contentBuilder = append(contentBuilder, '\n')
-				}
-				contentBuilder = append(contentBuilder, block.Text...)
-			}
-		case "tool_use":
-			args := block.Input
-			if len(args) == 0 {
-				args = json.RawMessage("{}")
-			}
-			res.ToolCalls = append(res.ToolCalls, ToolCall{
-				ID:        block.ID,
-				Name:      block.Name,
-				Arguments: args,
-			})
-		}
-	}
-	res.Content = string(contentBuilder)
-	return res
-}
-
 // ─── StreamChat（Provider 桥接用可选能力） ──────────────────────────────────────
 
 // StreamChat 流式生成：thinking/text 增量 + 聚合 tool_call + done（带 SDK Accumulate 的 usage）。
-// maxTokens ≤ 0 时走构造时的配置默认。
 func (g *anthropicGen) StreamChat(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error) {
-	mt := g.maxTokens
-	if maxTokens > 0 {
-		mt = int64(maxTokens)
-	}
-	params, err := prepareAnthropicRequest(msgs, tools, g.model, mt, g.thinkingBudget)
+	return g.stream(ctx, msgs, tools, maxTokens, nil)
+}
+
+// stream 建一条事件流。上游嫌输出上限过大时在处理协程里降一半重建（建流的错误要到首次读取
+// 才出现）。temperature 只在不开启扩展思考时下发：该模式下协议只允许 1，不设即协议默认。
+func (g *anthropicGen) stream(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int, temperature *float64) (<-chan StreamEvent, error) {
+	systemBlocks, anthropicMsgs, err := toAnthropicMessages(msgs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("convert messages: %w", err)
 	}
-	stream := g.client.Messages.NewStreaming(ctx, params)
+	anthropicTools, err := toAnthropicTools(tools)
+	if err != nil {
+		return nil, fmt.Errorf("convert tools: %w", err)
+	}
+
+	limit := g.limit.forCall(maxTokens)
 	ch := make(chan StreamEvent, 32)
-	go processAnthropicStream(ctx, stream, ch)
+	go processAnthropicStream(ctx, ch, g.limit, limit, func(limit int) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
+		params := anthropicRequest(systemBlocks, anthropicMsgs, anthropicTools, g.model, int64(limit), g.thinkingBudget)
+		if g.thinkingBudget == 0 && temperature != nil {
+			params.Temperature = anthropic.Float(*temperature)
+		}
+		return g.client.Messages.NewStreaming(ctx, params)
+	})
 	return ch, nil
 }
 

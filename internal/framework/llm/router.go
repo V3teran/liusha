@@ -281,7 +281,8 @@ func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool
 			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
 		}
 		return NewAnthropic(ctx, p.Code, AnthropicConfig{
-			BaseURL: p.BaseURL, Model: p.Model, MaxTokens: p.MaxTokens,
+			BaseURL: p.BaseURL, Model: p.Model,
+			Limit:          pool.OutputLimitFor(p.BaseURL, p.APIKey, p.Model, p.MaxTokens),
 			ThinkingBudget: p.ThinkingBudget,
 		}, cli)
 	case ProviderTypeOpenAICompat, "":
@@ -290,7 +291,8 @@ func BuildGeneratorWithKey(ctx context.Context, p ProviderSpec, pool *ClientPool
 			return nil, fmt.Errorf("provider %q: %w", p.Code, err)
 		}
 		return NewOpenAICompat(ctx, p.Code, OpenAICompatConfig{
-			BaseURL: p.BaseURL, Model: p.Model, MaxTokens: p.MaxTokens,
+			BaseURL: p.BaseURL, Model: p.Model,
+			Limit:          pool.OutputLimitFor(p.BaseURL, p.APIKey, p.Model, p.MaxTokens),
 			SupportsVision: p.SupportsVision, OutputLimitParam: p.OutputLimitParam,
 		}, cli)
 	}
