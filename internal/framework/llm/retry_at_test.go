@@ -305,10 +305,20 @@ func retryFor(inner Provider, cd *cooldown) Provider {
 	return WithRetry(inner, retryOptsForTest(), testGovernor(cd), testAccount)
 }
 
-// fastCooldown 把两个时间阈值缩小到毫秒级，让测试在真实时间里走完同样的状态迁移。
+// fastCooldown 把窗口分界缩小到毫秒级，让测试在真实时间里走完同样的状态迁移。探测间隔不缩：
+// 它一缩到百毫秒级，两次调用之间只隔一次等待，机器一卡就隔过了它，窗口内本该被挡下的调用
+// 就成了「放行的探测」，真的发往上游（负载很重时实测）。要测探测的用例用 probingCooldown。
 func fastCooldown() *cooldown {
 	c := newCooldown()
-	c.window, c.probeEvery = 60*time.Millisecond, 200*time.Millisecond
+	c.window = 60 * time.Millisecond
+	return c
+}
+
+// probingCooldown 是测探测的用例的夹具：探测间隔缩到一秒，放行探测不必等五分钟；「紧随其后
+// 的调用方继续等待」那一侧留有近一秒的余量，经得起机器卡顿。
+func probingCooldown() *cooldown {
+	c := fastCooldown()
+	c.probeEvery = time.Second
 	return c
 }
 
@@ -405,19 +415,40 @@ func TestQuotaWindowSharedAcrossCallers(t *testing.T) {
 	}
 }
 
+// 窗口内的后来者不会因为时间流逝被当成探测：它晚到了一小会儿，仍在探测间隔之内，照旧被
+// 挡下。夹具曾把探测间隔缩到 200ms——两次调用之间只隔一次 60ms 的等待，机器一卡就隔过了
+// 它，本该被挡下的调用成了「放行的探测」，真的发往上游（负载很重时实测）。
+func TestQuotaWindowLateArriverIsStillHeld(t *testing.T) {
+	cd := fastCooldown()
+	first := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second)}}
+	ctx, cancel := withBudget(5 * time.Second)
+	defer cancel()
+	if _, err := retryFor(first, cd).Complete(ctx, Request{}); err == nil {
+		t.Fatal("首次调用应撞上额度窗口")
+	}
+	time.Sleep(250 * time.Millisecond)
+
+	second := &scriptedProvider{outcomes: []error{nil}}
+	_, err := retryFor(second, cd).Complete(ctx, Request{})
+	assertNeverSent(t, err)
+	if second.sent() != 0 {
+		t.Fatalf("窗口内的后来者应被挡下，实际发出 %d 次请求", second.sent())
+	}
+}
+
 // 上游告知的恢复时刻只是它的说法（额度可能提前到账）：间隔一到放行一次探测，
 // 探测成功就解除窗口，之后的调用照常发出。
 func TestQuotaWindowLiftedByProbe(t *testing.T) {
-	cd := fastCooldown() // probeEvery = 200ms
+	cd := probingCooldown() // probeEvery = 1s
 	inner := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second), nil, nil}}
 	p := retryFor(inner, cd)
-	ctx, cancel := withBudget(2 * time.Second)
+	ctx, cancel := withBudget(5 * time.Second)
 	defer cancel()
 
 	if _, err := p.Complete(ctx, Request{}); err == nil {
 		t.Fatal("首次调用应撞上额度窗口")
 	}
-	time.Sleep(220 * time.Millisecond)
+	time.Sleep(1100 * time.Millisecond)
 
 	if _, err := p.Complete(ctx, Request{}); err != nil { // 放行的探测
 		t.Fatalf("探测应成功并解除窗口，实际 %v", err)
@@ -432,16 +463,16 @@ func TestQuotaWindowLiftedByProbe(t *testing.T) {
 
 // 探测每个间隔只放行一次：同一瞬间到来的其余调用方继续等待，不会齐声去探。
 func TestQuotaWindowProbeAdmitsOnePerInterval(t *testing.T) {
-	cd := fastCooldown() // probeEvery = 200ms
+	cd := probingCooldown() // probeEvery = 1s
 	inner := &scriptedProvider{outcomes: []error{quotaError(10 * time.Second)}}
 	p := retryFor(inner, cd)
-	ctx, cancel := withBudget(time.Second)
+	ctx, cancel := withBudget(5 * time.Second)
 	defer cancel()
 
 	if _, err := p.Complete(ctx, Request{}); err == nil {
 		t.Fatal("首次调用应撞上额度窗口")
 	}
-	time.Sleep(220 * time.Millisecond)
+	time.Sleep(1100 * time.Millisecond)
 
 	// 探测被限流，上游又告知了一个窗口；紧随其后的调用方必须等待。
 	_, err := p.Complete(ctx, Request{})
