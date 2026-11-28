@@ -103,7 +103,8 @@ func processAnthropicStream(ctx context.Context, stream *ssestream.Stream[anthro
 			break
 		}
 	}
-	emit(StreamEvent{Kind: StreamDone, Usage: &u, Signature: sig})
+	// 结束原因随收尾事件透出（message_delta 的 stop_reason）：输出被上限截断时是 max_tokens。
+	emit(StreamEvent{Kind: StreamDone, Usage: &u, Signature: sig, FinishReason: string(acc.StopReason)})
 }
 
 // handleStreamEvent 处理单个流事件

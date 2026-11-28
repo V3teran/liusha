@@ -151,6 +151,7 @@ cd web && pnpm build && pnpm test                           # build = tsc -b（�
 
 - LLM 调用与工具调用的记录是失败现场的第一证据，写入不依赖被审计调用的 ctx：调用超时或被取消时它的 ctx 已经结束，写入若随之作废，丢掉的偏偏是失败现场。LLM 调用记录经 channel 入队（入队不看 ctx，缓冲满丢行并告警）；工具调用记录同步写库，用去掉取消的 ctx，另设时间上限。
 - 失败类别取记录携带的分类（`llm.UsageRecord.ErrClass`，框架层 `Classify` 对真实错误的结论），落库一方不拿错误文本重判：哨兵错误只存在于错误链上，文本重判会把本地的在途名额节流判成「其它错误」。
+- `finish_reason` 记协议给出的结束原因（OpenAI 兼容 `stop` / `length` / `tool_calls` / `content_filter`，Anthropic `end_turn` / `max_tokens` / `tool_use`），流式与非流式同一口径——流式的经收尾事件透传（`StreamEvent.FinishReason`）。此前流式成功收尾一律写 `stop`，「模型调用」页的「截断」徽章对智能体的调用（全走流式）永远不会出现。输出被上限截断是 `length` / `max_tokens`（`llm.HitOutputLimit`）：推理模型的思考计入单次输出，思考吃满预算时正文为空。
 
 ### 会话时间线（`internal/reasoning`、`cognition/timeline.go`）
 

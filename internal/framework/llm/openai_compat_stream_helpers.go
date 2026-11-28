@@ -40,6 +40,9 @@ func processOpenAICompatStream(ctx context.Context, stream *openai.ChatCompletio
 	}()
 
 	partial := map[int]*ToolCall{}
+	// finish 是最后出现的 finish_reason（stop / length / tool_calls / content_filter）：
+	// 任何非空取值都说明这一路输出已经结束，length 即被输出上限截断。
+	finish := ""
 
 	emit := func(e StreamEvent) bool {
 		select {
@@ -67,7 +70,8 @@ func processOpenAICompatStream(ctx context.Context, stream *openai.ChatCompletio
 			return
 		}
 
-		if isOpenAICompatFinished(chunk) {
+		if reason := chunk.Choices[0].FinishReason; reason != "" {
+			finish = string(reason)
 			if !emitPendingToolCalls(partial, emit) {
 				return
 			}
@@ -76,7 +80,7 @@ func processOpenAICompatStream(ctx context.Context, stream *openai.ChatCompletio
 	}
 
 	// OpenAI 流式 chunk 不返回 usage，发空 Usage
-	emit(StreamEvent{Kind: StreamDone, Usage: &Usage{}})
+	emit(StreamEvent{Kind: StreamDone, Usage: &Usage{}, FinishReason: finish})
 }
 
 // handleOpenAICompatChunk 处理单个 OpenAI 兼容 chunk
@@ -108,12 +112,6 @@ func handleOpenAICompatChunk(chunk openai.ChatCompletionStreamResponse, partial 
 	}
 
 	return true
-}
-
-// isOpenAICompatFinished 检查是否已完成
-func isOpenAICompatFinished(chunk openai.ChatCompletionStreamResponse) bool {
-	return chunk.Choices[0].FinishReason == openai.FinishReasonToolCalls ||
-		chunk.Choices[0].FinishReason == openai.FinishReasonStop
 }
 
 // emitPendingToolCalls 发出所有待处理的工具调用

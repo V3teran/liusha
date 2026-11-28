@@ -20,7 +20,7 @@ var ErrStreamTruncated = errors.New("stream closed before terminal event")
 // 思考文本增量聚合为 Response.Thinking.Text；收尾事件的 Signature 补全
 // ThinkingBlock（供多轮 tool_use 的规范回传）。通道以 StreamError 收尾、或未见
 // 收尾事件即关闭（ErrStreamTruncated）时返回错误；ctx 取消时立即返回。成功时
-// FinishReason 恒为 "stop"（工具调用由 ToolCalls 表达）。
+// FinishReason 是协议给出的结束原因（见 finishReasonOf）。
 func CollectStream(ctx context.Context, ch <-chan StreamEvent, onText func(chunk string), onThinking func(chunk string)) (Response, error) {
 	var resp Response
 	done := false
@@ -47,6 +47,7 @@ func CollectStream(ctx context.Context, ch <-chan StreamEvent, onText func(chunk
 			}
 		case StreamDone:
 			done = true
+			resp.FinishReason = finishReasonOf(ev)
 			if ev.Usage != nil {
 				resp.Usage = *ev.Usage
 			}
@@ -69,6 +70,14 @@ func CollectStream(ctx context.Context, ch <-chan StreamEvent, onText func(chunk
 	if !done {
 		return Response{}, ErrStreamTruncated
 	}
-	resp.FinishReason = "stop"
 	return resp, nil
+}
+
+// finishReasonOf 是收尾事件给出的结束原因；适配器没给的按 stop——流在收尾之前断掉走不到这里
+// （那是 ErrStreamTruncated），带着收尾事件结束的流即使没写明原因也是正常停下。
+func finishReasonOf(ev StreamEvent) string {
+	if ev.FinishReason != "" {
+		return ev.FinishReason
+	}
+	return "stop"
 }
