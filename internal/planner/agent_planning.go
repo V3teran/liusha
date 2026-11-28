@@ -61,7 +61,10 @@ func (a *Agent) planRound(ctx context.Context) error {
 		if errors.Is(err, explorationgraph.ErrGoalChanged) {
 			return err
 		}
-		a.logger.Warn().Err(err).Msg("分析新 Results 失败（继续规划）")
+		// 本轮被停掉（任务终止、暂停、停机）时的取消是正常收尾，不是分析的失败。
+		if ctx.Err() == nil {
+			a.logger.Warn().Err(err).Msg("分析新 Results 失败（继续规划）")
+		}
 	}
 
 	// 2. 还有待执行动作则本轮不规划
@@ -237,7 +240,7 @@ func (a *Agent) liveReplanReasons(ctx context.Context, requests []replanRequest)
 		return nil
 	}
 	_, now, err := a.planningBasis(ctx)
-	if err != nil {
+	if err != nil && ctx.Err() == nil { // 本轮被停掉时的取消不是读图的失败
 		a.logger.Warn().Err(err).Msg("读取图面失败，重规划请求全部保留")
 	}
 	reasons := make([]string, 0, len(requests))
