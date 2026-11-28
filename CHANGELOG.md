@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.2](https://github.com/V3teran/liusha/compare/v0.16.1...v0.16.2) (2026-11-28)
+
+
+### 问题修复
+
+* **exploration:** 走过的线索描边同款换正文色 ([8712616](https://github.com/V3teran/liusha/commit/87126168dfe78c8223680f7133016d86129e0415))
+
 ## [0.16.1](https://github.com/V3teran/liusha/compare/v0.16.0...v0.16.1) (2026-11-28)
 
 
