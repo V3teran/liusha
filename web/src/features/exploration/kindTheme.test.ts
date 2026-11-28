@@ -75,7 +75,7 @@ describe('kindTheme（线索与否决范围）', () => {
   it('线索是事实观察的顶层字段 lead：带它的事实是线索；假设观察即使带了也不是', () => {
     expect(leadMeta(fact())).toBeNull()
     expect(leadMeta(fact({ lead: SPEC, verification_status: 'pending' }))).toBeNull()
-    expect(leadMeta(fact({ lead: SPEC }))).toEqual({ closed: false, detail: '', spec: SPEC, kind: undefined })
+    expect(leadMeta(fact({ lead: SPEC }))).toEqual({ closed: false, detail: '', spec: SPEC })
     // 线索成为结构化字段之前落图的没有三样
     expect(leadMeta(fact({ lead: { next: '', question: '', potential: '' } }))).toEqual({
       closed: false,
@@ -89,19 +89,16 @@ describe('kindTheme（线索与否决范围）', () => {
       closed: true,
       detail: '干涸',
       spec: SPEC,
-      kind: 'dry',
     })
     expect(leadMeta(fact({ lead: SPEC, lead_closed: { kind: 'out_of_scope', reason: ' 不在本期范围 ' } }))).toEqual({
       closed: true,
       detail: '超出任务目标：不在本期范围',
       spec: SPEC,
-      kind: 'out_of_scope',
     })
     expect(leadMeta(fact({ lead: SPEC, lead_closed: { kind: 'odd', reason: '' } }))).toEqual({
       closed: true,
       detail: 'odd',
       spec: SPEC,
-      kind: 'odd',
     })
   })
 
@@ -120,13 +117,12 @@ describe('kindTheme（线索与否决范围）', () => {
   })
 
   it('卡片的线索徽章：开着标「线索」，关闭后标「已关闭」', () => {
-    expect(nodeChips(fact({ lead: SPEC })).lead).toEqual({ label: '线索', closed: false, detail: '', spec: SPEC, kind: undefined })
+    expect(nodeChips(fact({ lead: SPEC })).lead).toEqual({ label: '线索', closed: false, detail: '', spec: SPEC })
     expect(nodeChips(fact({ lead: SPEC, lead_closed: { kind: 'dry', reason: '' } })).lead).toEqual({
       label: '已关闭',
       closed: true,
       spec: SPEC,
       detail: '干涸',
-      kind: 'dry',
     })
     expect(nodeChips(fact()).lead).toBeUndefined()
   })

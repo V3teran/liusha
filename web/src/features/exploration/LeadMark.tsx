@@ -21,9 +21,10 @@ export function LeadMark({ title, className, ...rest }: HTMLAttributes<HTMLSpanE
 }
 
 /**
- * 已走过的线索：关闭类别属于被处理过的（走到头、有结论、干涸、受阻、被否决）。脚印保留但
+ * 已走过的线索：被动作认领推进过、随后关闭（图上有认领它的 pursues 边连着）。脚印保留但
  * 从线索的暖橙换成正文色——它不再是「还没走到头」的呼喊，而是「这条路走过了」的留痕；描边
- * 还原为普通事实卡。没被处理就关闭的线索（不值得走）没有标记，类别与理由在详情面板。
+ * 还原为普通事实卡。没有认领边就关闭的线索（不值得走，或已被别的动作覆盖）没有标记，类别
+ * 与理由在详情面板。
  */
 export function LeadMarkFollowed({ title, className, ...rest }: HTMLAttributes<HTMLSpanElement>) {
   return (

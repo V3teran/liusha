@@ -19,7 +19,7 @@
 import { memo, type CSSProperties } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { cn } from '@/lib/utils'
-import { FOLLOWED_LEAD_CLOSURES, kindProfile, leadHint, nodeChips, nodeTitle, LEAD_ACCENT } from '../kindTheme'
+import { kindProfile, leadHint, nodeChips, nodeTitle, LEAD_ACCENT } from '../kindTheme'
 import type { ExplorationFlowNode } from '../layout'
 import { LeadMarkFollowed, LeadMark } from '../LeadMark'
 
@@ -29,13 +29,7 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
   const Icon = profile.icon
   const title = nodeTitle(node) || '（无内容）'
   const chips = nodeChips(node)
-  const leadState = !chips.lead
-    ? 'none'
-    : !chips.lead.closed
-      ? 'open'
-      : FOLLOWED_LEAD_CLOSURES.has(chips.lead.kind ?? '')
-        ? 'followed'
-        : 'none'
+  const leadState = !chips.lead ? 'none' : !chips.lead.closed ? 'open' : data.leadFollowed ? 'followed' : 'none'
 
   return (
     <>
