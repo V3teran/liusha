@@ -11,12 +11,15 @@ import (
 
 // 任务工作区目录（任务一层隔离）：
 //
-//	<工作区根>/<批次>/<任务>/work     命令执行的 cwd
-//	<工作区根>/<批次>/<任务>/out      产物（$OUTPUT_DIR 的落点）
-//	<工作区根>/<批次>/<任务>/state    会话与环境状态（HOME 指向它，chromium 等按 $HOME 落盘的工具随之归位）
-//	<工作区根>/<批次>/<任务>/console  越过落盘阈值的命令输出（完整内容，见 exec_capture.go；有才建）
+//	<工作区根>/<批次>/<任务>/out    本任务的文件面：命令的产物（$OUTPUT_DIR 的落点），与超过
+//	                                输出落盘阈值的完整输出留档（<时间戳>.stdout/.stderr，由收集器
+//	                                直接写在这里，见 exec_capture.go）
+//	<工作区根>/<批次>/<任务>/state  会话与环境状态（HOME 指向它，chromium 等按 $HOME 落盘的工具随之归位）
 //
-// 任务间以目录为隔离边界；任务内多 agent 共享目录——同任务共目标，agent 级目录是假隔离。
+// 命令的 cwd 与 $OUTPUT_DIR 是同一个目录：本次执行的暂存目录（工作区根下 .exec/out-XXX，见
+// execOutput），其中预置 out 既有顶层文件的硬链接——相对路径写盘与新产物一样被收编进 out 并
+// 归属本次执行，旧产物照常可读，删掉暂存里的名字不动 out 里的真身；执行结束暂存目录删除。
+// 任务间以目录为隔离边界；任务内多 agent 共享 out——同任务共目标，agent 级目录是假隔离。
 // 工作区根与 api 的文件面是同一目录，工件因此在沙盒重建后仍在。
 
 // execWaitDelay 是 cmd.WaitDelay：进程退出 / ctx 取消起算，最多再等这么久就强制关 I/O 管道并让
@@ -26,7 +29,8 @@ var execWaitDelay = 10 * time.Second
 // handleExec 处理 POST /exec：
 //  1. 解析并校验请求
 //  2. 建任务工作区目录（work / out / state）
-//  3. 本次执行的 $OUTPUT_DIR 是专属暂存目录（见 execOutput），结束后产物移入 out/ 并作为附件返回
+//  3. 本次执行的 $OUTPUT_DIR 是专属暂存目录，也是命令的 cwd（见 execOutput）：结束后产物移入
+//     out/ 并作为附件返回
 //  4. 命令的进程归属于任务：超时 / 请求断开结束这条命令的全部进程；正常结束后留在
 //     后台的进程（监听器等）保留到任务释放
 //  5. 输出有界收集：越过请求的落盘阈值就完整落盘，响应带完整字节数与落盘路径（见 exec_capture.go）
@@ -61,7 +65,7 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer cleanup()
-	capture := newOutputCapture(req.SaveOutputOverBytes, dirs.console)
+	capture := newOutputCapture(req.SaveOutputOverBytes, dirs.out)
 	streams, exitCode, timedOut := s.executeCommand(cmdCtx, req.TaskID, cmd, capture)
 
 	res := sandbox.ExecResult{

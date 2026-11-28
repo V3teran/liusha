@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { displayPath } from './displayPath'
 
 /** 扁平文件树：服务端排序（顶层批次目录最新在前，组内目录前、路径序），
- * 深度即缩进（批次 → 任务 → work/out）。目录为弱化行，文件行可选中；行悬停露下载/删除。 */
+ * 深度即缩进（批次 → 任务 → out）。目录为弱化行，文件行可选中；行悬停露下载/删除。 */
 export function FileTree({
   entries,
   selected,

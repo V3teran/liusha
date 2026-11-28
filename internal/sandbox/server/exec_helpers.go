@@ -43,23 +43,22 @@ func validateExecRequest(req *sandbox.ExecRequest, w http.ResponseWriter) bool {
 	return true
 }
 
-// taskDirs 是一个任务的工作区目录（见 exec.go 开头的布局说明）。console 不在这里建：只有输出
-// 越过落盘阈值时才建（见 exec_capture.go）。
+// taskDirs 是一个任务的工作区目录（见 exec.go 开头的布局说明）。out 与 state 在这里建；输出
+// 留档由收集器在超过落盘阈值时直接写进 out/ 顶层（见 exec_capture.go）。命令的 cwd 与 $OUTPUT_DIR
+// 是本次执行的暂存目录（stageOutput），不在任务目录之下。
 type taskDirs struct {
 	assignmentID, taskID string
-	work, out, state     string
-	console              string
+	out, state           string
 }
 
-// ensureTaskDirs 建任务工作区的 work / out / state 目录。ID 须已校验为路径安全。
+// ensureTaskDirs 建任务工作区的 out / state 目录。ID 须已校验为路径安全。
 func (s *Server) ensureTaskDirs(assignmentID, taskID string) (taskDirs, error) {
 	root := filepath.Join(s.cfg.WorkspaceDir, assignmentID, taskID)
 	d := taskDirs{
 		assignmentID: assignmentID, taskID: taskID,
-		work: filepath.Join(root, "work"), out: filepath.Join(root, "out"), state: filepath.Join(root, "state"),
-		console: filepath.Join(root, consoleDirName),
+		out: filepath.Join(root, "out"), state: filepath.Join(root, "state"),
 	}
-	for _, dir := range []string{d.work, d.out, d.state} {
+	for _, dir := range []string{d.out, d.state} {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return taskDirs{}, fmt.Errorf("mkdir %s: %w", dir, err)
 		}
@@ -84,7 +83,8 @@ func (s *Server) buildExecCommand(ctx context.Context, req *sandbox.ExecRequest,
 	}
 
 	cmd := exec.CommandContext(cmdCtx, s.cfg.Shell, sandbox.AgentPath(script)) // #nosec G204 // 沙盒的职责就是执行 agent 下发的命令
-	cmd.Dir = dirs.work
+	// cwd 与 $OUTPUT_DIR 同为本次执行的暂存目录：相对路径写盘与新产物一样被收编（见 execOutput）。
+	cmd.Dir = outputDir
 	cmd.Env = append(s.baseEnv(), dirs.env(outputDir)...)
 	cmd.Env = append(cmd.Env, "LIUSHA_AGENT_RUN_ID="+req.AgentRunID)
 	cmd.WaitDelay = execWaitDelay
@@ -124,7 +124,6 @@ func (d taskDirs) env(outputDir string) []string {
 	env := []string{
 		"LIUSHA_ASSIGNMENT_ID=" + d.assignmentID,
 		"LIUSHA_TASK_ID=" + d.taskID,
-		"LIUSHA_WORKSPACE=" + sandbox.AgentPath(d.work),
 		"LIUSHA_OUTPUT=" + sandbox.AgentPath(outputDir),
 		"LIUSHA_STATE=" + sandbox.AgentPath(d.state),
 		"HOME=" + sandbox.AgentPath(d.state),
@@ -233,7 +232,7 @@ func (s *Server) executeCommand(cmdCtx context.Context, taskID string, cmd *exec
 	return streams, exitCode, timedOut
 }
 
-// streamWarnings 把落盘上的问题写成提示：留档失败或有内容没写进文件，这次命令的输出照常返回，
+// streamWarnings 把留档上的问题写成提示：留档失败或有内容没写进文件，这次命令的输出照常返回，
 // 只是完整输出少了一份留档——说明白，不悄悄少。
 func streamWarnings(s capturedStreams) []string {
 	var out []string
@@ -244,9 +243,9 @@ func streamWarnings(s capturedStreams) []string {
 	}{{"stdout", s.stdoutErr, s.stdoutUnsaved}, {"stderr", s.stderrErr, s.stderrUnsaved}} {
 		switch {
 		case f.err != nil:
-			out = append(out, fmt.Sprintf("full %s output could not be saved to %s/: %v", f.name, consoleDirName, f.err))
+			out = append(out, fmt.Sprintf("full %s output could not be saved: %v", f.name, f.err))
 		case f.unsaved > 0:
-			out = append(out, fmt.Sprintf("%s output exceeded the %d-byte limit for %s/ files; %d bytes were not saved", f.name, maxSaveBytes, consoleDirName, f.unsaved))
+			out = append(out, fmt.Sprintf("%s output exceeded the %d-byte limit for saved output; %d bytes were not saved", f.name, maxSaveBytes, f.unsaved))
 		}
 	}
 	return out
