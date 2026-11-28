@@ -69,6 +69,18 @@ func (s *Store) nodeToGraphNode(node Node) *core.GraphNode {
 		graphNode.Metadata[metaVerification] = string(*node.VerificationStatus)
 	}
 
+	if node.Urgent {
+		graphNode.Metadata[metaUrgent] = true
+	}
+
+	// 线索与其关闭批注（仅事实观察）：对象入库，读取时经 JSON 往返还原成类型。
+	if node.Lead != nil {
+		graphNode.Metadata[metaLead] = typedToMetadata(node.Lead)
+	}
+	if node.LeadClosed != nil {
+		graphNode.Metadata[metaLeadClosed] = typedToMetadata(node.LeadClosed)
+	}
+
 	// 节点 Metadata 平铺合并（键不与类型化键冲突时等价于直接落库）
 	if len(node.Metadata) > 0 {
 		var extra map[string]interface{}

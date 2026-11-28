@@ -30,9 +30,9 @@ func WithdrawPlannedActions(ctx context.Context, db Execer, taskID, reason strin
 }
 
 // AssignAction 在根目标下建一个用户指派的 open 动作（内容只有指令），返回动作 ID。
-// 执行者有空位即按优先级认领；监察者不能否决它。
-func AssignAction(ctx context.Context, db Querier, taskID, instruction string, priority Priority) (string, error) {
-	metadata := MustJSON(map[string]string{"source_type": string(SourceUser), "priority": string(priority)})
+// 用户指派的动作排在规划者排出的全部动作之前被认领；监察者不能否决它。
+func AssignAction(ctx context.Context, db Querier, taskID, instruction string) (string, error) {
+	metadata := MustJSON(map[string]string{"source_type": string(SourceUser)})
 	var id string
 	err := db.QueryRow(ctx, `
 		WITH root AS (

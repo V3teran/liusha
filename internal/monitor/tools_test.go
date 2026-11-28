@@ -120,15 +120,17 @@ func TestGetGlobalStateTool_ListsOpenLeads(t *testing.T) {
 	base := time.Now().Add(-30 * time.Minute)
 	lead := func(id, statement string, age time.Duration) explorationgraph.Node {
 		return explorationgraph.Node{ID: id, TaskID: "t1", Kind: core.KindObservation, SourceType: explorationgraph.SourceExecutor,
-			Content: []byte(`{"category":"access","statement":"` + statement + `"}`), Metadata: explorationgraph.OpensDeeperMetadata(),
+			Content:   []byte(`{"category":"access","statement":"` + statement + `"}`),
+			Lead:      &explorationgraph.LeadSpec{Next: "顺着它再走一步", Question: "结论是什么", Potential: "一条可坐实的主张"},
 			CreatedAt: base.Add(age)}
 	}
 	for _, n := range []explorationgraph.Node{
 		lead("lead-open", "待深挖的线索", 0),
 		lead("lead-held", "被跟进的线索", time.Minute),
 		{ID: "lead-shut", TaskID: "t1", Kind: core.KindObservation, SourceType: explorationgraph.SourceExecutor,
-			Content:  []byte(`{"category":"access","statement":"已关闭的线索"}`),
-			Metadata: json.RawMessage(`{"opens_deeper":true,"lead_closed":{"kind":"out_of_scope","reason":"超出任务目标"}}`)},
+			Content:    []byte(`{"category":"access","statement":"已关闭的线索"}`),
+			Lead:       &explorationgraph.LeadSpec{Next: "n", Question: "q", Potential: "p"},
+			LeadClosed: &explorationgraph.LeadClosure{Kind: explorationgraph.ClosureOutOfScope, Reason: "超出任务目标"}},
 		{ID: "fact", TaskID: "t1", Kind: core.KindObservation,
 			Content: []byte(`{"category":"access","statement":"普通事实"}`)},
 	} {
@@ -198,7 +200,7 @@ func TestPublishDecisionTool_RejectAction_ScopeSettlesThePursuedLead(t *testing.
 	running := explorationgraph.StateRunning
 	_, err := graph.CreateNode(ctx, explorationgraph.Node{ID: "lead-1", TaskID: "t1", Kind: core.KindObservation,
 		SourceType: explorationgraph.SourceExecutor, Content: []byte(`{"category":"access","statement":"探通一条路"}`),
-		Metadata: explorationgraph.OpensDeeperMetadata()})
+		Lead: &explorationgraph.LeadSpec{Next: "n", Question: "q", Potential: "p"}})
 	require.NoError(t, err)
 	pursue := func(id string) {
 		require.NoError(t, graph.CreateNodeWithEdges(ctx, explorationgraph.Node{

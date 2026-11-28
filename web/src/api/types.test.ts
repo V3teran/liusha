@@ -36,8 +36,7 @@ describe('SSE 帧解析（小写蛇形键（与后端 json tag 同口径））',
       op: '',
       withdrawn: 0,
       action_id: '',
-      priority: '',
-    },
+        },
     created_at: '2026-06-10T00:00:00Z',
   }
 

@@ -334,44 +334,61 @@ func TestActionObjective(t *testing.T) {
 	}
 }
 
-// 执行者从图上读到动作认领的线索：只取 pursues 边指向的线索，陈述为空的不列；没有认领
-// 线索的动作得到空列表。
-func TestPursuedLeadStatements(t *testing.T) {
+// 执行者从图上读到动作认领的线索：只取 pursues 边指向的线索，每条带着执行者写下的三样；
+// 线索成为结构化字段之前落图的没有三样，只列事实；没有认领先索的动作得到空列表。
+func TestPursuedLeadLines(t *testing.T) {
 	graph := explorationgraph.NewMemoryStore()
 	ctx := context.Background()
 	lead := explorationgraph.Node{ID: "lead-1", TaskID: "t-leads", Kind: core.KindObservation,
-		SourceType: explorationgraph.SourceExecutor, Metadata: explorationgraph.OpensDeeperMetadata(),
-		Content: json.RawMessage(`{"category":"access","statement":"参数甲回显了输入"}`)}
+		SourceType: explorationgraph.SourceExecutor,
+		Lead:       &explorationgraph.LeadSpec{Next: "换一个输入再试", Question: "是否任意输入都回显", Potential: "一条可坐实的反射型主张"},
+		Content:    json.RawMessage(`{"category":"access","statement":"参数甲回显了输入"}`)}
 	if _, err := graph.CreateNode(ctx, lead); err != nil {
+		t.Fatalf("建线索失败: %v", err)
+	}
+	legacy := explorationgraph.Node{ID: "lead-0", TaskID: "t-leads", Kind: core.KindObservation,
+		SourceType: explorationgraph.SourceExecutor, Lead: &explorationgraph.LeadSpec{},
+		Content: json.RawMessage(`{"category":"access","statement":"早先的一条线索"}`)}
+	if _, err := graph.CreateNode(ctx, legacy); err != nil {
 		t.Fatalf("建线索失败: %v", err)
 	}
 	action := explorationgraph.Node{ID: "act-1", TaskID: "t-leads", Kind: core.KindAction,
 		Content: json.RawMessage(`{"instruction":"深挖"}`)}
 	if err := graph.CreateNodeWithEdges(ctx, action, []explorationgraph.Edge{
 		{TaskID: "t-leads", SrcID: "act-1", Rel: explorationgraph.RelPursues, DstID: "lead-1"},
+		{TaskID: "t-leads", SrcID: "act-1", Rel: explorationgraph.RelPursues, DstID: "lead-0"},
 	}); err != nil {
 		t.Fatalf("建动作失败: %v", err)
 	}
 	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.Nop()})
 
-	got, err := e.pursuedLeadStatements(ctx, action)
+	got, err := e.pursuedLeadLines(ctx, action)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0] != "参数甲回显了输入" {
-		t.Fatalf("应读到认领的线索陈述，得 %q", got)
+	want := []string{
+		"参数甲回显了输入（下一步：换一个输入再试；要弄清：是否任意输入都回显；能换来：一条可坐实的反射型主张）",
+		"早先的一条线索",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("应读到认领的两条线索，得 %q", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("第 %d 条线索应为 %q，得 %q", i, want[i], got[i])
+		}
 	}
 
 	plain := explorationgraph.Node{ID: "act-2", TaskID: "t-leads", Kind: core.KindAction, Content: action.Content}
 	if _, err := graph.CreateNode(ctx, plain); err != nil {
 		t.Fatalf("建动作失败: %v", err)
 	}
-	got, err = e.pursuedLeadStatements(ctx, plain)
+	got, err = e.pursuedLeadLines(ctx, plain)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 0 {
-		t.Fatalf("没有认领线索的动作应得到空列表，得 %q", got)
+		t.Fatalf("没有认领先索的动作应得到空列表，得 %q", got)
 	}
 }
 
@@ -394,9 +411,9 @@ func TestBuildSystemPrompt_AppendsScenario(t *testing.T) {
 	}
 }
 
-// opens_deeper 是事实观察专属的线索信号：事实标注它时落进节点 metadata（待深挖线索
-// 由 Store.OpenLeads 据此推导）；假设不采纳（它本身在复现门里推进）。
-func TestHarvestObservation_OpensDeeperOnlyOnFact(t *testing.T) {
+// 线索只属于事实观察，且三样（下一步、要弄清的结论、推进价值）齐备才成线索：缺任何一样的
+// 按普通事实写入；假设带了线索也不采纳（它本身在复现门里推进）。写入时去掉首尾空白。
+func TestHarvestObservation_LeadOnlyOnACompleteFact(t *testing.T) {
 	graph := explorationgraph.NewMemoryStore()
 	e := NewEngine(EngineConfig{Graph: graph, Logger: zerolog.Nop()})
 	action := explorationgraph.Node{
@@ -406,37 +423,59 @@ func TestHarvestObservation_OpensDeeperOnlyOnFact(t *testing.T) {
 	if _, err := graph.CreateNode(context.Background(), action); err != nil {
 		t.Fatalf("建 action 失败: %v", err)
 	}
+	spec := explorationgraph.LeadSpec{Next: " 用这个会话测其余模块 ", Question: " low 下是否同样可利用", Potential: "每多一个模块多一条主张 "}
 
-	// 事实标 opens_deeper：落图后带线索信号
+	// 三样齐备的事实：落图即线索，三样原样带上（去首尾空白）
 	lead := e.harvestObservation(context.Background(), action, Observation{
-		Category: explorationgraph.CategoryAccess, Statement: "存在未鉴权可达的管理入口", OpensDeeper: true,
+		Category: explorationgraph.CategoryAccess, Statement: "admin/password 能登进后台", Lead: &spec,
 	})
 	if lead == nil || !lead.IsFact() {
 		t.Fatalf("事实应落图: %+v", lead)
 	}
-	if !lead.OpensDeeper() {
-		t.Fatalf("标了 opens_deeper 的事实应带线索信号: metadata=%s", lead.Metadata)
+	if !lead.IsLead() || lead.Lead == nil {
+		t.Fatalf("三样齐备的事实应是线索: %+v", lead)
+	}
+	if want := (explorationgraph.LeadSpec{Next: "用这个会话测其余模块", Question: "low 下是否同样可利用", Potential: "每多一个模块多一条主张"}); *lead.Lead != want {
+		t.Fatalf("线索三样应原样带上、去首尾空白，得 %+v", *lead.Lead)
 	}
 
-	// 未标 opens_deeper 的事实：不是线索
+	// 缺任何一样：不成线索，仍是事实
+	for name, missing := range map[string]*explorationgraph.LeadSpec{
+		"缺下一步":  {Question: "q", Potential: "p"},
+		"缺要弄清":  {Next: "n", Potential: "p"},
+		"缺推进价值": {Next: "n", Question: "q"},
+		"只有空白":  {Next: " ", Question: "", Potential: "\t"},
+	} {
+		obs := e.harvestObservation(context.Background(), action, Observation{
+			Category: explorationgraph.CategoryBehavior, Statement: "环境对某个输入怎么反应", Lead: missing,
+		})
+		if obs == nil || !obs.IsFact() {
+			t.Fatalf("%s：事实应落图: %+v", name, obs)
+		}
+		if obs.IsLead() {
+			t.Fatalf("%s：不应成为线索: %+v", name, obs.Lead)
+		}
+	}
+
+	// 没写线索的事实
 	plain := e.harvestObservation(context.Background(), action, Observation{
 		Category: explorationgraph.CategoryEntity, Statement: "目标为 nginx",
 	})
-	if plain.OpensDeeper() {
-		t.Fatalf("未标 opens_deeper 的事实不应是线索: metadata=%s", plain.Metadata)
+	if plain.IsLead() {
+		t.Fatalf("没写线索的事实不应是线索: %+v", plain.Lead)
 	}
 
-	// 假设即便给 OpensDeeper 也不采纳（它走复现门，不走深挖线索通道）
+	// 假设即便带了线索也不采纳（它走复现门，不走深挖线索通道）
 	hyp := e.harvestObservation(context.Background(), action, Observation{
-		Category:    explorationgraph.CategoryHypothesis,
-		Statement:   "参数存在可复现注入",
-		OpensDeeper: true,
-		Repro:       json.RawMessage(`{"kind":"steps","recipe":{"steps":"1. 发请求"},"assert":{"description":"看到回显"}}`),
+		Category:  explorationgraph.CategoryHypothesis,
+		Statement: "参数存在可复现注入",
+		Lead:      &spec,
+		Repro:     json.RawMessage(`{"kind":"steps","recipe":{"steps":"1. 发请求"},"assert":{"description":"看到回显"}}`),
 	})
 	if hyp == nil || !hyp.HasVerificationStatus(explorationgraph.VerificationPending) {
 		t.Fatalf("假设应待验证落图: %+v", hyp)
 	}
-	if hyp.OpensDeeper() {
-		t.Fatalf("假设不应携带 opens_deeper 线索信号: metadata=%s", hyp.Metadata)
+	if hyp.IsLead() {
+		t.Fatalf("假设不应携带线索: %+v", hyp.Lead)
 	}
 }

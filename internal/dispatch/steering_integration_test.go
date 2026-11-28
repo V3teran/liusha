@@ -60,7 +60,7 @@ func (f steeringFixture) action(t *testing.T, state explorationgraph.State, sour
 	t.Helper()
 	id, err := f.graph.CreateNode(context.Background(), explorationgraph.Node{
 		ID: uuid.NewString(), TaskID: f.taskID, Kind: core.KindAction, State: &state, SourceType: source,
-		Priority: explorationgraph.PriorityMedium, Content: []byte(`{"instruction":"x"}`), CreatedAt: time.Now(),
+		Content: []byte(`{"instruction":"x"}`), CreatedAt: time.Now(),
 	})
 	require.NoError(t, err)
 	return id
@@ -142,14 +142,14 @@ func TestAssignAction(t *testing.T) {
 	_, err := f.svc.Tasks.MarkPaused(ctx, f.taskID)
 	require.NoError(t, err)
 
-	id, err := f.svc.AssignAction(ctx, f.taskID, "复测登录接口的 SQL 注入", explorationgraph.PriorityHigh)
+	id, err := f.svc.AssignAction(ctx, f.taskID, "复测登录接口的 SQL 注入")
 	require.NoError(t, err)
 
 	node, err := f.graph.GetNode(ctx, id)
 	require.NoError(t, err)
 	assert.Equal(t, explorationgraph.StateOpen, *node.State)
 	assert.Equal(t, explorationgraph.SourceUser, node.SourceType)
-	assert.Equal(t, explorationgraph.PriorityHigh, node.Priority)
+	assert.Empty(t, node.Priority, "动作没有优先级")
 	tk, err := f.svc.Tasks.GetByID(ctx, f.taskID)
 	require.NoError(t, err)
 	assert.True(t, tk.Paused, "暂停状态保持")
@@ -160,7 +160,7 @@ func TestAssignAction(t *testing.T) {
 
 	_, err = f.svc.Tasks.Abort(ctx, f.taskID, "停止")
 	require.NoError(t, err)
-	_, err = f.svc.AssignAction(ctx, f.taskID, "x", explorationgraph.PriorityHigh)
+	_, err = f.svc.AssignAction(ctx, f.taskID, "x")
 	assert.ErrorIs(t, err, task.ErrNotActive)
 }
 

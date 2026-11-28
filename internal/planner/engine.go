@@ -208,6 +208,12 @@ type OpenLead struct {
 	ID        string
 	Statement string
 
+	// 线索的写法（执行者写下，见 explorationgraph.LeadSpec）：沿它再走一步具体做什么、走完要
+	// 弄清的结论、走通了能换来什么。线索成为结构化字段之前落图的线索没有这三样，都是空串。
+	Next      string
+	Question  string
+	Potential string
+
 	ProducerID string    // 产出它的动作（没有为空）
 	CreatedAt  time.Time // 线索出现的时刻
 
@@ -253,6 +259,7 @@ type PlanningContext struct {
 type ActionProposal struct {
 	Instruction string   `json:"instruction"`  // 执行指令
 	Complexity  string   `json:"complexity"`   // 复杂度: simple/moderate/complex
+	Urgent      bool     `json:"urgent"`       // 加急：执行者的空位不够时先派。一轮至多一个，多标的只有第一个算（见 capUrgent）
 	Reasoning   string   `json:"reasoning"`    // 规划理由
 	TriggeredBy []string `json:"triggered_by"` // 滋生本动作的 Result ID（发现→动作因果溯源；可选，仅在真实成立时声明）
 	Pursues     []string `json:"pursues"`      // 本动作跟进的线索编号（L…）；不跟进线索就不填
@@ -627,12 +634,16 @@ func newOpenLead(lead explorationgraph.Lead) (OpenLead, bool) {
 	if statement == "" {
 		return OpenLead{}, false
 	}
-	return OpenLead{
+	open := OpenLead{
 		ID: lead.ID, Statement: statement,
 		ProducerID: lead.ProducerID, CreatedAt: lead.CreatedAt,
 		Truncated: lead.Truncated, TruncationStreak: lead.TruncationStreak, Faults: lead.Faults,
 		Progressed: lead.Progressed, Vetoes: lead.Vetoes, LastVetoReason: lead.LastVetoReason,
-	}, true
+	}
+	if lead.Lead != nil {
+		open.Next, open.Question, open.Potential = lead.Lead.Next, lead.Lead.Question, lead.Lead.Potential
+	}
+	return open, true
 }
 
 // refreshRound 把规划进行期间图上新出现的待深挖线索补进本轮的清单。
@@ -763,7 +774,30 @@ func (e *Engine) parsePlanningResponse(content string) (*PlanningResponse, error
 			Msg("解析规划输出失败")
 		return nil, fmt.Errorf("%w: %w", ErrPlanOutputParse, err)
 	}
+	if ignored := capUrgent(response.Actions); ignored > 0 {
+		e.logger.Warn().Int("ignored", ignored).Msg("加急一轮至多一个，多出的按普通动作排出")
+	}
 	return response, nil
+}
+
+// capUrgent 把一轮里多标的加急撤成普通动作，只留第一个；返回撤掉的个数。
+//
+// 加急是规划者唯一的插队权，靠稀缺才不被通胀：让模型给每个动作打分时，七成以上都落在
+// 最高两档（等于没标）；一轮只许一个，标了就真的是「这一步不做，其余都白做」。
+func capUrgent(actions []ActionProposal) int {
+	seen, ignored := false, 0
+	for i := range actions {
+		if !actions[i].Urgent {
+			continue
+		}
+		if seen {
+			actions[i].Urgent = false
+			ignored++
+			continue
+		}
+		seen = true
+	}
+	return ignored
 }
 
 func parsePlanningOutput(content string) (*PlanningResponse, error) {
@@ -818,7 +852,7 @@ func filterKnownIDs(ids []string, known map[string]bool) []string {
 	return valid
 }
 
-// convertProposals 把 LLM 提案转成动作草稿：优先级与复杂度进节点层，所属方向与因果引用随
+// convertProposals 把 LLM 提案转成动作草稿：加急与复杂度进节点层，所属方向与因果引用随
 // 草稿交给落图（分别落成 generates 边与 triggers 边），内容只留动作本身——类型、指令与
 // 规划理由。
 func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.Store, taskID string, planCtx *PlanningContext, proposals []ActionProposal) []explorationgraph.ActionDraft {
@@ -862,6 +896,7 @@ func (e *Engine) convertProposals(ctx context.Context, graph *explorationgraph.S
 			Content:    contentBytes,
 			State:      &openState,
 			Complexity: &complexity,
+			Urgent:     proposal.Urgent,
 			SourceType: explorationgraph.SourcePlanner,
 			CreatedAt:  time.Now(),
 		}
@@ -906,6 +941,9 @@ func planningNarrative(r PlanningResponse) string {
 			line := fmt.Sprintf("继续执行，本轮派发 %d 个动作：", len(r.Actions))
 			for i, a := range r.Actions {
 				line += fmt.Sprintf("\n%d. %s", i+1, a.Instruction)
+				if a.Urgent {
+					line += "（加急）"
+				}
 			}
 			lines = append(lines, line)
 		}

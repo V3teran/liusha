@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { leadMeta, nodeTitle, nodeChips, rejectionScope, stateOptions } from './kindTheme'
-import type { GraphNode } from '@/api/explorationgraph'
+import { leadHasSpec, leadHint, leadMeta, nodeTitle, nodeChips, rejectionScope, stateOptions } from './kindTheme'
+import type { LeadSpec, GraphNode } from '@/api/explorationgraph'
+
+const SPEC: LeadSpec = { next: '用 admin 会话测其余模块', question: 'low 下是否同样可利用', potential: '每多一个模块多一条主张' }
 
 function node(o: Partial<GraphNode> = {}): GraphNode {
   return {
@@ -29,14 +31,16 @@ describe('kindTheme（kind 视觉档案与内容提取）', () => {
     expect(nodeTitle(node({ kind: 'action', content: '纯字符串载荷' }))).toBe('')
   })
 
-  it('nodeChips：action 状态/P0-P1 优先级上卡，无分类徽章', () => {
+  it('nodeChips：action 状态与加急上卡，无分类徽章、没有优先级', () => {
     const chips = nodeChips(
-      node({ id: 'n-act', kind: 'action', state: 'running', priority: 'high', content: { instruction: '列出入口' } }),
+      node({ id: 'n-act', kind: 'action', state: 'running', urgent: true, content: { instruction: '列出入口' } }),
     )
     expect(chips.state?.label).toBe('执行中')
     expect(chips.category).toBeUndefined()
-    expect(chips.priority?.code).toBe('P1')
+    expect(chips.urgent).toBe(true)
+    expect(chips.priority).toBeUndefined()
     expect(chips.verification).toBeUndefined()
+    expect(nodeChips(node({ id: 'n-act', kind: 'action', state: 'open', content: { instruction: '列出入口' } })).urgent).toBeUndefined()
   })
 
   it('nodeChips：假设观察带分类/验证状态，优先级取节点层（P2 不上卡）', () => {
@@ -68,32 +72,56 @@ describe('kindTheme（线索与否决范围）', () => {
   const fact = (o: Partial<GraphNode> = {}) =>
     node({ kind: 'observation', content: { statement: '上传目录可写' }, ...o })
 
-  it('只有被标为线索的事实观察才是线索；假设观察即使带了标记也不是', () => {
+  it('线索是事实观察的顶层字段 lead：带它的事实是线索；假设观察即使带了也不是', () => {
     expect(leadMeta(fact())).toBeNull()
-    expect(leadMeta(fact({ metadata: { opens_deeper: false } }))).toBeNull()
-    expect(leadMeta(fact({ metadata: { opens_deeper: true }, verification_status: 'pending' }))).toBeNull()
-    expect(leadMeta(fact({ metadata: { opens_deeper: true } }))).toEqual({ closed: false, detail: '' })
+    expect(leadMeta(fact({ lead: SPEC, verification_status: 'pending' }))).toBeNull()
+    expect(leadMeta(fact({ lead: SPEC }))).toEqual({ closed: false, detail: '', spec: SPEC })
+    // 线索成为结构化字段之前落图的没有三样
+    expect(leadMeta(fact({ lead: { next: '', question: '', potential: '' } }))).toEqual({
+      closed: false,
+      detail: '',
+      spec: { next: '', question: '', potential: '' },
+    })
   })
 
   it('关闭原因由类别与理由拼成；类别不在词表里按原值，缺理由只剩类别', () => {
-    expect(leadMeta(fact({ metadata: { opens_deeper: true, lead_closed: { kind: 'dry' } } }))).toEqual({
+    expect(leadMeta(fact({ lead: SPEC, lead_closed: { kind: 'dry', reason: '' } }))).toEqual({
       closed: true,
       detail: '干涸',
+      spec: SPEC,
     })
-    expect(
-      leadMeta(fact({ metadata: { opens_deeper: true, lead_closed: { kind: 'out_of_scope', reason: ' 不在本期范围 ' } } })),
-    ).toEqual({ closed: true, detail: '超出任务目标：不在本期范围' })
-    expect(leadMeta(fact({ metadata: { opens_deeper: true, lead_closed: { kind: 'odd' } } }))).toEqual({
+    expect(leadMeta(fact({ lead: SPEC, lead_closed: { kind: 'out_of_scope', reason: ' 不在本期范围 ' } }))).toEqual({
+      closed: true,
+      detail: '超出任务目标：不在本期范围',
+      spec: SPEC,
+    })
+    expect(leadMeta(fact({ lead: SPEC, lead_closed: { kind: 'odd', reason: '' } }))).toEqual({
       closed: true,
       detail: 'odd',
+      spec: SPEC,
     })
   })
 
+  it('悬停说明：有三样的逐行写，旧线索只有一句通用的说明', () => {
+    expect(leadHint({ closed: false, detail: '', spec: SPEC })).toBe(
+      [
+        '线索：执行者已踩通、尚未推进到结论的路径',
+        '下一步：用 admin 会话测其余模块',
+        '要弄清：low 下是否同样可利用',
+        '能换来：每多一个模块多一条主张',
+      ].join('\n'),
+    )
+    const legacy = { next: '', question: '', potential: '' }
+    expect(leadHint({ closed: false, detail: '', spec: legacy })).toBe('线索：执行者已踩通、尚未推进到结论的路径')
+    expect(leadHasSpec({ ...legacy, question: 'q' })).toBe(true)
+  })
+
   it('卡片的线索徽章：开着标「线索」，关闭后标「已关闭」', () => {
-    expect(nodeChips(fact({ metadata: { opens_deeper: true } })).lead).toEqual({ label: '线索', closed: false, detail: '' })
-    expect(nodeChips(fact({ metadata: { opens_deeper: true, lead_closed: { kind: 'dry' } } })).lead).toEqual({
+    expect(nodeChips(fact({ lead: SPEC })).lead).toEqual({ label: '线索', closed: false, detail: '', spec: SPEC })
+    expect(nodeChips(fact({ lead: SPEC, lead_closed: { kind: 'dry', reason: '' } })).lead).toEqual({
       label: '已关闭',
       closed: true,
+      spec: SPEC,
       detail: '干涸',
     })
     expect(nodeChips(fact()).lead).toBeUndefined()

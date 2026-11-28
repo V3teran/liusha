@@ -24,7 +24,7 @@ import (
 // 任务行、探索图与时间线回执同时落定。
 type TaskSteeringAPI interface {
 	AdjustGoal(ctx context.Context, taskID, goal string) error
-	AssignAction(ctx context.Context, taskID, instruction string, priority explorationgraph.Priority) (string, error)
+	AssignAction(ctx context.Context, taskID, instruction string) (string, error)
 	RejectAction(ctx context.Context, taskID, actionID, reason string) error
 }
 
@@ -94,13 +94,12 @@ func patchTaskHandler(api TaskSteeringAPI, tasks TasksAPI) gin.HandlerFunc {
 	}
 }
 
-// assignActionHandler 处理 POST /tasks/:id/actions {"instruction","priority"}：指派动作。
-// priority 取 critical / high / medium / low，缺省 high（用户指派的动作优先执行）。
+// assignActionHandler 处理 POST /tasks/:id/actions {"instruction"}：指派动作，先于规划者排出的
+// 动作被执行。
 func assignActionHandler(api TaskSteeringAPI) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			Instruction *string `json:"instruction"`
-			Priority    string  `json:"priority"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请求体非法（需 instruction）"})
@@ -111,18 +110,7 @@ func assignActionHandler(api TaskSteeringAPI) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": invalid})
 			return
 		}
-		priority := explorationgraph.PriorityHigh
-		if req.Priority != "" {
-			switch p := explorationgraph.Priority(req.Priority); p {
-			case explorationgraph.PriorityCritical, explorationgraph.PriorityHigh,
-				explorationgraph.PriorityMedium, explorationgraph.PriorityLow:
-				priority = p
-			default:
-				c.JSON(http.StatusBadRequest, gin.H{"error": "优先级只能是 critical / high / medium / low"})
-				return
-			}
-		}
-		id, err := api.AssignAction(c.Request.Context(), c.Param("id"), instruction, priority)
+		id, err := api.AssignAction(c.Request.Context(), c.Param("id"), instruction)
 		if err != nil {
 			respondSteeringErr(c, err)
 			return

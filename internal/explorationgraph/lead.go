@@ -9,9 +9,9 @@ import (
 	"github.com/V3teran/liusha/internal/framework/core"
 )
 
-// 线索：执行者探通了一条走得通、但还没走到结论的路径，在相关事实观察上标 opens_deeper
-// （见 Node.OpensDeeper）。线索是探索里真正做分配决策的那一级——它具体、有明确的延续，
-// 结局也清楚；方向（派生目标）只作分组，不当这一级用。
+// 线索：执行者探通了一条走得通、但还没走到结论的路径，在相关事实观察上写下线索
+// （Node.Lead，见 LeadSpec：下一步做什么、要弄清什么）。线索是探索里真正做分配决策的
+// 那一级——它具体、有明确的延续，结局也清楚；方向（派生目标）只作分组，不当这一级用。
 //
 // 线索之后怎么走，由图上的事实决定，都不写在标志本身上：
 //   - 跟进：为它排出的动作经 pursues 边认领它（见 PlanRevision），由规划层写入，只追加；
@@ -51,7 +51,7 @@ const vetoLimit = 2
 
 // Lead 是一条线索与它由图结构推导出的处境。
 type Lead struct {
-	Node // 线索本身：一条标了 opens_deeper 的事实观察
+	Node // 线索本身：一条带 Lead 的事实观察
 
 	ProducerID string // 产出它的动作（generates 边；查不到为空）
 
@@ -118,7 +118,7 @@ func (s *Store) Leads(ctx context.Context, taskID string) ([]Lead, error) {
 	if err != nil {
 		return nil, fmt.Errorf("读取观察: %w", err)
 	}
-	if !slices.ContainsFunc(observations, func(n Node) bool { return n.OpensDeeper() }) {
+	if !slices.ContainsFunc(observations, func(n Node) bool { return n.IsLead() }) {
 		return nil, nil
 	}
 	actions, err := s.ListNodesByKind(ctx, taskID, core.KindAction)
@@ -163,6 +163,22 @@ func (s *Store) ClosedLeads(ctx context.Context, taskID string) ([]Lead, error) 
 	return closed, nil
 }
 
+// LeadClaimants 返回认领了线索的动作 ID（有 pursues 边从它出发）。执行者据此定派发的先后：
+// 跟进线索的动作先于铺开对象面的。
+func (s *Store) LeadClaimants(ctx context.Context, taskID string) (map[string]bool, error) {
+	edges, err := s.graphStore.ListEdges(ctx, core.GraphEdgeQuery{
+		TaskID: taskID, Relation: string(RelPursues),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("读取 pursues 边: %w", err)
+	}
+	claimants := make(map[string]bool, len(edges))
+	for _, e := range edges {
+		claimants[e.From] = true
+	}
+	return claimants, nil
+}
+
 // PursuedLeads 返回某个动作经 pursues 边认领的线索——指令为它们而写，执行者据它知道
 // 自己接手的是哪条线索，沿它推进到结论。
 func (s *Store) PursuedLeads(ctx context.Context, taskID, actionID string) ([]Node, error) {
@@ -190,7 +206,7 @@ func deriveLeads(observations, actions []Node, edges []Edge) []Lead {
 	obsByID := make(map[string]*Node, len(observations))
 	for i := range observations {
 		obsByID[observations[i].ID] = &observations[i]
-		if observations[i].OpensDeeper() {
+		if observations[i].IsLead() {
 			flagged[observations[i].ID] = true
 			leads = append(leads, Lead{Node: observations[i]})
 		}
@@ -246,8 +262,8 @@ func deriveLeads(observations, actions []Node, edges []Edge) []Lead {
 	for i := range leads {
 		lead := &leads[i]
 		lead.ProducerID = producer[lead.ID]
-		if closure, ok := lead.LeadClosure(); ok {
-			lead.Closure = &closure
+		if lead.LeadClosed != nil {
+			lead.Closure = lead.LeadClosed
 			continue
 		}
 		// 按结局发生的先后结算：存储返回边的顺序不一（Postgres 新的在前），而关闭的原因以
@@ -296,7 +312,7 @@ func pursuitOutcome(observationIDs []string, obsByID map[string]*Node, producer 
 		switch {
 		case obs.IsHypothesis():
 			return true, true
-		case obs.OpensDeeper():
+		case obs.IsLead():
 			progressed = true
 		case !obs.IsFact() || !informativeCategory(obs.Category()):
 		case len(reporters[obs.Statement()]) <= 1:

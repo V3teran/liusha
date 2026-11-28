@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { rejectTaskAction } from '@/api/tasks'
 import { NodeDetailPanel } from './NodeDetailPanel'
-import type { GraphNode } from '@/api/explorationgraph'
+import type { GraphNode, LeadSpec } from '@/api/explorationgraph'
 
 vi.mock('@/api/tasks', () => ({ rejectTaskAction: vi.fn(async () => undefined) }))
 
@@ -107,19 +107,31 @@ describe('NodeDetailPanel 已否决动作', () => {
 })
 
 describe('NodeDetailPanel 线索', () => {
-  const lead = (metadata: Record<string, unknown>): GraphNode => ({
+  const SPEC: LeadSpec = { next: '用 admin 会话测其余模块', question: 'low 下是否同样可利用', potential: '每多一个模块多一条主张' }
+  const lead = (over: Partial<GraphNode> = {}, spec: LeadSpec = SPEC): GraphNode => ({
     ...node,
     kind: 'observation',
     state: undefined,
     content: { statement: '上传目录可写且可执行', category: 'access' },
-    metadata: { opens_deeper: true, ...metadata },
+    lead: spec,
+    ...over,
   })
 
-  it('开着的线索：详情标出「线索：待跟进」', () => {
-    render(<NodeDetailPanel node={lead({})} onClose={vi.fn()} />)
+  it('开着的线索：详情标出「线索：待跟进」，并列出三样', () => {
+    render(<NodeDetailPanel node={lead()} onClose={vi.fn()} />)
     expect(screen.getByText('线索')).toBeTruthy()
     expect(screen.getByText('待跟进')).toBeTruthy()
     expect(screen.queryByText(/线索已关闭/)).toBeNull()
+    const spec = screen.getByRole('region', { name: '线索' })
+    expect(within(spec).getByText('下一步').nextElementSibling?.textContent).toBe(SPEC.next)
+    expect(within(spec).getByText('要弄清').nextElementSibling?.textContent).toBe(SPEC.question)
+    expect(within(spec).getByText('能换来').nextElementSibling?.textContent).toBe(SPEC.potential)
+  })
+
+  it('线索成为结构化字段之前落图的没有三样：详情里不列空的三样', () => {
+    render(<NodeDetailPanel node={lead({}, { next: '', question: '', potential: '' })} onClose={vi.fn()} />)
+    expect(screen.getByText('待跟进')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: '线索' })).toBeNull()
   })
 
   it('已关闭的线索带关闭原因（类别与理由）', () => {

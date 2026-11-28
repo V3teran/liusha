@@ -25,14 +25,19 @@ func TestConvertProposals_ContentHoldsOnlyTheAction(t *testing.T) {
 
 	e := NewEngine(nil, zerolog.Nop())
 	planCtx := &PlanningContext{}
-	drafts := e.convertProposals(ctx, store, "t1", planCtx, []ActionProposal{{
-		Instruction: "复测 /search", Complexity: "complex",
-		Reasoning: "反射点已坐实", TriggeredBy: []string{resultID, "phantom"},
-	}})
+	drafts := e.convertProposals(ctx, store, "t1", planCtx, []ActionProposal{
+		{
+			Instruction: "复测 /search", Complexity: "complex", Urgent: true,
+			Reasoning: "反射点已坐实", TriggeredBy: []string{resultID, "phantom"},
+		},
+		{Instruction: "另一步", Complexity: "simple", Reasoning: "铺开"},
+	})
 
-	require.Len(t, drafts, 1)
+	require.Len(t, drafts, 2)
 	d := drafts[0]
 	assert.Empty(t, d.Node.Priority, "规划者排出的动作不带优先级")
+	assert.True(t, d.Node.Urgent, "加急落在动作上")
+	assert.False(t, drafts[1].Node.Urgent)
 	require.NotNil(t, d.Node.Complexity)
 	assert.Equal(t, explorationgraph.ComplexityComplex, *d.Node.Complexity)
 	assert.Equal(t, []string{resultID}, d.TriggeredBy, "幻影引用剔除")
@@ -74,6 +79,9 @@ func TestPlanningNarrative(t *testing.T) {
 	base := "继续执行，本轮派发 1 个动作：\n1. 深挖参数甲"
 	if got := planningNarrative(PlanningResponse{ShouldContinue: true, Actions: []ActionProposal{{Instruction: "深挖参数甲"}}}); got != base {
 		t.Fatalf("只有动作时得:\n%s", got)
+	}
+	if got := planningNarrative(PlanningResponse{ShouldContinue: true, Actions: []ActionProposal{{Instruction: "先续会话", Urgent: true}}}); got != "继续执行，本轮派发 1 个动作：\n1. 先续会话（加急）" {
+		t.Fatalf("加急的动作在叙述里标出来，得:\n%s", got)
 	}
 	if got := planningNarrative(PlanningResponse{ShouldContinue: true}); got != "继续执行，本轮派发 0 个动作：" {
 		t.Fatalf("没有动作也没有处置时保持原样，得:\n%s", got)

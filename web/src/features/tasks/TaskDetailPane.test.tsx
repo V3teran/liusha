@@ -149,15 +149,15 @@ describe('TaskDetailPane 运行中引导', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
-  it('指派动作：指令必填，优先级缺省 P1', async () => {
+  it('指派动作：指令必填，没有档位要选', async () => {
     renderPane(makeTask({ paused: true }))
     fireEvent.click(screen.getByRole('button', { name: '指派动作' }))
     const submit = screen.getByRole('button', { name: '指派' }) as HTMLButtonElement
     expect(submit.disabled).toBe(true)
     fireEvent.change(screen.getByLabelText('指令'), { target: { value: '复测登录接口' } })
-    expect((screen.getByLabelText('优先级') as HTMLSelectElement).value).toBe('high')
+    expect(screen.queryByLabelText('优先级')).toBeNull()
     fireEvent.click(submit)
-    await waitFor(() => expect(assignTaskAction).toHaveBeenCalledWith('t-1', '复测登录接口', 'high'))
+    await waitFor(() => expect(assignTaskAction).toHaveBeenCalledWith('t-1', '复测登录接口'))
   })
 
   it('已结束的任务不能引导，提示在对话中续接', () => {

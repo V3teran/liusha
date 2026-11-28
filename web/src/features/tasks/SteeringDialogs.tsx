@@ -5,8 +5,6 @@ import { errorText } from '@/api/client'
 import type { TaskSummary } from '@/api/types'
 import { FormDialog } from '@/components/ui/FormDialog'
 import { FIELD_LABEL_CLASS, TEXTAREA_CLASS } from '@/components/ui/control'
-import { Select } from '@/components/ui/Select'
-import { PRIORITY_META, PRIORITY_ORDER, type Priority } from '@/lib/priority'
 import { cn } from '@/lib/utils'
 
 // 运行中引导的两个任务级入口（调整目标 / 指派动作）。弹层只在打开时挂载（每次打开都是
@@ -67,14 +65,12 @@ export function AdjustGoalDialog({ task, open, onOpenChange }: SteeringDialogPro
   )
 }
 
-/** 指派动作：用户直接要求执行的一步。优先级只有用户指派的动作才有（缺省 P1），决定它与规划者排出的动作谁先占用空位。 */
+/** 指派动作：用户直接要求执行的一步，先于规划者排出的动作被执行。 */
 export function AssignActionDialog({ task, open, onOpenChange }: SteeringDialogProps) {
   const instructionId = useId()
-  const priorityId = useId()
   const [instruction, setInstruction] = useState('')
-  const [priority, setPriority] = useState<Priority>('high')
   const mutation = useSteeringMutation(
-    () => assignTaskAction(task.id, instruction.trim(), priority),
+    () => assignTaskAction(task.id, instruction.trim()),
     () => onOpenChange(false),
   )
   return (
@@ -82,7 +78,7 @@ export function AssignActionDialog({ task, open, onOpenChange }: SteeringDialogP
       open={open}
       onOpenChange={onOpenChange}
       title="指派动作"
-      description="只按指令执行这一步、不扩大范围，监察者不会否决它；有空位才执行，P0 / P1 排在规划者排出的动作之前，P2 与之同序，P3 在其后。"
+      description="只按指令执行这一步、不扩大范围，监察者不会否决它；先于规划者排出的动作被执行。"
       submitLabel="指派"
       canSubmit={instruction.trim() !== ''}
       pending={mutation.isPending}
@@ -101,23 +97,6 @@ export function AssignActionDialog({ task, open, onOpenChange }: SteeringDialogP
           placeholder="如：用 admin/password 登录后，复测 /vulnerabilities/sqli/ 的 id 参数"
           className={cn(TEXTAREA_CLASS, 'resize-y')}
         />
-      </div>
-      <div>
-        <label htmlFor={priorityId} className={cn(FIELD_LABEL_CLASS, 'mb-1.5 block')}>
-          优先级
-        </label>
-        <Select
-          id={priorityId}
-          value={priority}
-          onChange={(e) => setPriority(e.target.value as Priority)}
-          className="w-40"
-        >
-          {PRIORITY_ORDER.map((p) => (
-            <option key={p} value={p}>
-              {PRIORITY_META[p].code} · {PRIORITY_META[p].label}
-            </option>
-          ))}
-        </Select>
       </div>
     </FormDialog>
   )

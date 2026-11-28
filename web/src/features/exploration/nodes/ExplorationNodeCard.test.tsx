@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import type { NodeProps } from '@xyflow/react'
-import type { GraphNode } from '@/api/explorationgraph'
+import type { GraphNode, LeadSpec } from '@/api/explorationgraph'
 import type { ExplorationFlowNode } from '../layout'
 import { LEAD_ACCENT } from '../kindTheme'
 
@@ -12,6 +12,8 @@ vi.mock('@xyflow/react', async (importOriginal) => {
 })
 
 import { ExplorationNodeCard } from './ExplorationNodeCard'
+
+const SPEC: LeadSpec = { next: 'n', question: 'q', potential: 'p' }
 
 const fact = (o: Partial<GraphNode> = {}): GraphNode =>
   ({
@@ -33,7 +35,7 @@ function renderCard(node: GraphNode) {
 
 describe('ExplorationNodeCard 的线索标记', () => {
   it('开着的线索：卡片四边加描边，脚印骑在卡片外面的右上角（卡片裁切溢出），头部给它让位', () => {
-    const { card, container } = renderCard(fact({ metadata: { opens_deeper: true } }))
+    const { card, container } = renderCard(fact({ lead: SPEC }))
 
     expect(card.classList.contains('exp-card-lead')).toBe(true)
     expect(card.style.getPropertyValue('--exp-lead').trim()).toBe(LEAD_ACCENT)
@@ -47,7 +49,7 @@ describe('ExplorationNodeCard 的线索标记', () => {
   })
 
   it('线索不靠给卡片染色：底色与同类别的普通观测一模一样', () => {
-    const lead = renderCard(fact({ metadata: { opens_deeper: true } })).card
+    const lead = renderCard(fact({ lead: SPEC })).card
     const plain = renderCard(fact()).card
     expect(lead.style.background).toBe(plain.style.background)
     expect(lead.style.background).not.toContain(LEAD_ACCENT)
@@ -55,7 +57,7 @@ describe('ExplorationNodeCard 的线索标记', () => {
 
   it('已关闭的线索：脊线与徽章都撤掉，头部留「线索已关闭」并带原因', () => {
     const { card, container } = renderCard(
-      fact({ metadata: { opens_deeper: true, lead_closed: { kind: 'out_of_scope', reason: '不在本期范围' } } }),
+      fact({ lead: SPEC, lead_closed: { kind: 'out_of_scope', reason: '不在本期范围' } }),
     )
 
     expect(card.classList.contains('exp-card-lead')).toBe(false)
@@ -65,9 +67,27 @@ describe('ExplorationNodeCard 的线索标记', () => {
   })
 
   it('不是线索的观测：什么标记都没有', () => {
-    const { card, container } = renderCard(fact({ metadata: { opens_deeper: false } }))
+    const { card, container } = renderCard(fact())
     expect(card.classList.contains('exp-card-lead')).toBe(false)
     expect(container.querySelector('.exp-lead-mark')).toBeNull()
     expect(screen.queryByText('线索已关闭')).toBeNull()
   })
 })
+
+// 加急：规划者标的动作在卡片头部标「加急」；其余动作没有。
+describe('ExplorationNodeCard 的加急标记', () => {
+  const action = (over: Partial<GraphNode>): GraphNode =>
+    ({ ...fact(), kind: 'action', state: 'open', source_type: 'planner', content: { instruction: '先续会话' }, ...over }) as GraphNode
+
+  it('加急的动作标「加急」，悬停说明它为什么先派', () => {
+    const { card } = renderCard(action({ urgent: true }))
+    const mark = within(card).getByText('加急')
+    expect(mark.getAttribute('title')).toContain('空位不够时先派')
+  })
+
+  it('没有加急的动作没有这个标记', () => {
+    const { card } = renderCard(action({}))
+    expect(within(card).queryByText('加急')).toBeNull()
+  })
+})
+

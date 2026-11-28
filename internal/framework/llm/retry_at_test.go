@@ -458,14 +458,18 @@ func TestQuotaWindowProbeAdmitsOnePerInterval(t *testing.T) {
 
 // 窗口只剩最后一段时不必交还外层绕一圈：等到恢复时刻直接发。
 func TestQuotaWindowTailWaitsThenSends(t *testing.T) {
-	cd := fastCooldown() // window = 60ms
-	inner := &scriptedProvider{outcomes: []error{quotaError(90 * time.Millisecond), nil}}
+	// 分界 1s、恢复时刻在 1.5s 之后：首次调用在窗口里等满一个分界时长，剩下的约 0.5s 落在
+	// 尾声之内。恢复时刻比分界多出的 0.5s 是留给调度的余量——夹具构造到被测代码读到它之间
+	// 隔着调度，慢的运行环境上余量太小就会读掉到分界以下（见 TestQuotaWindowWithoutHoldReturnsImmediately）。
+	cd := newCooldown()
+	cd.window, cd.probeEvery = time.Second, time.Hour
+	inner := &scriptedProvider{outcomes: []error{quotaError(1500 * time.Millisecond), nil}}
 	p := retryFor(inner, cd)
-	ctx, cancel := withBudget(time.Second)
+	ctx, cancel := withBudget(5 * time.Second)
 	defer cancel()
 
 	if _, err := p.Complete(ctx, Request{}); err == nil {
-		t.Fatal("首次调用应撞上额度窗口（90ms 超出 60ms 的分界）")
+		t.Fatal("首次调用应撞上额度窗口（1.5s 超出 1s 的分界）")
 	}
 	if _, err := p.Complete(ctx, Request{}); err != nil {
 		t.Fatalf("窗口尾声应等到恢复时刻后发出并成功，实际 %v", err)
@@ -477,15 +481,16 @@ func TestQuotaWindowTailWaitsThenSends(t *testing.T) {
 
 // 尾声的等待被调用预算打断：没有发出的调用同样如实说明是在等上游恢复，不记成超时。
 func TestQuotaTailInterruptedByBudgetReportsRateLimit(t *testing.T) {
+	// 分界 1s、恢复时刻在 1.5s 之后：首次调用等满一个分界时长后，窗口只剩约 0.5s，落在尾声之内。
 	cd := newCooldown()
-	cd.window, cd.probeEvery = 300*time.Millisecond, time.Hour
-	inner := &scriptedProvider{outcomes: []error{quotaError(400 * time.Millisecond)}}
+	cd.window, cd.probeEvery = time.Second, time.Hour
+	inner := &scriptedProvider{outcomes: []error{quotaError(1500 * time.Millisecond)}}
 	p := retryFor(inner, cd)
-	ctx, cancel := withBudget(time.Second)
+	ctx, cancel := withBudget(4 * time.Second)
 	if _, err := p.Complete(ctx, Request{}); err == nil {
 		t.Fatal("首次调用应撞上额度窗口")
 	}
-	cancel() // 此刻窗口只剩约 100ms，落在尾声之内
+	cancel() // 此刻窗口只剩约 0.5s，落在尾声之内
 
 	narrow, cancelNarrow := withBudget(5 * time.Millisecond)
 	defer cancelNarrow()
@@ -544,18 +549,21 @@ func TestQuotaHoldHonorsCancel(t *testing.T) {
 // 上游明确要求的短时等待（一分钟以内）按它给的时长等，等完在本次调用内接着发；
 // 这是瞬时限流，不登记为额度窗口。
 func TestShortAnnouncedWaitIsHonoredInCall(t *testing.T) {
-	cd := fastCooldown()
-	inner := &scriptedProvider{outcomes: []error{quotaError(25 * time.Millisecond), nil}}
+	// 分界 1s、恢复时刻在 300ms 之后：留给调度的余量上百毫秒（夹具构造到被测代码读到恢复
+	// 时刻之间，见 TestQuotaWindowWithoutHoldReturnsImmediately）。
+	cd := newCooldown()
+	cd.window, cd.probeEvery = time.Second, time.Hour
+	inner := &scriptedProvider{outcomes: []error{quotaError(300 * time.Millisecond), nil}}
 	p := retryFor(inner, cd)
-	ctx, cancel := withBudget(time.Second)
+	ctx, cancel := withBudget(2 * time.Second)
 	defer cancel()
 
 	start := time.Now()
 	if _, err := p.Complete(ctx, Request{}); err != nil {
 		t.Fatalf("瞬时限流等完应重试成功，实际 %v", err)
 	}
-	if waited := time.Since(start); waited < 20*time.Millisecond {
-		t.Fatalf("应按上游要求的时长（25ms）等待，实际只等了 %v", waited)
+	if waited := time.Since(start); waited < 200*time.Millisecond {
+		t.Fatalf("应按上游要求的时长（300ms）等待，实际只等了 %v", waited)
 	}
 	if inner.sent() != 2 {
 		t.Fatalf("应发出 2 次请求，实际 %d 次", inner.sent())
@@ -699,11 +707,19 @@ func TestStaggerNeverShortensWait(t *testing.T) {
 	}
 }
 
-// 关闭调用内等待（对话侧）：额度窗口内的调用立即交还限流，既不盲目重试，也不在尾声里等。
+// 关闭调用内等待（对话侧）：额度窗口内的调用立即交还限流——既不盲目重试，也不在窗口中段
+// 或尾声里等。
+//
+// 这里的时间余量都在几百毫秒以上。夹具在构造时写死恢复时刻，读到它的是被测代码：两者之间
+// 隔着调度，慢的运行环境上几十毫秒就过去了。恢复时刻曾只比分界多 30ms，读到时已掉到分界
+// 以下，这次限流被当成瞬时的，断言落空。尾声那一步不经首次调用去等，直接把窗口登记成
+// 「离恢复不到一个分界时长」。
 func TestQuotaWindowWithoutHoldReturnsImmediately(t *testing.T) {
-	cd := fastCooldown()
+	const window = 5 * time.Second
+	cd := newCooldown()
+	cd.window, cd.probeEvery = window, time.Hour
 	cd.holdInWindow = false
-	inner := &scriptedProvider{outcomes: []error{quotaError(90 * time.Millisecond)}}
+	inner := &scriptedProvider{outcomes: []error{quotaError(time.Hour)}}
 	p := retryFor(inner, cd)
 	ctx, cancel := withBudget(time.Second)
 	defer cancel()
@@ -714,12 +730,25 @@ func TestQuotaWindowWithoutHoldReturnsImmediately(t *testing.T) {
 	if isHeld(err) {
 		t.Fatal("发现窗口的调用真的发往了上游，不应带「被挡下」标记")
 	}
-	// 被登记挡下的调用（此刻窗口只剩约 30ms，本该走尾声等待）：立即交还，没有发出请求。
+	// 开着等待时，窗口中段的调用会静默等到预算用尽（1s），尾声的调用会等到恢复时刻：
+	// 两者在这里都应当立即交还。500ms 远小于任何一种等待，又容得下慢环境上的调度。
+	const immediate = 500 * time.Millisecond
+
+	// 窗口中段（离恢复还有一个小时）：立即交还，没有发出请求。
 	start := time.Now()
 	_, err = p.Complete(ctx, Request{})
 	assertNeverSent(t, err)
-	if waited := time.Since(start); waited >= 20*time.Millisecond {
-		t.Fatalf("关闭等待后不应在调用内等候（含尾声），实际等了 %v", waited)
+	if waited := time.Since(start); waited >= immediate {
+		t.Fatalf("关闭等待后窗口中段的调用不应等候，实际等了 %v", waited)
+	}
+
+	// 窗口尾声（离恢复 4s，不到一个分界时长）：同样立即交还。
+	cd.open(testAccount, time.Now().Add(4*time.Second), err, time.Now())
+	start = time.Now()
+	_, err = p.Complete(ctx, Request{})
+	assertNeverSent(t, err)
+	if waited := time.Since(start); waited >= immediate {
+		t.Fatalf("关闭等待后尾声的调用不应等候，实际等了 %v", waited)
 	}
 	if inner.sent() != 1 {
 		t.Fatalf("只应发出发现窗口的那 1 次请求，实际 %d 次", inner.sent())

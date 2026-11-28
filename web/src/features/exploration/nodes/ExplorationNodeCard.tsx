@@ -19,7 +19,7 @@
 import { memo, type CSSProperties } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { cn } from '@/lib/utils'
-import { kindProfile, nodeChips, nodeTitle, LEAD_ACCENT } from '../kindTheme'
+import { kindProfile, leadHint, nodeChips, nodeTitle, LEAD_ACCENT } from '../kindTheme'
 import type { ExplorationFlowNode } from '../layout'
 import { LeadClosedChip, LeadMark } from '../LeadMark'
 
@@ -61,6 +61,14 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
               {chips.priority.code}
             </span>
           )}
+          {chips.urgent && (
+            <span
+              className="ml-auto rounded border border-border-strong px-1.5 py-px text-2xs font-semibold text-text"
+              title="加急：规划者判定这一步不做、同批其余动作都做不成或白做；空位不够时先派"
+            >
+              加急
+            </span>
+          )}
           {chips.lead?.closed && (
             <LeadClosedChip title={chips.lead.detail || undefined} className={!chips.priority ? 'ml-auto' : undefined} />
           )}
@@ -93,7 +101,7 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
           style={{ width: 7, height: 7, background: profile.accent, border: '2px solid var(--surface)' }}
         />
       </div>
-      {openLead && <LeadMark title="线索：执行者已踩通、尚未推进到结论的路径" />}
+      {openLead && <LeadMark title={leadHint({ closed: false, detail: '', spec: chips.lead!.spec })} />}
     </>
   )
 })

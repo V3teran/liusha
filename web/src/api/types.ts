@@ -45,7 +45,6 @@ export interface TimelineEventMeta {
   op: string // steering：引导操作（goal_adjusted/goal_appended/action_assigned/action_rejected），正文是实际写入的内容
   withdrawn: number // steering/goal_*：撤回的未开始规划动作数
   action_id: string // steering/action_*：被指派或否决的动作
-  priority: string // steering/action_assigned：指派的优先级
 }
 
 /**

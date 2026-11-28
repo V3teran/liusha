@@ -43,20 +43,19 @@ func (s *Service) AdjustGoal(ctx context.Context, taskID, goal string) error {
 }
 
 // AssignAction 在进行中任务的根目标下指派一个动作（来源 user，内容只有指令），返回动作 ID。
-// 执行者有空位即按优先级认领；监察者不能否决它。任务已结束返回 task.ErrNotActive。
-func (s *Service) AssignAction(ctx context.Context, taskID, instruction string, priority explorationgraph.Priority) (string, error) {
+// 用户指派的动作先于规划者排出的动作被认领；监察者不能否决它。任务已结束返回 task.ErrNotActive。
+func (s *Service) AssignAction(ctx context.Context, taskID, instruction string) (string, error) {
 	var actionID string
 	err := s.steer(ctx, taskID, func(tx pgx.Tx, convID string) (*conversation.Message, error) {
 		if _, err := task.LockActive(ctx, tx, taskID); err != nil {
 			return nil, err
 		}
-		id, err := explorationgraph.AssignAction(ctx, tx, taskID, instruction, priority)
+		id, err := explorationgraph.AssignAction(ctx, tx, taskID, instruction)
 		if err != nil {
 			return nil, err
 		}
 		actionID = id
-		return s.receipt(ctx, tx, convID, instruction, conversation.SteeringActionAssigned,
-			map[string]any{"action_id": id, "priority": string(priority)})
+		return s.receipt(ctx, tx, convID, instruction, conversation.SteeringActionAssigned, map[string]any{"action_id": id})
 	})
 	return actionID, err
 }

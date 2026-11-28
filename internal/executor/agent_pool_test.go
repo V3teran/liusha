@@ -67,16 +67,38 @@ func (g *gatedExecutor) waitStarted(t *testing.T, id string) {
 	}
 }
 
-func seedAction(t *testing.T, store *explorationgraph.Store, id string, priority explorationgraph.Priority) {
+// seedAction 建一个待执行的动作，创建时刻严格递增（同档里按它排先后）。
+func seedAction(t *testing.T, store *explorationgraph.Store, id string) {
+	t.Helper()
+	seedActionAs(t, store, id, false, false)
+}
+
+// seedActionAs 建一个待执行的动作：user 是用户指派的，urgent 是规划者标了加急的。
+func seedActionAs(t *testing.T, store *explorationgraph.Store, id string, user, urgent bool) explorationgraph.Node {
 	t.Helper()
 	open := explorationgraph.StateOpen
-	_, err := store.CreateNode(context.Background(), explorationgraph.Node{
-		ID: id, TaskID: "t1", Kind: core.KindAction, State: &open, Priority: priority,
-		SourceType: explorationgraph.SourcePlanner, Content: []byte(`{"instruction":"` + id + `"}`),
-		CreatedAt: time.Now(),
-	})
+	source := explorationgraph.SourcePlanner
+	if user {
+		source = explorationgraph.SourceUser
+	}
+	action := explorationgraph.Node{
+		ID: id, TaskID: "t1", Kind: core.KindAction, State: &open, SourceType: source, Urgent: urgent,
+		Content: []byte(`{"instruction":"` + id + `"}`), CreatedAt: time.Now(),
+	}
+	_, err := store.CreateNode(context.Background(), action)
 	require.NoError(t, err)
 	time.Sleep(time.Millisecond) // 创建时刻严格递增
+	return action
+}
+
+// seedLead 给动作 claimant 认领一条线索（pursues 边）。
+func seedLead(t *testing.T, store *explorationgraph.Store, claimant string) {
+	t.Helper()
+	require.NoError(t, store.CreateNodeWithEdges(context.Background(), explorationgraph.Node{
+		ID: "lead-of-" + claimant, TaskID: "t1", Kind: core.KindObservation, SourceType: explorationgraph.SourceExecutor,
+		Lead:    &explorationgraph.LeadSpec{Next: "n", Question: "q", Potential: "p"},
+		Content: []byte(`{"category":"access","statement":"探通一条路"}`),
+	}, []explorationgraph.Edge{{TaskID: "t1", SrcID: claimant, Rel: explorationgraph.RelPursues, DstID: "lead-of-" + claimant}}))
 }
 
 func runAgent(t *testing.T, a *Agent) (stop func()) {
@@ -93,13 +115,16 @@ func runAgent(t *testing.T, a *Agent) (stop func()) {
 	}
 }
 
-// 空位按「优先级高 → 创建早」认领：用户指派的高优先级动作不必排在先创建的低优先级动作之后。
-func TestRun_ClaimsByPriorityThenAge(t *testing.T) {
+// 派发先后由规则定：用户指派 → 加急 → 认领线索的 → 其余，同档按创建先后。不靠模型打分。
+func TestRun_DispatchesByFixedOrderThenAge(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
-	seedAction(t, store, "low", explorationgraph.PriorityLow)
-	seedAction(t, store, "high-old", explorationgraph.PriorityHigh)
-	seedAction(t, store, "critical", explorationgraph.PriorityCritical)
-	seedAction(t, store, "high-new", explorationgraph.PriorityHigh)
+	// 故意把先该跑的排在后面创建：次序与创建先后相反时才看得出档位在起作用
+	seedActionAs(t, store, "rest-old", false, false)
+	seedActionAs(t, store, "rest-new", false, false)
+	claimant := seedActionAs(t, store, "claimant", false, false)
+	seedLead(t, store, claimant.ID)
+	seedActionAs(t, store, "urgent", false, true)
+	seedActionAs(t, store, "user", true, false)
 
 	exec := newGatedExecutor()
 	a := NewAgent(AgentConfig{
@@ -109,17 +134,54 @@ func TestRun_ClaimsByPriorityThenAge(t *testing.T) {
 	stop := runAgent(t, a)
 	defer stop()
 
-	exec.waitStarted(t, "low")
+	exec.waitStarted(t, "rest-new") // 等最后一个也开跑：没有闸门的动作即开即完，逐个接上
 	exec.mu.Lock()
 	defer exec.mu.Unlock()
-	assert.Equal(t, []string{"critical", "high-old", "high-new", "low"}, exec.started)
+	assert.Equal(t, []string{"user", "urgent", "claimant", "rest-old", "rest-new"}, exec.started)
+}
+
+// 用户指派的动作先于加急：人在运行中的纠偏排在最前。
+func TestRun_UserAssignedRunsBeforeUrgent(t *testing.T) {
+	store := explorationgraph.NewMemoryStore()
+	seedActionAs(t, store, "urgent", false, true)
+	seedActionAs(t, store, "user", true, false)
+	seedActionAs(t, store, "user-2", true, false)
+
+	exec := newGatedExecutor()
+	a := NewAgent(AgentConfig{
+		TaskID: "t1", AgentRunID: "run-1", Graph: store, Executor: exec,
+		EventBus: bus.New(context.Background()), Logger: zerolog.Nop(), MaxParallel: 1,
+	})
+	stop := runAgent(t, a)
+	defer stop()
+
+	exec.waitStarted(t, "urgent")
+	exec.mu.Lock()
+	defer exec.mu.Unlock()
+	assert.Equal(t, []string{"user", "user-2", "urgent"}, exec.started, "同为用户指派的按创建先后")
+}
+
+// 认领先索的动作先于铺开的：深挖的边际收益高于再摸一个对象面。
+func TestLeadClaimantsAndOrder(t *testing.T) {
+	store := explorationgraph.NewMemoryStore()
+	plain := seedActionAs(t, store, "plain", false, false)
+	follower := seedActionAs(t, store, "follower", false, false)
+	seedLead(t, store, follower.ID)
+	claimants, err := store.LeadClaimants(context.Background(), "t1")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"follower": true}, claimants, "只有带 pursues 边的动作认领了线索")
+	assert.True(t, dispatchOrder(follower, plain, claimants), "后创建的、认领先索的排在先")
+	assert.False(t, dispatchOrder(plain, follower, claimants))
+	same := plain
+	same.ID = "aaa"
+	assert.True(t, dispatchOrder(same, plain, nil), "同档同时刻按 ID 定序")
 }
 
 // 没有整批屏障：一个慢动作在跑时，空出的位置立即认领新提出的动作，而不是等整批跑完。
 func TestRun_RefillsSlotsWithoutWaitingForSlowAction(t *testing.T) {
 	store := explorationgraph.NewMemoryStore()
-	seedAction(t, store, "slow", explorationgraph.PriorityHigh)
-	seedAction(t, store, "fast", explorationgraph.PriorityMedium)
+	seedAction(t, store, "slow")
+	seedAction(t, store, "fast")
 
 	exec := newGatedExecutor("slow")
 	eventBus := bus.New(context.Background())
@@ -133,7 +195,7 @@ func TestRun_RefillsSlotsWithoutWaitingForSlowAction(t *testing.T) {
 
 	exec.waitStarted(t, "slow")
 	exec.waitStarted(t, "fast")
-	seedAction(t, store, "later", explorationgraph.PriorityMedium)
+	seedAction(t, store, "later")
 	eventBus.PublishActionProposed("t1", "later")
 
 	exec.waitStarted(t, "later") // slow 仍在执行

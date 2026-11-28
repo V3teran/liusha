@@ -22,10 +22,10 @@ describe('SteeringCard', () => {
     expect(screen.getByText(/改测注册页/)).toBeTruthy()
   })
 
-  it('指派动作：展示指令与优先级', () => {
-    render(<SteeringCard msg={msg('复测登录接口', { op: 'action_assigned', priority: 'critical' })} />)
+  it('指派动作：展示指令', () => {
+    render(<SteeringCard msg={msg('复测登录接口', { op: 'action_assigned' })} />)
     expect(screen.getByText('已指派动作')).toBeTruthy()
-    expect(screen.getByText('P0 关键')).toBeTruthy()
+    expect(screen.queryByText(/^P[0-3] /)).toBeNull()
   })
 
   it('否决动作：正文是原因', () => {
