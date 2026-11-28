@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { LeadClosedChip, LeadMark } from './LeadMark'
+import { LeadMarkFollowed, LeadMark } from './LeadMark'
 import { LEAD_ACCENT } from './kindTheme'
 
 // 浏览器把颜色序列化成 rgb()：拿一个设了同一颜色的探针来比，不写死格式。
@@ -43,12 +43,17 @@ describe('LeadMark', () => {
   })
 })
 
-describe('LeadClosedChip', () => {
-  it('已关闭的线索标「线索已关闭」，不再用线索的颜色；关闭原因放进悬停说明', () => {
-    render(<LeadClosedChip title="干涸：跟进完什么都没留下" />)
-    const chip = screen.getByText('线索已关闭')
-    expect(chip.style.background).toBe('')
-    expect(chip.style.color).toBe('')
-    expect(chip.getAttribute('title')).toBe('干涸：跟进完什么都没留下')
+describe('LeadMarkFollowed', () => {
+  it('被跟进过且已关闭的线索保留脚印、换中性色：不再是线索自己的暖橙', () => {
+    const { container } = render(<LeadMarkFollowed title="已走过的线索（已走到头：之前的动作已做过）" />)
+    const mark = container.querySelector('.exp-lead-mark') as HTMLElement
+    expect(mark.querySelector('.lucide-footprints')).not.toBeNull()
+    expect(mark.classList.contains('text-text-secondary')).toBe(true)
+    const icon = mark.querySelector('svg') as SVGElement
+    expect(icon.style.color).toBe('')
+    expect(icon.getAttribute('fill')).toBe('currentColor')
+    // 读屏读到「线索（已走过）」；悬停说明带关闭的类别与理由
+    expect(screen.getByText('线索（已走过）')).toBeTruthy()
+    expect(mark.getAttribute('title')).toBe('已走过的线索（已走到头：之前的动作已做过）')
   })
 })

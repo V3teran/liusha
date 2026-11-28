@@ -54,7 +54,7 @@
 
 - **hypothesis** 必须带 `statement`、`reasoning`、`priority`（`low` / `medium` / `high` / `critical`）、`impact`、`suggestion` 与 `repro`；没有配方的假设无从验证，会被降级为 note
 - 事实类（entity / access / structure / behavior / note）带 `statement` 与 `reasoning`，可另带 `lead`；不带 repro、priority、impact、suggestion
-- `lead` 是线索，可选：这条事实揭示了一条走得通、但尚未推进到结论的路径。`next` 是沿它再走一步具体做什么，`question` 是走完要弄清的结论，`potential` 是走通了能换来什么；三样都写才是线索，缺任何一样按普通事实写入。仅事实类可带，hypothesis 不带
+- `lead` 是线索，可选：这条事实揭示了一个意外发现的方向——值得认领动作沿它推进、有希望带来重大进展（什么样的发现配得上线索见章程）。`next` 是沿它再走一步具体做什么，`question` 是走完要弄清的结论，`potential` 是走通了能换来什么；三样都写才是线索，缺任何一样按普通事实写入。仅事实类可带，hypothesis 不带
 - 分界：可交付的主张写 hypothesis，事实只陈述环境是什么样、怎么反应；单个对象的存在与属性记 entity，对象之间怎么连接、怎么组织记 structure
 - 纯过程记录（「执行了某命令」「请求返回成功」）不是观察
 

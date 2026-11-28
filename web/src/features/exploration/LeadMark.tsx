@@ -21,20 +21,19 @@ export function LeadMark({ title, className, ...rest }: HTMLAttributes<HTMLSpanE
 }
 
 /**
- * 已关闭的线索：不再有人沿它走，脚印撤掉，卡片右上角留一枚中性的「线索已关闭」，记下这里
- * 曾有过一条线索。关闭的原因放进悬停说明（详情面板另有全文）。
+ * 已走过的线索：被动作认领推进、随后关闭（走到头、有结论、干涸或被否决）。脚印保留但换成
+ * 中性色——它不再是「还没走到头」的呼喊，而是「这条路走过了」的留痕；描边还原为普通事实卡。
+ * 未被跟进就关闭的线索没有标记（不值得走的东西不留脚印），关闭的类别与理由在详情面板。
  */
-export function LeadClosedChip({ title, className }: { title?: string; className?: string }) {
+export function LeadMarkFollowed({ title, className, ...rest }: HTMLAttributes<HTMLSpanElement>) {
   return (
     <span
+      {...rest}
       title={title}
-      className={cn(
-        'inline-flex flex-shrink-0 items-center gap-1 rounded-md border border-border-strong px-1.5 py-px text-2xs font-semibold text-text',
-        className,
-      )}
+      className={cn('exp-lead-mark inline-flex h-6 w-6 flex-shrink-0 items-center justify-center text-text-secondary', className)}
     >
-      <Footprints aria-hidden className="h-3 w-3" />
-      线索已关闭
+      <Footprints aria-hidden fill="currentColor" className="h-6 w-6" strokeWidth={2} />
+      <span className="sr-only">线索（已走过）</span>
     </span>
   )
 }
