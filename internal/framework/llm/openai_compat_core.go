@@ -13,9 +13,11 @@ import (
 // OpenAICompatConfig 描述一个 OpenAI 兼容 provider 的连接参数。
 // 密钥不在此结构——底层 *openai.Client 已带 apikey，由调用方从 ClientPool 注入。
 type OpenAICompatConfig struct {
-	BaseURL        string // 如 https://api.example.com/v1 ；空 = OpenAI 官方
-	Model          string
-	MaxTokens      int  // 0 = 走 provider 默认
+	BaseURL string // 如 https://api.example.com/v1 ；空 = OpenAI 官方
+	Model   string
+	// Limit 是这个账户上这个模型的输出上限（ClientPool.OutputLimitFor 构造）：provider 配置的值，
+	// 被上游嫌大而拒绝时自动下调。必填——单次最大输出是 provider 配置里的事实，适配器不替它猜。
+	Limit          *OutputLimit
 	SupportsVision bool // true=image_url 走 MultiContent 真识图；false=stripImagesToText 降级文本占位
 	// OutputLimitParam 是输出上限字段的初值（空 = max_tokens）；上游明确拒绝时自适应切换。
 	OutputLimitParam OutputLimitParam
@@ -28,7 +30,7 @@ type OpenAICompatConfig struct {
 type openAICompatGen struct {
 	client         *openai.Client
 	model          string
-	maxTokens      int
+	limit          *OutputLimit
 	provider       string
 	supportsVision bool           // 透传自 OpenAICompatConfig.SupportsVision，控制 ContentParts 走 MultiContent vs 降级
 	compat         *requestCompat // 可选请求字段的兼容结论（运行期自适应）
@@ -48,10 +50,13 @@ func NewOpenAICompat(_ context.Context, providerCode string, c OpenAICompatConfi
 	if c.Model == "" {
 		return nil, errors.New("OpenAICompat: Model 必填")
 	}
+	if c.Limit == nil {
+		return nil, errors.New("OpenAICompat: 输出上限必填（ClientPool.OutputLimitFor）")
+	}
 	return &openAICompatGen{
 		client:         client,
 		model:          c.Model,
-		maxTokens:      c.MaxTokens,
+		limit:          c.Limit,
 		provider:       providerCode,
 		supportsVision: c.SupportsVision,
 		compat:         newRequestCompat(c.OutputLimitParam),
@@ -94,10 +99,7 @@ func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Messag
 		Model:    g.model,
 		Messages: openaiMsgs,
 	}
-	limit := g.maxTokens
-	if opts.MaxTokens > 0 {
-		limit = opts.MaxTokens
-	}
+	limit := g.limit.forCall(opts.MaxTokens)
 	if len(openaiTools) > 0 {
 		req.Tools = openaiTools
 	}
@@ -106,8 +108,14 @@ func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Messag
 	for attempt := 0; ; attempt++ {
 		g.compat.apply(&req, limit, opts.Temperature)
 		resp, err = g.client.CreateChatCompletion(ctx, req)
-		if err != nil && attempt < maxCompatRetries && g.compat.adapt(err, &req) {
-			continue // 上游明确拒绝了某个可选字段：按新结论改写后重发
+		if err != nil {
+			if next, ok := g.limit.rejected(wrapOpenAICompatErr(err), limit); ok {
+				limit = next
+				continue // 上游嫌输出上限过大（模型的上限低于配置）：降一半重发
+			}
+			if attempt < maxCompatRetries && g.compat.adapt(err, &req) {
+				continue // 上游明确拒绝了某个可选字段：按新结论改写后重发
+			}
 		}
 		break
 	}

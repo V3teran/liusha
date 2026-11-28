@@ -7,7 +7,25 @@ import (
 	"testing"
 )
 
-const anthropicOK = `{"id":"x","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`
+// anthropicSSE 是一条最小的 Anthropic 消息流：适配器只走流式链路，非流式接口也由它聚合而来。
+const anthropicSSE = `event: message_start
+data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"m","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":2}}
+
+event: message_stop
+data: {"type":"message_stop"}
+`
 const openAIOK = `{"id":"x","object":"chat.completion","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`
 
 // captureServer 记录最后一次请求的头，并按协议回一条合法响应。
@@ -49,7 +67,7 @@ func TestClientPool_SendsExactlyTheRecordedCredential(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			body := openAIOK
 			if tc.protocol == ProviderTypeAnthropic {
-				body = anthropicOK
+				body = anthropicSSE
 			}
 			srv, got := captureServer(t, body)
 			gen, err := BuildGeneratorWithKey(ctx, ProviderSpec{

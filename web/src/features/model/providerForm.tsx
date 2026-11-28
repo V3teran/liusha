@@ -9,7 +9,9 @@ import { cn } from '@/lib/utils'
 import {
   baseUrlError,
   chatRequestUrl,
+  DEFAULT_CONTEXT_WINDOW,
   defaultAuthScheme,
+  DEFAULT_MAX_TOKENS,
   normalizeBaseUrl,
   thinkingBudgetError,
 } from './providerRules'
@@ -386,7 +388,7 @@ export function ProviderFormBody({
           <GroupLabel>能力</GroupLabel>
           <NumberField
             label="上下文窗口"
-            hint="查模型文档：一次对话的总容量（输入+输出），也决定何时压缩历史"
+            hint={`缺省 ${DEFAULT_CONTEXT_WINDOW}；查模型文档：一次对话的总容量（输入+输出），也决定何时压缩历史`}
             value={draft.context_window}
             min={1}
             error={
@@ -398,7 +400,7 @@ export function ProviderFormBody({
           />
           <NumberField
             label="单次最大输出 tokens"
-            hint="不填按 16384；不得超过模型文档的输出上限，超出会被拒绝或掐断"
+            hint={`缺省 ${DEFAULT_MAX_TOKENS}；以模型文档的输出上限为准，高出时被上游拒绝后会自动下调`}
             value={draft.max_tokens}
             min={0}
             onValue={(v) => patch({ max_tokens: v })}

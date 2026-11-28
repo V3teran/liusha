@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -16,8 +17,8 @@ func TestOperationURL_MatchesSDKRequests(t *testing.T) {
 		body     string
 	}{
 		{ProviderTypeOpenAICompat, "/api/paas/v4", openAIOK},
-		{ProviderTypeAnthropic, "/api/anthropic", anthropicOK},
-		{ProviderTypeAnthropic, "", anthropicOK},
+		{ProviderTypeAnthropic, "/api/anthropic", anthropicSSE},
+		{ProviderTypeAnthropic, "", anthropicSSE},
 	} {
 		var gotPath string
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -42,12 +43,13 @@ func TestOperationURL_MatchesSDKRequests(t *testing.T) {
 	}
 }
 
-// 2xx 但不是消息（网关把错误页包成 200）：判为不符合协议；字段齐全或仅缺 id 的消息照常接受。
-func TestAnthropic_UnexpectedResponseOnlyWhenNotAMessage(t *testing.T) {
+// 2xx 但不是消息流（网关把错误页包成 200）：判为不符合协议；字段齐全或仅缺 id 的消息流照常接受。
+func TestAnthropic_UnexpectedResponseOnlyWhenNotAMessageStream(t *testing.T) {
 	cases := map[string]bool{ // 响应体 → 是否应判为不符合协议
-		`{"code":500,"msg":"404 NOT_FOUND","success":false}`:                            true,
-		`{"type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}`: false, // 缺 id 的宽松网关
-		anthropicOK: false,
+		`{"code":500,"msg":"404 NOT_FOUND","success":false}`:          true, // 200 包着的错误页，不是事件流
+		`<html><body>502 Bad Gateway</body></html>`:                   true,
+		strings.Replace(anthropicSSE, `"id":"msg_1",`, `"id":"",`, 1): false, // 缺 id 的宽松网关
+		anthropicSSE: false,
 	}
 	for body, unexpected := range cases {
 		srv, _ := captureServer(t, body)
@@ -59,7 +61,7 @@ func TestAnthropic_UnexpectedResponseOnlyWhenNotAMessage(t *testing.T) {
 		}
 		_, err = gen.Generate(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil)
 		if got := errors.Is(err, ErrUnexpectedResponse); got != unexpected {
-			t.Fatalf("%s: 不符合协议判定 want %v, got err=%v", body, unexpected, err)
+			t.Fatalf("%s: 不符合协议判定 want %v, got err=%v", body[:min(60, len(body))], unexpected, err)
 		}
 	}
 }

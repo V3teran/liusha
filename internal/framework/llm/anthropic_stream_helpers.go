@@ -9,42 +9,27 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 )
 
-// prepareAnthropicRequest 准备 Anthropic 请求参数。thinkingBudget > 0 时开启
-// 扩展思考（模型先流式产出 thinking block 再产正文；流式路径不设 temperature——
-// 开思考时协议只允许 1，不设即协议默认）。
-//
-// 请求级 maxTokens（调用方按任务收窄，如 judge 1500）可能小于 provider 级
-// thinking budget（如 4096）——协议硬约束 budget < max_tokens（真 Anthropic
-// 直接 400；宽容后端则思考吞光正文预算）。此处在请求边界把 budget clamp 到
-// maxTokens 的 3/4：思考有上限、正文恒留 1/4 余量，两边都不违约。
-func prepareAnthropicRequest(msgs []Message, tools []ToolSchema, model anthropic.Model, maxTokens, thinkingBudget int64) (anthropic.MessageNewParams, error) {
-	systemBlocks, anthropicMsgs, err := toAnthropicMessages(msgs)
-	if err != nil {
-		return anthropic.MessageNewParams{}, fmt.Errorf("convert messages: %w", err)
-	}
-
-	anthropicTools, err := toAnthropicTools(tools)
-	if err != nil {
-		return anthropic.MessageNewParams{}, fmt.Errorf("convert tools: %w", err)
-	}
-
+// anthropicRequest 组装一次 messages 请求。maxTokens 是调用方按 provider 配置给定的输出上限——
+// 协议必填；请求级预算（调用方按任务收窄，如 judge 1500）可能小于 provider 级 thinking budget
+// （如 4096）——协议硬约束 budget < max_tokens（严格实现直接 400，宽容后端则思考吞光正文预算），
+// 所以此处把 budget clamp 到 maxTokens 的 3/4：思考有上限、正文恒留 1/4 余量，两边都不违约。
+// 开启思考时流式路径不设 temperature——该模式下协议只允许 1，不设即协议默认。
+func anthropicRequest(systemBlocks []anthropic.TextBlockParam, msgs []anthropic.MessageParam, tools []anthropic.ToolUnionParam, model anthropic.Model, maxTokens, thinkingBudget int64) anthropic.MessageNewParams {
 	params := anthropic.MessageNewParams{
 		Model:     model,
 		MaxTokens: maxTokens,
-		Messages:  anthropicMsgs,
+		Messages:  msgs,
 	}
-
 	if len(systemBlocks) > 0 {
 		params.System = systemBlocks
 	}
-	if len(anthropicTools) > 0 {
-		params.Tools = anthropicTools
+	if len(tools) > 0 {
+		params.Tools = tools
 	}
 	if thinkingBudget > 0 {
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(clampThinkingBudget(thinkingBudget, maxTokens))
 	}
-
-	return params, nil
+	return params
 }
 
 // clampThinkingBudget 把思考预算钳到 maxTokens 的 3/4：协议硬约束 budget < max_tokens，
@@ -57,16 +42,20 @@ func clampThinkingBudget(thinkingBudget, maxTokens int64) int64 {
 }
 
 // processAnthropicStream 处理 Anthropic 流式响应
-func processAnthropicStream(ctx context.Context, stream *ssestream.Stream[anthropic.MessageStreamEventUnion], ch chan StreamEvent) {
+// processAnthropicStream 处理 Anthropic 流式响应：start 按给定的输出上限建流。建流的错误要到
+// 首次读取才出现——那时还没有发出任何事件，所以上游嫌上限过大时可以降一半重建，消费方看不到。
+// 已经发出过事件就不再重建：重来会让增量重复。
+func processAnthropicStream(
+	ctx context.Context,
+	ch chan StreamEvent,
+	lim *OutputLimit,
+	limit int,
+	start func(limit int) *ssestream.Stream[anthropic.MessageStreamEventUnion],
+) {
 	defer close(ch)
-	defer func() {
-		_ = stream.Close()
-	}()
-
-	var acc anthropic.Message
-	toolArgs := map[int64][]byte{}
-
+	emitted := false
 	emit := func(e StreamEvent) bool {
+		emitted = true
 		select {
 		case ch <- e:
 			return true
@@ -74,19 +63,45 @@ func processAnthropicStream(ctx context.Context, stream *ssestream.Stream[anthro
 			return false
 		}
 	}
+	for {
+		err := drainAnthropicStream(ctx, start(limit), emit)
+		if err == nil {
+			return
+		}
+		if next, ok := lim.rejected(wrapAnthropicErr(err), limit); ok && !emitted {
+			limit = next
+			continue
+		}
+		emit(StreamEvent{Kind: StreamError, Err: wrapAnthropicErr(err)})
+		return
+	}
+}
+
+// drainAnthropicStream 读完一条流并发出全部事件；返回流的错误（正常收尾为 nil）。
+func drainAnthropicStream(ctx context.Context, stream *ssestream.Stream[anthropic.MessageStreamEventUnion], emit func(StreamEvent) bool) error {
+	defer func() {
+		_ = stream.Close()
+	}()
+
+	var acc anthropic.Message
+	toolArgs := map[int64][]byte{}
 
 	for stream.Next() {
 		event := stream.Current()
 		_ = acc.Accumulate(event)
 
 		if !handleStreamEvent(event, &acc, toolArgs, emit) {
-			return
+			return nil
 		}
 	}
 
 	if err := stream.Err(); err != nil {
-		emit(StreamEvent{Kind: StreamError, Err: wrapAnthropicErr(err)})
-		return
+		return err
+	}
+	// 一个事件都没收到：2xx 响应体不是消息流（网关把错误页包成了 200）。消息流一定以
+	// message_delta 给出结束原因，拿不到它就是没收到过消息。
+	if acc.StopReason == "" {
+		return fmt.Errorf("2xx 响应体不是消息流: %w", ErrUnexpectedResponse)
 	}
 
 	u := Usage{
@@ -105,6 +120,7 @@ func processAnthropicStream(ctx context.Context, stream *ssestream.Stream[anthro
 	}
 	// 结束原因随收尾事件透出（message_delta 的 stop_reason）：输出被上限截断时是 max_tokens。
 	emit(StreamEvent{Kind: StreamDone, Usage: &u, Signature: sig, FinishReason: string(acc.StopReason)})
+	return nil
 }
 
 // handleStreamEvent 处理单个流事件

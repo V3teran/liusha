@@ -110,7 +110,9 @@ func conflictf(format string, args ...any) error {
 
 // Normalize 把配置归一为规范形态（HTTP 写入、启动种子、落库共用，幂等）：Base URL 按
 // 协议规则归一（见 NormalizeBaseURL），鉴权方式缺省取协议标准方式，输出上限字段缺省
-// max_tokens（anthropic 协议恒为 max_tokens——该协议只有这一个字段）。
+// max_tokens（anthropic 协议恒为 max_tokens——该协议只有这一个字段），没填的上下文窗口与
+// 单次最大输出落成缺省值。缺省在入口落定：落库的行恒为正数，库里没有「未设置」的行，
+// 各级缓存读到的都是同一个确定的值。
 func (p *ProviderParams) Normalize() {
 	p.BaseURL = NormalizeBaseURL(p.Type, p.BaseURL)
 	p.DefaultModel = strings.TrimSpace(p.DefaultModel)
@@ -120,6 +122,12 @@ func (p *ProviderParams) Normalize() {
 	}
 	if p.OutputLimitParam == "" || p.Type == ProviderTypeAnthropic {
 		p.OutputLimitParam = OutputLimitMaxTokens
+	}
+	if p.ContextWindow == 0 {
+		p.ContextWindow = DefaultContextWindow
+	}
+	if p.MaxTokens == 0 {
+		p.MaxTokens = DefaultMaxTokens
 	}
 }
 
@@ -179,8 +187,8 @@ func (p ProviderParams) Validate() error {
 	if p.OutputLimitParam != OutputLimitMaxTokens && p.OutputLimitParam != OutputLimitMaxCompletionTokens {
 		return invalidf("非法输出上限字段 %q（应为 max_tokens 或 max_completion_tokens）", p.OutputLimitParam)
 	}
-	if p.MaxTokens < 0 {
-		return invalidf("单次最大输出 tokens 不能为负")
+	if p.MaxTokens <= 0 {
+		return invalidf("单次最大输出 tokens 必须大于 0")
 	}
 	if p.ThinkingBudgetTokens < 0 {
 		return invalidf("扩展思考预算不能为负")
@@ -192,8 +200,8 @@ func (p ProviderParams) Validate() error {
 		if p.ThinkingBudgetTokens < MinThinkingBudgetTokens {
 			return invalidf("扩展思考预算开启时至少 %d tokens", MinThinkingBudgetTokens)
 		}
-		if p.ThinkingBudgetTokens >= int64(p.EffectiveMaxTokens()) {
-			return invalidf("扩展思考预算（%d）必须小于单次最大输出 tokens（%d）", p.ThinkingBudgetTokens, p.EffectiveMaxTokens())
+		if p.ThinkingBudgetTokens >= int64(p.MaxTokens) {
+			return invalidf("扩展思考预算（%d）必须小于单次最大输出 tokens（%d）", p.ThinkingBudgetTokens, p.MaxTokens)
 		}
 	}
 	return nil
@@ -214,33 +222,21 @@ var ErrConflict = errors.New("模型配置冲突")
 
 // 扩展思考预算的协议约束（anthropic thinking.budget_tokens）：开启时至少 1024，
 // 且必须小于单次最大输出 tokens。
+const MinThinkingBudgetTokens = 1024
+
+// DefaultMaxTokens 与 DefaultContextWindow 是 provider 没填上下文窗口、单次最大输出时的缺省，
+// 也是全系统唯一的出处：表单初值、库列缺省（迁移 0266）、这里落定缺省值，三处同值——
+// 库列缺省由 internal/dbtest 的迁移测试与本常量对照。
 //
-// DefaultMaxTokens 是 provider 未配置 max_tokens 时的运行期输出上限。规划契约（多动作
-// 的计划 JSON，含指令与推理全文）在任务状态变大后轻易超过 4096——实测输出被钉死在
-// 上限、JSON 截断、契约解析失败、盲目重试永不提交，任务原地烧完整个预算。16k 覆盖
-// 契约的合理最坏情况；max_tokens 只是不被用到的上限，不产生额外费用。
+// 取当前旗舰模型的官方上限：上下文 1M、单次输出 128K（OpenAI / Anthropic / GLM / Qwen 旗舰的
+// 共同上限，DeepSeek 的 384K 是个例，按它做缺省会被其余全部拒绝）。它们只是上限，不多花钱。
+// 此前的 16384 偏小：规划者一次输出的思考加 JSON 可达 4k–8k token，任务变大后更高；实测在
+// 16384 上仍有约 0.5% 的输出顶到上限。上限低于缺省的模型（部分模型是 64K 或 32K），上游拒绝
+// 输出上限时运行期自动下调并记住（framework/llm 的 ClientPool）。
 const (
-	MinThinkingBudgetTokens = 1024
-	DefaultMaxTokens        = 16384
+	DefaultMaxTokens     = 131072
+	DefaultContextWindow = 1048576
 )
-
-// EffectiveMaxTokens 是运行期实际发送的单次最大输出 tokens（0 = 缺省值）。
-func EffectiveMaxTokens(maxTokens int) int {
-	if maxTokens > 0 {
-		return maxTokens
-	}
-	return DefaultMaxTokens
-}
-
-// EffectiveMaxTokens 实现 Provider 行的运行期输出上限。
-func (p Provider) EffectiveMaxTokens() int {
-	return EffectiveMaxTokens(p.MaxTokens)
-}
-
-// EffectiveMaxTokens 实现 ProviderParams 的运行期输出上限。
-func (p ProviderParams) EffectiveMaxTokens() int {
-	return EffectiveMaxTokens(p.MaxTokens)
-}
 
 // ProviderParams 是 Provider 的 upsert 入参（Key 是稳定引用键，Update 按 Key 定位）。
 //

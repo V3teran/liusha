@@ -104,6 +104,9 @@ type ClientPool struct {
 	openai    map[string]*openai.Client
 	anthropic map[string]*anthropic.Client
 	transport []*http.Client // 池内创建的 HTTP client（Close 释放其空闲连接）
+	// outputLimits 记住各账户（服务地址 + 密钥）上各模型被上游接受过的最大输出上限：配置的值
+	// 被上游嫌大而拒绝时降下来重发，结论记在这里（见 OutputLimit）。
+	outputLimits map[string]int
 }
 
 // NewClientPool 构造空池。

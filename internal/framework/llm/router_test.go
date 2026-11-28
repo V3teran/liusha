@@ -406,3 +406,29 @@ func TestRouter_ForAndInvalidateAllAreSafeConcurrently(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Router 给构造出的 provider 标上 spec 里的单次最大输出，且标在全部装饰之外：运行时的收尾
+// 据此请求输出预算，包在中间的任何装饰都不该把它挡住。
+func TestRouter_TagsProviderWithOutputLimit(t *testing.T) {
+	s := &fakeRouterStore{
+		routes:    map[string]string{"medium": "p"},
+		providers: map[string]ProviderSpec{"p": goodSpec("p")},
+	}
+	spec := s.providers["p"]
+	spec.MaxTokens = 65536
+	s.providers["p"] = spec
+	r := NewRouter(s)
+	r.SetProviderWrapper(func(p Provider) Provider {
+		return InstrumentProvider(WithDynamicCallTimeout(p, time.Minute, func(context.Context) time.Duration { return time.Minute }), nil)
+	})
+	prov, err := r.For(context.Background(), ComplexityMedium)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := OutputLimitOf(prov); got != 65536 {
+		t.Fatalf("OutputLimitOf = %d，应为 spec 的 MaxTokens", got)
+	}
+	if got := OutputLimitOf(providerFuncs{}); got != 0 {
+		t.Fatalf("没标上限的 provider 应返回 0，实际 %d", got)
+	}
+}

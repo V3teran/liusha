@@ -33,8 +33,7 @@ func TestProviderParamsValidate(t *testing.T) {
 		{"思考预算用于 openai 兼容", func(p *ProviderParams) { p.Type = ProviderTypeOpenAICompat; p.ThinkingBudgetTokens = 2048 }, false},
 		{"思考预算低于下限", func(p *ProviderParams) { p.ThinkingBudgetTokens = 1023 }, false},
 		{"思考预算等于 max_tokens", func(p *ProviderParams) { p.ThinkingBudgetTokens = 8192 }, false},
-		{"max_tokens 缺省按 16384 判定", func(p *ProviderParams) { p.MaxTokens = 0; p.ThinkingBudgetTokens = 16384 }, false},
-		{"max_tokens 缺省 16384 下思考预算合法", func(p *ProviderParams) { p.MaxTokens = 0; p.ThinkingBudgetTokens = 4096 }, true},
+		{"max_tokens 为 0（未经归一）", func(p *ProviderParams) { p.MaxTokens = 0 }, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -121,5 +120,40 @@ func TestProviderParamsNormalize(t *testing.T) {
 	bad.AuthScheme = "basic"
 	if err := bad.Validate(); err == nil {
 		t.Fatal("非法鉴权方式应被拒")
+	}
+}
+
+// 上下文窗口与单次最大输出没填（0）时，归一落成缺省——缺省只有一个出处，落库的行不再有
+// 「未设置」；已填的值原样保留。扩展思考预算按落成后的上限判定。
+func TestProviderParamsNormalize_FillsLimitDefaults(t *testing.T) {
+	p := ProviderParams{Type: ProviderTypeAnthropic, BaseURL: "https://x", DisplayName: "n", DefaultModel: "m"}
+	p.Normalize()
+	if p.MaxTokens != DefaultMaxTokens || p.ContextWindow != DefaultContextWindow {
+		t.Fatalf("没填的上限应落成缺省 %d / %d，实际 %d / %d", DefaultMaxTokens, DefaultContextWindow, p.MaxTokens, p.ContextWindow)
+	}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("落成缺省后应合法: %v", err)
+	}
+	budget := p
+	budget.ThinkingBudgetTokens = 65536
+	if err := budget.Validate(); err != nil {
+		t.Fatalf("思考预算小于缺省上限应合法: %v", err)
+	}
+	budget.ThinkingBudgetTokens = int64(DefaultMaxTokens)
+	if err := budget.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("思考预算不小于缺省上限应被拒，got %v", err)
+	}
+	kept := ProviderParams{Type: ProviderTypeAnthropic, BaseURL: "https://x", MaxTokens: 4096, ContextWindow: 200000}
+	kept.Normalize()
+	if kept.MaxTokens != 4096 || kept.ContextWindow != 200000 {
+		t.Fatalf("已填的值不应被缺省覆盖: %+v", kept)
+	}
+}
+
+// 缺省取当前旗舰模型的官方上限：上下文 1M、单次输出 128K。它们只是上限，不多花钱；
+// 上限小于它的模型，上游拒绝输出上限时运行期自动下调（见 framework/llm）。
+func TestLimitDefaults(t *testing.T) {
+	if DefaultContextWindow != 1048576 || DefaultMaxTokens != 131072 {
+		t.Fatalf("缺省应为 1048576 / 131072，实际 %d / %d", DefaultContextWindow, DefaultMaxTokens)
 	}
 }

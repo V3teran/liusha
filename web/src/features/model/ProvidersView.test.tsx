@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProvidersView } from './ProvidersView'
 import { listProviders, saveProvider, deleteProvider, diagnoseProvider } from '@/api/models'
 import type { ProviderConfig } from '@/api/types'
+import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS } from './providerRules'
 
 vi.mock('@/api/models', () => ({
   listProviders: vi.fn(),
@@ -29,13 +30,13 @@ function prov(o: Partial<ProviderConfig> = {}): ProviderConfig {
     default_model: 'deepseek-chat',
     key_present: true,
     key_last4: '1234',
-    max_tokens: 4096,
+    max_tokens: DEFAULT_MAX_TOKENS,
     thinking_budget_tokens: 0,
     auth_scheme: 'bearer',
     output_limit_param: 'max_tokens',
     supports_tools: true,
     supports_vision: false,
-    context_window: 65536,
+    context_window: DEFAULT_CONTEXT_WINDOW,
     description: '',
     sort_order: 0,
     enabled: true,
@@ -93,7 +94,7 @@ describe('ProvidersView（对话模型分区，行内下拉展开编辑）', () 
     await userEvent.click(await screen.findByText('deepseek'))
     // 无需分页，base_url（连接组）与 context_window（能力组）同屏。
     expect(await screen.findByDisplayValue('https://api.deepseek.com')).toBeTruthy()
-    expect(screen.getByDisplayValue('65536')).toBeTruthy()
+    expect(screen.getByDisplayValue(String(DEFAULT_CONTEXT_WINDOW))).toBeTruthy()
     // 展开行 chevron 转 down（aria-expanded=true）
     expect(screen.getByRole('button', { name: /^deepseek/ }).getAttribute('aria-expanded')).toBe('true')
     // 再点行头 → 收起

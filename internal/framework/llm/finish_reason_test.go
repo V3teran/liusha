@@ -51,7 +51,7 @@ data: {"type":"message_stop"}
 `
 	srv := sseServer(t, body)
 	client := anthropic.NewClient(option.WithAPIKey("test"), option.WithBaseURL(srv.URL))
-	gen, err := NewAnthropic(context.Background(), "p", AnthropicConfig{Model: "m", MaxTokens: 4096}, &client)
+	gen, err := NewAnthropic(context.Background(), "p", AnthropicConfig{Model: "m", Limit: NewClientPool().OutputLimitFor(srv.URL, "test", "m", 4096)}, &client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ data: [DONE]
 	cfg := openai.DefaultConfig("test")
 	cfg.BaseURL = srv.URL + "/v1"
 	client := openai.NewClientWithConfig(cfg)
-	gen, err := NewOpenAICompat(context.Background(), "p", OpenAICompatConfig{Model: "m", MaxTokens: 4096}, client)
+	gen, err := NewOpenAICompat(context.Background(), "p", OpenAICompatConfig{Model: "m", Limit: NewClientPool().OutputLimitFor(srv.URL, "test", "m", 4096)}, client)
 	if err != nil {
 		t.Fatal(err)
 	}

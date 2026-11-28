@@ -52,5 +52,18 @@ func (p *generatorProvider) Stream(ctx context.Context, req Request) (<-chan Str
 	return sg.StreamChat(ctx, req.Messages, req.Tools, req.MaxTokens)
 }
 
+// resultOf 把聚合好的 Response 折回 Generator 的 Result（流式链路实现非流式接口时用）。
+func resultOf(resp Response, provider, model string) Result {
+	return Result{
+		Content:      resp.Content,
+		ToolCalls:    resp.ToolCalls,
+		Usage:        resp.Usage,
+		FinishReason: resp.FinishReason,
+		Provider:     provider,
+		Model:        model,
+		Thinking:     resp.Thinking,
+	}
+}
+
 func (p *generatorProvider) ModelID() string    { return p.g.Model() }
 func (p *generatorProvider) ProviderID() string { return p.g.Provider() }

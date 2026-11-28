@@ -6,6 +6,7 @@ import { AssignmentView } from './AssignmentView'
 import { listProviders, listRoutes, saveRoleRoute, deleteRoleRoute } from '@/api/models'
 import { listAgents, patchAgent } from '@/api/config'
 import type { ProviderConfig, RoutingResponse, AgentListItem } from '@/api/types'
+import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS } from './providerRules'
 
 vi.mock('@/api/models', () => ({
   listProviders: vi.fn(),
@@ -34,13 +35,13 @@ function prov(key: string, enabled = true): ProviderConfig {
     base_url: 'https://x',
     default_model: 'm',
     key_present: true,
-    max_tokens: 4096,
+    max_tokens: DEFAULT_MAX_TOKENS,
     thinking_budget_tokens: 0,
     auth_scheme: 'bearer',
     output_limit_param: 'max_tokens',
     supports_tools: true,
     supports_vision: false,
-    context_window: 65536,
+    context_window: DEFAULT_CONTEXT_WINDOW,
     description: '',
     sort_order: 0,
     enabled,

@@ -14,6 +14,14 @@ import (
 // truncatedPlan 是被输出上限砍断的规划终稿：JSON 停在半截。
 const truncatedPlan = `{"should_continue":true,"reasoning":"还没写完`
 
+// limitedProvider 是标了单次输出上限的 provider（Router 给运行期 provider 标的正是这个）。
+type limitedProvider struct {
+	*recordingProvider
+	limit int
+}
+
+func (p limitedProvider) OutputLimit() int { return p.limit }
+
 // 终稿被输出上限截断（结束原因写明）：JSON 在半截断掉。收尾请求如实说明是截断，而不是只说
 // 「取不出 JSON」——那会让模型以同样的篇幅再写一遍、再被截断一次。
 func TestRun_TruncatedFinalDraftIsRestatedAsTruncated(t *testing.T) {
@@ -64,20 +72,57 @@ func TestRun_TruncatedProseWithoutOutputFormatStands(t *testing.T) {
 }
 
 // 正文为空、结束原因写明截断：思考吃满了输出预算。同预算再生成一次是确定性失败（实测
-// 第二次多半还是被截断），不在循环里纠偏，直接收尾——收尾按放大的输出预算请求。
+// 第二次多半还是被截断），不在循环里纠偏，直接收尾——收尾按 provider 配置的上限请求。
 func TestRun_TruncatedEmptyResponseGoesStraightToWrapUp(t *testing.T) {
-	provider := &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{
-		{Content: "", FinishReason: "length", Usage: llm.Usage{OutTokens: 4096}},
+	provider := &limitedProvider{recordingProvider: &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{
+		{Content: "", FinishReason: "length", Usage: llm.Usage{OutTokens: 65536}},
 		{Content: planJSON},
-	}}}
+	}}}, limit: 65536}
 	config := structuredConfig(provider)
 
 	result, err := NewReActRuntime().Run(context.Background(), config)
 	require.NoError(t, err)
 	require.Len(t, provider.requests, 2, "被截断的空响应之后应当直接是一次收尾")
 	ask := lastUserMessage(provider.requests[1])
-	assert.True(t, strings.HasPrefix(ask, "上一版输出达到输出上限（4096 token）被截断，没有写完。"), ask)
-	assert.Equal(t, maxForcedOutputTokens, provider.requests[1].MaxTokens, "收尾按放大的输出预算请求")
+	assert.True(t, strings.HasPrefix(ask, "上一版输出达到输出上限（65536 token）被截断，没有写完。"), ask)
+	assert.Equal(t, 65536, provider.requests[1].MaxTokens, "收尾按 provider 配置的上限请求")
 	assert.Equal(t, planJSON, result.FinalAnswer)
 	assert.Nil(t, result.InternalError)
+}
+
+// 收尾的输出预算跟随 provider 配置的单次最大输出：它调大之后，收尾若仍按固定的 16384 请求，
+// 会比常规调用更容易被截断。
+func TestRun_ForcedBudgetFollowsProviderOutputLimit(t *testing.T) {
+	provider := &limitedProvider{recordingProvider: &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{
+		{Content: truncatedPlan, FinishReason: "max_tokens", Usage: llm.Usage{OutTokens: 65536}},
+		{Content: planJSON},
+	}}}, limit: 65536}
+
+	result, err := NewReActRuntime().Run(context.Background(), structuredConfig(provider))
+	require.NoError(t, err)
+	require.Len(t, provider.requests, 2)
+	assert.Equal(t, 0, provider.requests[0].MaxTokens, "常规调用走 provider 自己的上限")
+	assert.Equal(t, 65536, provider.requests[1].MaxTokens, "收尾按 provider 配置的上限请求，不被固定封顶压低")
+	assert.Equal(t, planJSON, result.FinalAnswer)
+}
+
+// 调用方没给预算时，收尾从 provider 的上限起、不越过它：再高的值上游未必接受，重试只能靠
+// 请模型精简。
+func TestRun_ForcedBudgetNeverExceedsProviderOutputLimit(t *testing.T) {
+	provider := &limitedProvider{recordingProvider: &recordingProvider{mockLLMProvider: mockLLMProvider{responses: []llm.Response{
+		{Content: truncatedPlan, FinishReason: "max_tokens", Usage: llm.Usage{OutTokens: 8192}},
+		{Content: truncatedPlan, FinishReason: "max_tokens", Usage: llm.Usage{OutTokens: 8192}},
+		{Content: planJSON, Usage: llm.Usage{OutTokens: 900}},
+	}}}, limit: 8192}
+
+	result, err := NewReActRuntime().Run(context.Background(), structuredConfig(provider))
+	require.NoError(t, err)
+	require.Len(t, provider.requests, 3)
+	budgets := []int{}
+	for _, req := range provider.requests[1:] {
+		budgets = append(budgets, req.MaxTokens)
+	}
+	assert.Equal(t, []int{8192, 8192}, budgets, "收尾始终按 provider 的上限请求")
+	assert.Contains(t, lastUserMessage(provider.requests[2]), "上一条输出达到输出上限被截断", "重试靠请模型精简")
+	assert.Equal(t, planJSON, result.FinalAnswer)
 }
