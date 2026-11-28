@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -60,12 +61,9 @@ func (e *Engine) createObservationNode(
 
 	case explorationgraph.CategoryEntity, explorationgraph.CategoryAccess, explorationgraph.CategoryStructure, explorationgraph.CategoryBehavior, explorationgraph.CategoryNote:
 		// 事实只带 statement/category/reasoning —— 无 repro/impact/suggestion/priority/验证状态。
-		// opens_deeper 是事实专属的线索信号：本条观察揭示了一条走得通、尚未推进到结论的
-		// 路径，写进 metadata 供规划层优先深挖（见 Node.OpensDeeper）。假设本身就在复现门里
-		// 推进，不带此信号。
-		if obs.OpensDeeper {
-			node.Metadata = explorationgraph.OpensDeeperMetadata()
-		}
+		// 线索是事实专属的（Node.Lead）：本条观察揭示了一条走得通、尚未推进到结论的路径。
+		// 成不成线索由 leadSpec 把关（三样都写才是）。
+		node.Lead = e.leadSpec(obs)
 
 	default:
 		return nil, fmt.Errorf("unknown observation category: %s", obs.Category)
@@ -96,6 +94,34 @@ func (e *Engine) createObservationNode(
 		return nil, fmt.Errorf("create node: %w", err)
 	}
 	return &node, nil
+}
+
+// leadSpec 把模型给的线索收成图上的写法。下一步、要弄清的结论、推进价值三样都写了才是
+// 线索——写不出「沿这条事实再走一步具体做什么、要弄清什么、走通了能换来什么」的，只是
+// 环境里的一件事实，不是线索（章程的标准，在这里是硬约束）。不成的按普通事实写入并留一条
+// 日志：观察是动作收尾时整批写入的，不因其中一条不成线索而让整个动作失败。假设带线索
+// 同样忽略——它本身就在复现门里推进。
+func (e *Engine) leadSpec(obs Observation) *explorationgraph.LeadSpec {
+	if obs.Lead == nil {
+		return nil
+	}
+	if obs.Category == explorationgraph.CategoryHypothesis {
+		e.logger.Warn().Msg("假设带了线索，已忽略：线索只属于事实观察")
+		return nil
+	}
+	spec := explorationgraph.LeadSpec{
+		Next:      strings.TrimSpace(obs.Lead.Next),
+		Question:  strings.TrimSpace(obs.Lead.Question),
+		Potential: strings.TrimSpace(obs.Lead.Potential),
+	}
+	if spec.Next == "" || spec.Question == "" || spec.Potential == "" {
+		e.logger.Warn().
+			Str("category", string(obs.Category)).
+			Bool("has_next", spec.Next != "").Bool("has_question", spec.Question != "").Bool("has_potential", spec.Potential != "").
+			Msg("线索缺下一步、要弄清的结论或推进价值，按普通事实写入")
+		return nil
+	}
+	return &spec
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -129,8 +155,9 @@ type Observation struct {
 	// 形式：信封 {kind, recipe, assert}，recipe/assert 的形状由 kind 定义（http=HTTP 请求，steps=自然语言步骤）
 	Repro json.RawMessage `json:"repro,omitempty"`
 
-	// OpensDeeper 是事实观察专属的线索信号：本条观察揭示了一条走得通、但尚未推进到
-	// 结论的路径。事实类写入即终态，这个信号让规划层把它单列为待深挖的线索优先处理；
-	// 假设不带（它本身就在复现门里推进）。createObservationNode 只对事实类采纳。
-	OpensDeeper bool `json:"opens_deeper,omitempty"`
+	// Lead 是事实观察专属的线索：本条观察揭示了一条走得通、但尚未推进到结论的路径——
+	// Next 是沿它再走一步具体做什么，Question 是走完要弄清的结论，Potential 是走通了能
+	// 换来什么。三样都写才是线索（见 leadSpec）；事实类写入即终态，线索让规划层把它单列
+	// 为待深挖的优先处理。假设不带（它本身就在复现门里推进）。
+	Lead *explorationgraph.LeadSpec `json:"lead,omitempty"`
 }

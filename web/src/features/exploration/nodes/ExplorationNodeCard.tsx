@@ -19,7 +19,7 @@
 import { memo, type CSSProperties } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { cn } from '@/lib/utils'
-import { kindProfile, nodeChips, nodeTitle, LEAD_ACCENT } from '../kindTheme'
+import { kindProfile, leadHint, nodeChips, nodeTitle, LEAD_ACCENT } from '../kindTheme'
 import type { ExplorationFlowNode } from '../layout'
 import { LeadClosedChip, LeadMark } from '../LeadMark'
 
@@ -93,7 +93,7 @@ export const ExplorationNodeCard = memo(({ data }: NodeProps<ExplorationFlowNode
           style={{ width: 7, height: 7, background: profile.accent, border: '2px solid var(--surface)' }}
         />
       </div>
-      {openLead && <LeadMark title="线索：执行者已踩通、尚未推进到结论的路径" />}
+      {openLead && <LeadMark title={leadHint({ closed: false, detail: '', spec: chips.lead!.spec })} />}
     </>
   )
 })

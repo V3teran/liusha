@@ -251,6 +251,35 @@ func TestBuildOpenLeadsSection(t *testing.T) {
 	}
 }
 
+// 线索带着执行者写下的三样：事实在前，下一步、要弄清、能换来什么在后（摘要极端超预算时
+// 行尾先被缩写，线索的身份在前）；三样各自钳长。线索成为结构化字段之前落图的没有三样，
+// 只列事实。
+func TestBuildOpenLeadsSection_CarriesTheLeadSpec(t *testing.T) {
+	now := time.Unix(1700000100, 0)
+	ctx := &PlanningContext{Now: now, OpenLeads: []OpenLead{
+		{ID: "o1", Statement: "管理入口未鉴权", Next: "用 admin 会话测其余模块", Question: "low 下是否同样可利用",
+			Potential: "每多一个模块多一条主张", CreatedAt: now.Add(-12 * time.Minute)},
+		{ID: "o2", Statement: "早先的一条线索", CreatedAt: now},
+		{ID: "o3", Statement: "写得很长的线索", Next: strings.Repeat("长", 300), Question: "q", Potential: "p", CreatedAt: now},
+	}}
+	got := buildOpenLeadsSection(ctx)
+
+	// 事实、处境、三样依次排开：三样在行尾
+	if want := "- [L1] 管理入口未鉴权（已挂 12 分钟） → 下一步：用 admin 会话测其余模块；弄清：low 下是否同样可利用；换来：每多一个模块多一条主张\n"; !strings.Contains(got, want) {
+		t.Fatalf("线索应依次写事实、处境、三样，期望含 %q，得:\n%s", want, got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasPrefix(line, "- [L2] ") && strings.Contains(line, "→") {
+			t.Fatalf("没有三样的线索只列事实与处境，得 %q", line)
+		}
+		if strings.HasPrefix(line, "- [L3] ") {
+			if want := "下一步：" + strings.Repeat("长", leadPartClampRunes) + "…（截断）；弄清：q；换来：p"; !strings.Contains(line, want) {
+				t.Fatalf("三样各自钳到 %d 字，期望含 %q，得 %q", leadPartClampRunes, want, line)
+			}
+		}
+	}
+}
+
 // 已关闭的线索带关闭原因逐条渲染；只增不减，超过上限时只留尾部、更早的折叠成计数行。
 func TestBuildClosedLeadsSection(t *testing.T) {
 	if got := buildClosedLeadsSection(nil); got != "" {

@@ -1,6 +1,8 @@
 package explorationgraph
 
 import (
+	"encoding/json"
+
 	"github.com/V3teran/liusha/internal/framework/core"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -30,8 +32,41 @@ var typedMetadataKeys = map[string]bool{
 	"complexity":     true,
 	"state_reason":   true,
 	metaVerification: true,
+	metaLead:         true,
+	metaLeadClosed:   true,
 }
 
 // metaVerification 是验证状态在 graph metadata 中的键。evaluator 回写验证结论时以
 // 同一键浅合并（UpdateNodeMetadata），与 Node.VerificationStatus 同一事实。
 const metaVerification = "verification_status"
+
+// typedFromMetadata 把 metadata 里的一个对象还原成类型化字段（线索、关闭批注）：存进去的是
+// 经 JSON 往返的 map，这里再往返回来。不是对象或还原不了时返回 nil——按没有这个字段处理。
+func typedFromMetadata[T any](v interface{}) *T {
+	if v == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	var out T
+	if json.Unmarshal(b, &out) != nil {
+		return nil
+	}
+	return &out
+}
+
+// typedToMetadata 把类型化字段变成可入 metadata 的对象：经 JSON 往返，结构的 json 标签即
+// 存储键。
+func typedToMetadata(v any) map[string]interface{} {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return map[string]interface{}{}
+	}
+	var m map[string]interface{}
+	if json.Unmarshal(b, &m) != nil {
+		return map[string]interface{}{}
+	}
+	return m
+}

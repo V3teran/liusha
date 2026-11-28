@@ -130,6 +130,8 @@ const (
 	factClampRunes    = 400
 	reasonClampRunes  = 200
 	historyClampRunes = 600
+	// leadPartClampRunes 是线索三样（下一步、要弄清、能换来什么）各自的钳长（rune）。
+	leadPartClampRunes = 120
 )
 
 // foldTail 把按时间先后排列的序列拆成「逐条渲染的尾部」与被折叠的更早条数。
@@ -310,9 +312,10 @@ func buildResultsSection(results []explorationgraph.Node) string {
 }
 
 // buildOpenLeadsSection 构建待深挖的线索：执行者已探通、尚未推进到结论的路径，单列在
-// 事实之前，带短号供动作认领。同一陈述的线索并成一行、短号都列出（没有哪条线索是看不见
-// 的）；每条带它由图上推导的处境——由哪个在办动作产出、挂了多久、几次跟进而没做完、
-// 几次被否决。
+// 事实之前，带短号供动作认领。每条依次是它依据的事实、由图上推导的处境（挂了多久、几次
+// 跟进而没做完、几次被否决）、执行者留下的三样——下一步做什么、走完要弄清什么、走通了能
+// 换来什么。三样放在行尾：摘要极端超预算时从行尾缩写，线索的身份与处境留得住。同一陈述
+// 的线索并成一行、短号都列出（没有哪条线索是看不见的）。
 func buildOpenLeadsSection(ctx *PlanningContext) string {
 	if len(ctx.OpenLeads) == 0 {
 		return ""
@@ -352,10 +355,36 @@ func buildOpenLeadsSection(ctx *PlanningContext) string {
 			}
 			sb.WriteString("）")
 		}
+		writeLeadSpec(&sb, lead)
 		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+// writeLeadSpec 在一条线索后面写执行者留下的三样；线索成为结构化字段之前落图的没有这三样，
+// 什么都不写。
+func writeLeadSpec(sb *strings.Builder, lead OpenLead) {
+	if lead.Next == "" && lead.Question == "" && lead.Potential == "" {
+		return
+	}
+	clamp := func(text string) string { return textx.TruncateRunes(text, leadPartClampRunes, "…（截断）") }
+	sb.WriteString(" → ")
+	switch {
+	case lead.Next != "" && lead.Question != "" && lead.Potential != "":
+		fmt.Fprintf(sb, "下一步：%s；弄清：%s；换来：%s", clamp(lead.Next), clamp(lead.Question), clamp(lead.Potential))
+	default:
+		// 不该出现（写入时三样齐备才成线索）；如实列出有的，缺的不编
+		if lead.Next != "" {
+			fmt.Fprintf(sb, "下一步：%s", clamp(lead.Next))
+		}
+		if lead.Question != "" {
+			fmt.Fprintf(sb, "弄清：%s", clamp(lead.Question))
+		}
+		if lead.Potential != "" {
+			fmt.Fprintf(sb, "换来：%s", clamp(lead.Potential))
+		}
+	}
 }
 
 // writeParenthesized 写一段括注；段为空就不写括号。

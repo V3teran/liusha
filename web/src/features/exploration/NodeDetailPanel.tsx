@@ -11,6 +11,7 @@ import type { GraphNode, Verification } from '@/api/explorationgraph'
 import { priorityMeta } from '@/lib/priority'
 import {
   kindProfile,
+  leadHasSpec,
   leadMeta,
   nodeTitle,
   rejectionScope,
@@ -49,6 +50,17 @@ function displayValue(key: string, v: unknown): string {
     return OBSERVATION_CATEGORY_META[v] ?? v
   }
   return String(v)
+}
+
+/** 线索三样里的一行：标签加正文；这一样没写就不占行 */
+function LeadRow({ label, text }: { label: string; text: string }) {
+  if (!text) return null
+  return (
+    <div className="flex gap-2">
+      <span className="w-9 flex-shrink-0 text-text-tertiary">{label}</span>
+      <span className="break-words text-text">{text}</span>
+    </div>
+  )
 }
 
 function MetaChip({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
@@ -163,6 +175,17 @@ export function NodeDetailPanel({
         {direction && (
           <section className="rounded-lg border border-border bg-background/50 px-3 py-2 text-xs text-text-secondary">
             <div className="break-words">所属方向：{nodeTitle(direction)}</div>
+          </section>
+        )}
+
+        {lead && leadHasSpec(lead.spec) && (
+          <section
+            aria-label="线索"
+            className="space-y-1 rounded-lg border border-border bg-background/50 px-3 py-2 text-xs text-text-secondary"
+          >
+            <LeadRow label="下一步" text={lead.spec.next} />
+            <LeadRow label="要弄清" text={lead.spec.question} />
+            <LeadRow label="能换来" text={lead.spec.potential} />
           </section>
         )}
 

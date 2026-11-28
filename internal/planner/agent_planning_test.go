@@ -88,10 +88,10 @@ func leadGraph(t *testing.T) (*explorationgraph.Store, context.Context) {
 	return store, context.Background()
 }
 
-// planFactLead 建一条被标为线索的事实观察。
+// planFactLead 建一条带线索的事实观察。
 func planFactLead(id string, offset time.Duration) explorationgraph.Node {
 	n := contextObservation(id, "access", "探通了一条路 "+id, nil, "", offset)
-	n.Metadata = explorationgraph.OpensDeeperMetadata()
+	n.Lead = &explorationgraph.LeadSpec{Next: "顺着它再走一步", Question: "结论是什么", Potential: "一条可坐实的主张"}
 	return n
 }
 
@@ -139,10 +139,9 @@ func TestApplyOutcome_ClosingLeadsIsAGraphChange(t *testing.T) {
 
 	lead, err := store.GetNode(ctx, "lead-1")
 	require.NoError(t, err)
-	closure, ok := lead.LeadClosure()
-	require.True(t, ok)
-	assert.Equal(t, explorationgraph.ClosureOutOfScope, closure.Kind, "关闭的类别与理由落在线索上")
-	assert.Equal(t, "超出任务目标", closure.Reason)
+	require.NotNil(t, lead.LeadClosed, "关闭的类别与理由落在线索上")
+	assert.Equal(t, explorationgraph.ClosureOutOfScope, lead.LeadClosed.Kind)
+	assert.Equal(t, "超出任务目标", lead.LeadClosed.Reason)
 	assert.Equal(t, []string{"lead-2"}, openLeadIDs(t, store, ctx))
 	assert.Nil(t, a.conclusion, "图面有变化，等待结论不作数")
 	assert.Equal(t, 0, converged, "不因这一轮没有新动作就走收敛判定")

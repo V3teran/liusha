@@ -56,20 +56,27 @@ func actionObjective(action explorationgraph.Node, content *ActionContent, goal 
 	return b.String()
 }
 
-// pursuedLeadStatements 返回这个动作经 pursues 边认领的线索的陈述：规划者认领线索时排出的
-// 动作带着它们，执行者据此知道自己接手的是哪条线索。
-func (e *Engine) pursuedLeadStatements(ctx context.Context, action explorationgraph.Node) ([]string, error) {
+// pursuedLeadLines 返回这个动作经 pursues 边认领的线索，每条一行：它依据的事实，连同执行者
+// 写下的三样（下一步做什么、走完要弄清什么、走通了能换来什么）。规划者认领线索时排出的动作
+// 带着它们，执行者据此知道自己接手的是哪条路、要走到哪里。
+func (e *Engine) pursuedLeadLines(ctx context.Context, action explorationgraph.Node) ([]string, error) {
 	leads, err := e.graph.PursuedLeads(ctx, action.TaskID, action.ID)
 	if err != nil {
 		return nil, fmt.Errorf("读取认领的线索: %w", err)
 	}
-	statements := make([]string, 0, len(leads))
+	lines := make([]string, 0, len(leads))
 	for _, lead := range leads {
-		if statement := lead.Statement(); statement != "" {
-			statements = append(statements, statement)
+		statement := lead.Statement()
+		if statement == "" && lead.Lead == nil {
+			continue
 		}
+		line := statement
+		if lead.Lead != nil && (lead.Lead.Next != "" || lead.Lead.Question != "" || lead.Lead.Potential != "") {
+			line += fmt.Sprintf("（下一步：%s；要弄清：%s；能换来：%s）", lead.Lead.Next, lead.Lead.Question, lead.Lead.Potential)
+		}
+		lines = append(lines, line)
 	}
-	return statements, nil
+	return lines, nil
 }
 
 // prepareReActTools 准备并过滤 ReAct 工具列表
@@ -94,7 +101,7 @@ func (e *Engine) buildReActConfigWithMonitoring(
 ) (*runtime.ReActConfig, error) {
 	// 读不到认领的线索时照常执行，只是不带这一节：把读失败上抛会让这个动作按执行故障收场，
 	// 白跑一趟——线索虽然会重新回到待深挖，这一轮的执行却浪费了。run 被打断的情形原样交还。
-	leads, err := e.pursuedLeadStatements(ctx, action)
+	leads, err := e.pursuedLeadLines(ctx, action)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, err

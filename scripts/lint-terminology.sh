@@ -242,6 +242,10 @@ FORBIDDEN=(
   'Superseded'
   'ObjectiveCompletion'
   '被吸收'
+  # 线索从事实观察上的布尔信号变成结构化字段 lead（下一步 / 要弄清的结论 / 推进价值，三样齐备
+  #   才成线索）后的旧名不得回流（迁移 0264）。
+  "opens_deeper"
+  "OpensDeeper"
   # provider 实测拆成「测试连接」（对话实测、回填画像）与「拉取模型列表」两个操作后，界面不再有
   #   「运行诊断 / 连接诊断」：诊断不再顺带拉列表、未填模型时也不再自动挑模型（auto_model 删除）。
   #   后端接口仍叫 diagnose（逐项诊断），不在此列。
