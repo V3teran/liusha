@@ -8,7 +8,7 @@ import type { ProviderConfig, ProviderProbeTarget, ProviderType } from '@/api/ty
 const OPERATION_SUFFIXES = ['/chat/completions', '/completions', '/messages', '/models']
 
 /**
- * 按协议规则归一 Base URL：去首尾空白与末尾斜杠、去掉误粘的操作路径；Anthropic 协议
+ * 按协议规则归一 Base URL：去首尾空白与末尾斜杠、去掉误粘的操作路径；Anthropic Messages 协议
  * 再去掉末尾的 /v1（SDK 自行拼 /v1/messages）。无法解析的地址原样返回。
  */
 export function normalizeBaseUrl(protocol: ProviderType | '', raw: string): string {
@@ -24,7 +24,7 @@ export function normalizeBaseUrl(protocol: ProviderType | '', raw: string): stri
   const lower = path.toLowerCase()
   const suffix = OPERATION_SUFFIXES.find((s) => lower.endsWith(s))
   if (suffix) path = path.slice(0, path.length - suffix.length)
-  if (protocol === 'anthropic' && path.toLowerCase().endsWith('/v1')) path = path.slice(0, -3)
+  if (protocol === 'anthropic_messages' && path.toLowerCase().endsWith('/v1')) path = path.slice(0, -3)
   path = path.replace(/\/+$/, '')
   return `${u.protocol}//${u.host}${path}${u.search}`
 }
@@ -32,7 +32,7 @@ export function normalizeBaseUrl(protocol: ProviderType | '', raw: string): stri
 /** 协议对话操作的实际请求地址（与 SDK 拼接规则一致）。 */
 export function chatRequestUrl(protocol: ProviderType, baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, '')
-  return protocol === 'anthropic' ? `${base}/v1/messages` : `${base}/chat/completions`
+  return protocol === 'anthropic_messages' ? `${base}/v1/messages` : `${base}/chat/completions`
 }
 
 /** Base URL 必须是带主机名的完整 http(s) 地址；空值不报（必填由 providerInvalid 兜）。 */
@@ -57,9 +57,9 @@ const MIN_THINKING_BUDGET = 1024
 export const DEFAULT_CONTEXT_WINDOW = 1048576
 export const DEFAULT_MAX_TOKENS = 131072
 
-/** 扩展思考预算校验：仅 Anthropic 协议生效；0 = 关闭。 */
+/** 扩展思考预算校验：仅 Anthropic Messages 协议生效；0 = 关闭。 */
 export function thinkingBudgetError(d: ProviderConfig): string | undefined {
-  if (d.type !== 'anthropic') return undefined
+  if (d.type !== 'anthropic_messages') return undefined
   const budget = d.thinking_budget_tokens
   if (budget === '' || budget === 0) return undefined
   if (budget < 0) return '不能为负'
@@ -118,7 +118,7 @@ export function blankProvider(): ProviderConfig {
 
 /** 协议的标准鉴权方式（选协议时作为初值，测试连接可改写）。 */
 export function defaultAuthScheme(protocol: ProviderType): ProviderConfig['auth_scheme'] {
-  return protocol === 'anthropic' ? 'x-api-key' : 'bearer'
+  return protocol === 'anthropic_messages' ? 'x-api-key' : 'bearer'
 }
 
 

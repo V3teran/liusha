@@ -31,7 +31,7 @@ func TestStoreSemanticsPostgres(t *testing.T) {
 	s := NewStore(pool)
 
 	keyed := ProviderParams{
-		Code: "keyed", DisplayName: "主力", Type: ProviderTypeAnthropic, BaseURL: "https://api.example.com",
+		Code: "keyed", DisplayName: "主力", Type: ProviderTypeAnthropicMessages, BaseURL: "https://api.example.com",
 		DefaultModel: "m", ContextWindow: 1000, MaxTokens: 8192, ThinkingBudgetTokens: 2048,
 		EncryptedAPIKey: []byte("sealed"), APIKeyLast4: "abcd", Enabled: true,
 	}
@@ -98,7 +98,7 @@ func TestStoreSemanticsPostgres(t *testing.T) {
 		t.Fatalf("合法档位: %v", err)
 	}
 
-	if _, err := s.CreateProvider(ctx, ProviderParams{Code: "bad", Type: ProviderTypeOpenAICompat, BaseURL: "u", DefaultModel: "m", ContextWindow: 1}); !errors.Is(err, ErrInvalid) {
+	if _, err := s.CreateProvider(ctx, ProviderParams{Code: "bad", Type: ProviderTypeOpenAIChatCompletions, BaseURL: "u", DefaultModel: "m", ContextWindow: 1}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("落库前同样校验，got %v", err)
 	}
 }

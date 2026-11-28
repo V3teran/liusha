@@ -130,7 +130,7 @@ func TestLoad_UnknownKeyFails(t *testing.T) {
 	for _, c := range []struct{ old, new, key string }{
 		{"  concurrency: 3", "  concurency: 3\n  concurrency: 3", "concurency"},
 		// 已删除的键：LLM 种子、内部约定、改名前的旧键。
-		{"data_dir: ~/data/liusha\n", "data_dir: ~/data/liusha\nproviders:\n  main: {type: openai_compat}\n", "providers"},
+		{"data_dir: ~/data/liusha\n", "data_dir: ~/data/liusha\nproviders:\n  main: {type: openai_chat_completions}\n", "providers"},
 		{"  stream_max_len: 100000", "  stream_name: x\n  stream_max_len: 100000", "stream_name"},
 		{"  concurrency: 3", "  asynq_concurrency: 3\n  concurrency: 3", "asynq_concurrency"},
 		// 已改名的键：单步 LLM 看门狗从 runner 段挪到 runtime 段（与设置页的字段同名）。

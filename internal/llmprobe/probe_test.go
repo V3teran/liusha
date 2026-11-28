@@ -51,7 +51,7 @@ func (u *upstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chat, models := u.prefix+"/chat/completions", u.prefix+"/models"
-	if u.protocol == llmconfig.ProviderTypeAnthropic {
+	if u.protocol == llmconfig.ProviderTypeAnthropicMessages {
 		chat, models = u.prefix+"/v1/messages", u.prefix+"/v1/models"
 	}
 	switch {
@@ -77,7 +77,7 @@ func (u *upstream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.","type":"invalid_request_error"}}`))
 			return
 		}
-		if u.protocol == llmconfig.ProviderTypeAnthropic {
+		if u.protocol == llmconfig.ProviderTypeAnthropicMessages {
 			// Anthropic 适配器只走流式链路：对话应答是一条事件流。
 			w.Header().Set("Content-Type", "text/event-stream")
 			_, _ = w.Write([]byte(`event: message_start
@@ -169,9 +169,9 @@ func stepOf(t *testing.T, d httpapi.Diagnosis, key string) httpapi.DiagnosisStep
 
 // 标准情形：全部打通，画像与实际请求地址齐全；测试连接不拉模型列表。
 func TestDiagnose_AllGreen(t *testing.T) {
-	u := &upstream{protocol: llmconfig.ProviderTypeOpenAICompat, prefix: "/v1"}
+	u := &upstream{protocol: llmconfig.ProviderTypeOpenAIChatCompletions, prefix: "/v1"}
 	base := serve(t, u)
-	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base + "/v1/chat/completions", DefaultModel: "m"})
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base + "/v1/chat/completions", DefaultModel: "m"})
 
 	if !d.OK || d.Suggestion != nil {
 		t.Fatalf("应全部打通且无建议: %+v", d)
@@ -197,17 +197,17 @@ func TestDiagnose_AllGreen(t *testing.T) {
 
 // 地址缺版本段（中转网关常见）：补 /v1 后打通，给出地址建议。
 func TestDiagnose_SuggestsVersionSegment(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAICompat, prefix: "/v1"})
-	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base, DefaultModel: "m"})
-	if !d.OK || d.Suggestion == nil || d.Suggestion.BaseURL != base+"/v1" || d.Suggestion.Type != llmconfig.ProviderTypeOpenAICompat {
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAIChatCompletions, prefix: "/v1"})
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base, DefaultModel: "m"})
+	if !d.OK || d.Suggestion == nil || d.Suggestion.BaseURL != base+"/v1" || d.Suggestion.Type != llmconfig.ProviderTypeOpenAIChatCompletions {
 		t.Fatalf("应建议补 /v1: %+v", d.Suggestion)
 	}
 }
 
 // 只认 Bearer 的 Anthropic 兼容网关：x-api-key 被拒后换 Bearer 打通，画像记录 bearer。
 func TestDiagnose_NegotiatesAuthScheme(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeAnthropic, prefix: "/anthropic", scheme: fwllm.AuthBearer})
-	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeAnthropic, BaseURL: base + "/anthropic", DefaultModel: "m"})
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeAnthropicMessages, prefix: "/anthropic", scheme: fwllm.AuthBearer})
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeAnthropicMessages, BaseURL: base + "/anthropic", DefaultModel: "m"})
 	if !d.OK || d.Profile.AuthScheme != "bearer" {
 		t.Fatalf("应协商出 bearer: %+v", d.Profile)
 	}
@@ -218,15 +218,15 @@ func TestDiagnose_NegotiatesAuthScheme(t *testing.T) {
 
 // 协议选错（OpenAI 兼容填了 Anthropic 端点）：路径不存在，换协议实测后给出协议建议。
 func TestDiagnose_SuggestsOtherProtocol(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeAnthropic, prefix: "/anthropic", scheme: fwllm.AuthXAPIKey})
-	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base + "/anthropic", DefaultModel: "m"})
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeAnthropicMessages, prefix: "/anthropic", scheme: fwllm.AuthXAPIKey})
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base + "/anthropic", DefaultModel: "m"})
 	if d.OK {
 		t.Fatal("选错协议不应判为可用")
 	}
 	if stepOf(t, d, httpapi.StepEndpoint).Status != httpapi.StepFail {
 		t.Fatalf("失败应落在端点项: %+v", d.Steps)
 	}
-	if d.Suggestion == nil || d.Suggestion.Type != llmconfig.ProviderTypeAnthropic || d.Suggestion.BaseURL != base+"/anthropic" ||
+	if d.Suggestion == nil || d.Suggestion.Type != llmconfig.ProviderTypeAnthropicMessages || d.Suggestion.BaseURL != base+"/anthropic" ||
 		d.Suggestion.AuthScheme != "x-api-key" {
 		t.Fatalf("应建议改用 Anthropic 协议并带上实测通过的鉴权方式: %+v", d.Suggestion)
 	}
@@ -237,8 +237,8 @@ func TestDiagnose_SuggestsOtherProtocol(t *testing.T) {
 
 // 不接受 max_tokens 的推理模型：画像记录 max_completion_tokens。
 func TestDiagnose_DetectsOutputLimitParam(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAICompat, prefix: "/v1", rejectMaxTok: true})
-	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base + "/v1", DefaultModel: "m"})
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAIChatCompletions, prefix: "/v1", rejectMaxTok: true})
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base + "/v1", DefaultModel: "m"})
 	if !d.OK || d.Profile.OutputLimitParam != "max_completion_tokens" {
 		t.Fatalf("应识别出 max_completion_tokens: %+v", d.Profile)
 	}
@@ -246,8 +246,8 @@ func TestDiagnose_DetectsOutputLimitParam(t *testing.T) {
 
 // 拒绝工具定义的端点：工具项失败、画像记录不支持，配置仍可用。
 func TestDiagnose_ToolsRejected(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeAnthropic, prefix: "", scheme: fwllm.AuthXAPIKey, rejectTools: true})
-	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeAnthropic, BaseURL: base + "/v1", DefaultModel: "m"})
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeAnthropicMessages, prefix: "", scheme: fwllm.AuthXAPIKey, rejectTools: true})
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeAnthropicMessages, BaseURL: base + "/v1", DefaultModel: "m"})
 	if !d.OK {
 		t.Fatalf("对话可用即判可用: %+v", d.Steps)
 	}
@@ -258,8 +258,8 @@ func TestDiagnose_ToolsRejected(t *testing.T) {
 
 // 密钥错误：两种鉴权方式都被拒，失败落在鉴权项并说明尝试过的组合，其后各项跳过。
 func TestDiagnose_AuthFailure(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAICompat, prefix: "/v1"})
-	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base + "/v1", DefaultModel: "m", APIKey: "sk-wrong"})
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAIChatCompletions, prefix: "/v1"})
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base + "/v1", DefaultModel: "m", APIKey: "sk-wrong"})
 	auth := stepOf(t, d, httpapi.StepAuth)
 	if d.OK || auth.Status != httpapi.StepFail || !strings.Contains(auth.Detail, "401") || !strings.Contains(auth.Detail, "已尝试 2 种") {
 		t.Fatalf("应判鉴权失败: %+v", d.Steps)
@@ -274,8 +274,8 @@ func TestDiagnose_AuthFailure(t *testing.T) {
 
 // 已过鉴权但对话失败（如模型名填错）：失败落在模型项并带上游原因，工具调用跳过。
 func TestDiagnose_ModelFailure(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAICompat, prefix: "/v1", knownModel: "m-a"})
-	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base + "/v1", DefaultModel: "typo"})
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAIChatCompletions, prefix: "/v1", knownModel: "m-a"})
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base + "/v1", DefaultModel: "typo"})
 	model := stepOf(t, d, httpapi.StepModel)
 	if d.OK || model.Status != httpapi.StepFail || !strings.Contains(model.Detail, "Model Not Exist") {
 		t.Fatalf("失败应落在模型项并带上游原因: %+v", model)
@@ -296,7 +296,7 @@ func TestResolveKey_ClassifiesMissingSources(t *testing.T) {
 	if _, err := p.resolveKey(context.Background(), httpapi.ProviderProbeSpec{Code: "no-key"}); !errors.Is(err, fwllm.ErrNotConfigured) {
 		t.Fatalf("取不到密钥应是 ErrNotConfigured（HTTP 400），got %v", err)
 	}
-	if _, err := p.ListModels(context.Background(), httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: "https://x", Code: "ghost"}); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := p.ListModels(context.Background(), httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: "https://x", Code: "ghost"}); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("拉取模型列表同样按密钥来源报错，got %v", err)
 	}
 }
@@ -320,21 +320,21 @@ func TestHumanizeProbeErr_PrefersStatusCode(t *testing.T) {
 
 // 网关把「路径不存在」包成 200 + 错误体：响应不符合协议，与 404 同等对待——换协议实测并给出建议。
 func TestDiagnose_EnvelopeErrorIsOffProtocol(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeAnthropic, prefix: "/api/anthropic", scheme: fwllm.AuthXAPIKey, envelope404: true})
-	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base + "/api/anthropic", DefaultModel: "m"})
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeAnthropicMessages, prefix: "/api/anthropic", scheme: fwllm.AuthXAPIKey, envelope404: true})
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base + "/api/anthropic", DefaultModel: "m"})
 	endpoint := stepOf(t, d, httpapi.StepEndpoint)
 	if d.OK || endpoint.Status != httpapi.StepFail || !strings.Contains(endpoint.Detail, "不符合所选协议") {
 		t.Fatalf("协议不符应判端点失败并说明: %+v", d.Steps)
 	}
-	if d.Suggestion == nil || d.Suggestion.Type != llmconfig.ProviderTypeAnthropic {
+	if d.Suggestion == nil || d.Suggestion.Type != llmconfig.ProviderTypeAnthropicMessages {
 		t.Fatalf("应建议 Anthropic 协议: %+v", d.Suggestion)
 	}
 }
 
 // 上游给出的具体原因（如余额不足）随错误一起透出。
 func TestDiagnose_SurfacesUpstreamReason(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAICompat, prefix: "/v1", quotaExceeded: "余额不足或无可用资源包"})
-	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base + "/v1", DefaultModel: "m"})
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAIChatCompletions, prefix: "/v1", quotaExceeded: "余额不足或无可用资源包"})
+	d := diagnose(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base + "/v1", DefaultModel: "m"})
 	model := stepOf(t, d, httpapi.StepModel)
 	if model.Status != httpapi.StepFail || !strings.Contains(model.Detail, "429") || !strings.Contains(model.Detail, "上游：余额不足或无可用资源包") {
 		t.Fatalf("应带出上游原因: %+v", model)
@@ -343,9 +343,9 @@ func TestDiagnose_SurfacesUpstreamReason(t *testing.T) {
 
 // 标准情形：排序去重返回，带上实际请求；只发模型列表请求。
 func TestListModels_Sorted(t *testing.T) {
-	u := &upstream{protocol: llmconfig.ProviderTypeOpenAICompat, prefix: "/v1"}
+	u := &upstream{protocol: llmconfig.ProviderTypeOpenAIChatCompletions, prefix: "/v1"}
 	base := serve(t, u)
-	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base + "/v1/chat/completions"})
+	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base + "/v1/chat/completions"})
 	if l.Status != httpapi.StepOK || strings.Join(l.Models, ",") != "m-a,m-b" || l.Request != "GET "+base+"/v1/models" || l.Detail != "" {
 		t.Fatalf("应取回排序后的列表（地址先归一）: %+v", l)
 	}
@@ -356,13 +356,13 @@ func TestListModels_Sorted(t *testing.T) {
 
 // 记录的鉴权方式被拒：换另一种再拉；两种都被拒才报鉴权失败。
 func TestListModels_NegotiatesAuthScheme(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeAnthropic, prefix: "/anthropic", scheme: fwllm.AuthBearer})
-	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeAnthropic, BaseURL: base + "/anthropic", AuthScheme: "x-api-key"})
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeAnthropicMessages, prefix: "/anthropic", scheme: fwllm.AuthBearer})
+	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeAnthropicMessages, BaseURL: base + "/anthropic", AuthScheme: "x-api-key"})
 	if l.Status != httpapi.StepOK || len(l.Models) != 2 {
 		t.Fatalf("x-api-key 被拒后应换 Bearer 取到列表: %+v", l)
 	}
 
-	l = listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeAnthropic, BaseURL: base + "/anthropic", APIKey: "sk-wrong"})
+	l = listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeAnthropicMessages, BaseURL: base + "/anthropic", APIKey: "sk-wrong"})
 	if l.Status != httpapi.StepFail || !strings.Contains(l.Detail, "401") || !strings.Contains(l.Detail, "已尝试 2 种鉴权方式") || len(l.Models) != 0 {
 		t.Fatalf("两种鉴权方式都被拒应报鉴权失败: %+v", l)
 	}
@@ -371,9 +371,9 @@ func TestListModels_NegotiatesAuthScheme(t *testing.T) {
 // 端点不提供模型列表（404）：只是提示，说明它判定不了地址对错，并引导直接填写模型。
 // 不补版本段：列表证明不了地址讲的是所选协议。
 func TestListModels_NotProvided(t *testing.T) {
-	u := &upstream{protocol: llmconfig.ProviderTypeOpenAICompat, prefix: "/v1"}
+	u := &upstream{protocol: llmconfig.ProviderTypeOpenAIChatCompletions, prefix: "/v1"}
 	base := serve(t, u)
-	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base})
+	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base})
 	if l.Status != httpapi.StepWarn || !strings.Contains(l.Detail, "返回 404") || !strings.Contains(l.Detail, "直接填写模型名") || len(l.Models) != 0 {
 		t.Fatalf("列表接口不存在应只是提示: %+v", l)
 	}
@@ -384,8 +384,8 @@ func TestListModels_NotProvided(t *testing.T) {
 
 // 空列表不是错误：提示直接填写。
 func TestListModels_EmptyList(t *testing.T) {
-	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAICompat, prefix: "/v1", emptyModels: true})
-	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: base + "/v1"})
+	base := serve(t, &upstream{protocol: llmconfig.ProviderTypeOpenAIChatCompletions, prefix: "/v1", emptyModels: true})
+	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: base + "/v1"})
 	if l.Status != httpapi.StepWarn || !strings.Contains(l.Detail, "空列表") || l.Models == nil {
 		t.Fatalf("空列表应是提示且 models 非 nil: %+v", l)
 	}
@@ -399,7 +399,7 @@ func TestListModels_UpstreamFailure(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":{"message":"rate limited"}}`))
 	}))
 	t.Cleanup(srv.Close)
-	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAICompat, BaseURL: srv.URL + "/v1"})
+	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeOpenAIChatCompletions, BaseURL: srv.URL + "/v1"})
 	if l.Status != httpapi.StepFail || !strings.Contains(l.Detail, "429") || strings.Contains(l.Detail, "已尝试") {
 		t.Fatalf("应报拉取失败（非鉴权问题不换鉴权方式）: %+v", l)
 	}
@@ -409,7 +409,7 @@ func TestListModels_UpstreamFailure(t *testing.T) {
 // 同一主机根路径提供 OpenAI 兼容的模型列表（同一把密钥，Bearer 鉴权）。
 func siblingHost(t *testing.T) string {
 	t.Helper()
-	anth := &upstream{protocol: llmconfig.ProviderTypeAnthropic, prefix: "/anthropic", scheme: fwllm.AuthXAPIKey, noModelList: true}
+	anth := &upstream{protocol: llmconfig.ProviderTypeAnthropicMessages, prefix: "/anthropic", scheme: fwllm.AuthXAPIKey, noModelList: true}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" && r.Header.Get("Authorization") == "Bearer "+key {
 			w.Header().Set("Content-Type", "application/json")
@@ -425,7 +425,7 @@ func siblingHost(t *testing.T) string {
 // Anthropic 兼容端点不提供模型列表时，从同主机的 OpenAI 兼容端点取可选模型并注明来源。
 func TestListModels_Sibling(t *testing.T) {
 	base := siblingHost(t)
-	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeAnthropic, BaseURL: base + "/anthropic"})
+	l := listModels(t, httpapi.ProviderProbeSpec{Type: llmconfig.ProviderTypeAnthropicMessages, BaseURL: base + "/anthropic"})
 	if l.Status != httpapi.StepOK || strings.Join(l.Models, ",") != "chat-flash,chat-pro" ||
 		l.Request != "GET "+base+"/v1/models" || !strings.Contains(l.Detail, "同主机的 OpenAI 兼容端点") {
 		t.Fatalf("应从同主机旁路取模型并注明来源: %+v", l)
@@ -437,11 +437,11 @@ func TestSiblingListBases(t *testing.T) {
 		protocol, base string
 		want           []string
 	}{
-		{llmconfig.ProviderTypeAnthropic, "https://api.example.com/anthropic", []string{"https://api.example.com/v1", "https://api.example.com"}},
-		{llmconfig.ProviderTypeAnthropic, "https://api.example.com/api/anthropic/", []string{"https://api.example.com/api/v1", "https://api.example.com/api"}},
-		{llmconfig.ProviderTypeAnthropic, "https://api.example.com", nil},
-		{llmconfig.ProviderTypeAnthropic, "https://api.example.com/claude", nil},
-		{llmconfig.ProviderTypeOpenAICompat, "https://api.example.com/anthropic", nil},
+		{llmconfig.ProviderTypeAnthropicMessages, "https://api.example.com/anthropic", []string{"https://api.example.com/v1", "https://api.example.com"}},
+		{llmconfig.ProviderTypeAnthropicMessages, "https://api.example.com/api/anthropic/", []string{"https://api.example.com/api/v1", "https://api.example.com/api"}},
+		{llmconfig.ProviderTypeAnthropicMessages, "https://api.example.com", nil},
+		{llmconfig.ProviderTypeAnthropicMessages, "https://api.example.com/claude", nil},
+		{llmconfig.ProviderTypeOpenAIChatCompletions, "https://api.example.com/anthropic", nil},
 	}
 	for _, tc := range cases {
 		if got := siblingListBases(tc.protocol, tc.base); strings.Join(got, ",") != strings.Join(tc.want, ",") {

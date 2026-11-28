@@ -10,9 +10,9 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// OpenAICompatConfig 描述一个 OpenAI 兼容 provider 的连接参数。
+// OpenAIChatCompletionsConfig 描述一个 OpenAI 兼容 provider 的连接参数。
 // 密钥不在此结构——底层 *openai.Client 已带 apikey，由调用方从 ClientPool 注入。
-type OpenAICompatConfig struct {
+type OpenAIChatCompletionsConfig struct {
 	BaseURL string // 如 https://api.example.com/v1 ；空 = OpenAI 官方
 	Model   string
 	// Limit 是这个账户上这个模型的输出上限（ClientPool.OutputLimitFor 构造）：provider 配置的值，
@@ -23,37 +23,37 @@ type OpenAICompatConfig struct {
 	OutputLimitParam OutputLimitParam
 }
 
-// openAICompatGen 实现 Generator，跨 OpenAI 协议族复用同一份逻辑。
+// chatCompletionsGen 实现 Generator，跨 OpenAI 协议族复用同一份逻辑。
 //
 // 无状态：tools 不再构造时绑定，而是每次 Generate(ctx, msgs, tools) 动态传入，
 // 修复 v1 Factory 缓存 Generator 导致跨 task tools 错乱的并发 bug。
-type openAICompatGen struct {
+type chatCompletionsGen struct {
 	client         *openai.Client
 	model          string
 	limit          *OutputLimit
 	provider       string
-	supportsVision bool           // 透传自 OpenAICompatConfig.SupportsVision，控制 ContentParts 走 MultiContent vs 降级
+	supportsVision bool           // 透传自 OpenAIChatCompletionsConfig.SupportsVision，控制 ContentParts 走 MultiContent vs 降级
 	compat         *requestCompat // 可选请求字段的兼容结论（运行期自适应）
 }
 
 // maxCompatRetries 是同一请求因字段被拒而改写重发的上限（输出上限字段、温度各一次）。
 const maxCompatRetries = 2
 
-// NewOpenAICompat 构造无状态 Generator。
+// NewOpenAIChatCompletions 构造无状态 Generator。
 //
 // client 由调用方从 ClientPool 取（共享 HTTP 连接池）；tools 不在此绑定。
 // providerCode 用作 Provider() / instrument 标记（如 "deepseek"）。
-func NewOpenAICompat(_ context.Context, providerCode string, c OpenAICompatConfig, client *openai.Client) (Generator, error) {
+func NewOpenAIChatCompletions(_ context.Context, providerCode string, c OpenAIChatCompletionsConfig, client *openai.Client) (Generator, error) {
 	if client == nil {
-		return nil, errors.New("OpenAICompat: client 必填（从 ClientPool 取）")
+		return nil, errors.New("OpenAI Chat Completions: client 必填（从 ClientPool 取）")
 	}
 	if c.Model == "" {
-		return nil, errors.New("OpenAICompat: Model 必填")
+		return nil, errors.New("OpenAI Chat Completions: Model 必填")
 	}
 	if c.Limit == nil {
-		return nil, errors.New("OpenAICompat: 输出上限必填（ClientPool.OutputLimitFor）")
+		return nil, errors.New("OpenAI Chat Completions: 输出上限必填（ClientPool.OutputLimitFor）")
 	}
-	return &openAICompatGen{
+	return &chatCompletionsGen{
 		client:         client,
 		model:          c.Model,
 		limit:          c.Limit,
@@ -64,19 +64,19 @@ func NewOpenAICompat(_ context.Context, providerCode string, c OpenAICompatConfi
 }
 
 // OutputLimitParam 返回生成器当前生效的输出上限字段（运行期自适应后的结论）。
-func (g *openAICompatGen) OutputLimitParam() OutputLimitParam { return g.compat.outputLimitParam() }
+func (g *chatCompletionsGen) OutputLimitParam() OutputLimitParam { return g.compat.outputLimitParam() }
 
 // Provider / Model 满足 Generator。
-func (g *openAICompatGen) Provider() string { return g.provider }
-func (g *openAICompatGen) Model() string    { return g.model }
+func (g *chatCompletionsGen) Provider() string { return g.provider }
+func (g *chatCompletionsGen) Model() string    { return g.model }
 
 // Generate 发起一次 chat completion；tools 每次动态传入。
-func (g *openAICompatGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
+func (g *chatCompletionsGen) Generate(ctx context.Context, msgs []Message, tools []ToolSchema) (Result, error) {
 	return g.GenerateWithOptions(ctx, msgs, tools, GenerateOptions{})
 }
 
 // GenerateWithOptions 实现 OptionsGenerator：按调用透传采样温度等可选参数。
-func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenerateOptions) (Result, error) {
+func (g *chatCompletionsGen) GenerateWithOptions(ctx context.Context, msgs []Message, tools []ToolSchema, opts GenerateOptions) (Result, error) {
 	// 前置校验 messages 格式，防止 API 400 错误
 	if err := validateMessagesForAPI(msgs); err != nil {
 		// 尝试降级修复
@@ -86,11 +86,11 @@ func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Messag
 		}
 	}
 
-	openaiMsgs, err := toOpenAIMessages(msgs, g.supportsVision)
+	openaiMsgs, err := toChatCompletionsMessages(msgs, g.supportsVision)
 	if err != nil {
 		return Result{}, fmt.Errorf("convert messages: %w", err)
 	}
-	openaiTools, err := toOpenAITools(tools)
+	openaiTools, err := toChatCompletionsTools(tools)
 	if err != nil {
 		return Result{}, fmt.Errorf("convert tools: %w", err)
 	}
@@ -109,7 +109,7 @@ func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Messag
 		g.compat.apply(&req, limit, opts.Temperature)
 		resp, err = g.client.CreateChatCompletion(ctx, req)
 		if err != nil {
-			if next, ok := g.limit.rejected(wrapOpenAICompatErr(err), limit); ok {
+			if next, ok := g.limit.rejected(wrapChatCompletionsErr(err), limit); ok {
 				limit = next
 				continue // 上游嫌输出上限过大（模型的上限低于配置）：降一半重发
 			}
@@ -121,19 +121,19 @@ func (g *openAICompatGen) GenerateWithOptions(ctx context.Context, msgs []Messag
 	}
 	if err != nil {
 		// 增强错误信息：消息数量 + roles 形状摘要，便于远程排障（4xx 多为序列形状问题）
-		return Result{}, fmt.Errorf("openai-compat generate (provider=%s, model=%s, msg_count=%d, tool_count=%d, shape=%s): %w",
-			g.provider, g.model, len(openaiMsgs), len(openaiTools), messageShape(openaiMsgs), wrapOpenAICompatErr(err))
+		return Result{}, fmt.Errorf("openai chat completions generate (provider=%s, model=%s, msg_count=%d, tool_count=%d, shape=%s): %w",
+			g.provider, g.model, len(openaiMsgs), len(openaiTools), messageShape(openaiMsgs), wrapChatCompletionsErr(err))
 	}
 	if len(resp.Choices) == 0 {
-		return Result{}, fmt.Errorf("openai-compat generate（provider=%s, model=%s）: 0 choices: %w", g.provider, g.model, ErrUnexpectedResponse)
+		return Result{}, fmt.Errorf("openai chat completions generate（provider=%s, model=%s）: 0 choices: %w", g.provider, g.model, ErrUnexpectedResponse)
 	}
-	return fromOpenAIResponse(resp, g.provider, g.model), nil
+	return fromChatCompletionsResponse(resp, g.provider, g.model), nil
 }
 
-// wrapOpenAICompatErr 把 openai SDK 错误归一为 *HTTPError（retry 分类按状态码工作）。
+// wrapChatCompletionsErr 把 openai SDK 错误归一为 *HTTPError（retry 分类按状态码工作）。
 // SDK 的错误对象不暴露响应头，限流的恢复时刻只能从错误体里写明的重置时间取；
 // 标准的 Retry-After 头在这里拿不到。
-func wrapOpenAICompatErr(err error) error {
+func wrapChatCompletionsErr(err error) error {
 	if err == nil {
 		return nil
 	}

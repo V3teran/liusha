@@ -181,7 +181,7 @@ func truncateMessagesToFit(msgs []Message, maxRounds int) []Message {
 	return result
 }
 
-// toOpenAIMessages 把内部 Message 转成 sashabaranov ChatCompletionMessage。
+// toChatCompletionsMessages 把内部 Message 转成 sashabaranov ChatCompletionMessage。
 //
 // Role 直接映射（system/user/assistant/tool）；assistant 的 tool_calls 与
 // tool 的 tool_call_id 都按 OpenAI 协议保留。

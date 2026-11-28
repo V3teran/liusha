@@ -44,10 +44,10 @@ export async function saveProvider(
     default_model: p.default_model.trim(),
     api_key: p.api_key ?? '',
     auth_scheme: p.auth_scheme,
-    output_limit_param: p.type === 'anthropic' ? 'max_tokens' : p.output_limit_param,
+    output_limit_param: p.type === 'anthropic_messages' ? 'max_tokens' : p.output_limit_param,
     max_tokens: p.max_tokens === '' ? 0 : p.max_tokens,
     thinking_budget_tokens:
-      p.type === 'anthropic' && p.thinking_budget_tokens !== '' ? p.thinking_budget_tokens : 0,
+      p.type === 'anthropic_messages' && p.thinking_budget_tokens !== '' ? p.thinking_budget_tokens : 0,
     supports_tools: p.supports_tools,
     supports_vision: p.supports_vision,
     context_window: p.context_window === '' ? 0 : p.context_window,

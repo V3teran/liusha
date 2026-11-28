@@ -43,7 +43,7 @@ func compatGen(t *testing.T, g *fieldGate, limit OutputLimitParam) Generator {
 	srv := httptest.NewServer(http.HandlerFunc(g.handler))
 	t.Cleanup(srv.Close)
 	gen, err := BuildGeneratorWithKey(context.Background(), ProviderSpec{
-		Code: "p", Type: ProviderTypeOpenAICompat, BaseURL: srv.URL, Model: "m", APIKey: "k",
+		Code: "p", Type: ProviderTypeOpenAIChatCompletions, BaseURL: srv.URL, Model: "m", APIKey: "k",
 		MaxTokens: 64, OutputLimitParam: limit,
 	}, NewClientPool())
 	if err != nil {
@@ -75,7 +75,7 @@ func TestRequestCompat_SwitchesOutputLimitParamAndRemembers(t *testing.T) {
 	if _, has := last["max_tokens"]; has || last["max_completion_tokens"] != float64(64) {
 		t.Fatalf("结论应保留为 max_completion_tokens: %v", last)
 	}
-	if gen.(*openAICompatGen).OutputLimitParam() != OutputLimitMaxCompletionTokens {
+	if gen.(*chatCompletionsGen).OutputLimitParam() != OutputLimitMaxCompletionTokens {
 		t.Fatal("生成器应报告自适应后的字段")
 	}
 }
@@ -99,7 +99,7 @@ func TestRequestCompat_OmitsRejectedTemperature(t *testing.T) {
 	g := &fieldGate{rejects: map[string]string{
 		"temperature": "Unsupported value: 'temperature' does not support 0.3 with this model. Only the default (1) value is supported.",
 	}}
-	gen := compatGen(t, g, OutputLimitMaxTokens).(*openAICompatGen)
+	gen := compatGen(t, g, OutputLimitMaxTokens).(*chatCompletionsGen)
 	temp := 0.3
 	if _, err := gen.GenerateWithOptions(context.Background(), []Message{{Role: RoleUser, Content: "ping"}}, nil, GenerateOptions{Temperature: &temp}); err != nil {
 		t.Fatalf("应省略温度后成功: %v", err)
@@ -144,7 +144,7 @@ func TestRequestCompat_ConcurrentRejectionsBothRecover(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	gen, err := BuildGeneratorWithKey(context.Background(), ProviderSpec{
-		Code: "p", Type: ProviderTypeOpenAICompat, BaseURL: srv.URL, Model: "m", APIKey: "k", MaxTokens: 64,
+		Code: "p", Type: ProviderTypeOpenAIChatCompletions, BaseURL: srv.URL, Model: "m", APIKey: "k", MaxTokens: 64,
 	}, NewClientPool())
 	if err != nil {
 		t.Fatal(err)

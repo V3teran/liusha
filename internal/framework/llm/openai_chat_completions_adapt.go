@@ -9,7 +9,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// requestCompat 是生成器对上游「可选请求字段」的兼容结论。OpenAI 兼容协议下各服务
+// requestCompat 是生成器对上游「可选请求字段」的兼容结论。OpenAI Chat Completions 协议下各服务
 // 对字段的接受度不一：多数认 max_tokens，部分推理模型只认 max_completion_tokens；
 // 部分模型不接受自定义 temperature。结论来源有二：provider 上记录的初值（测试连接
 // 实测写入），以及运行期上游的明确拒绝——拒绝时改写对应字段重发一次，结论在

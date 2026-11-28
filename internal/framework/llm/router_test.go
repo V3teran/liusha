@@ -34,7 +34,7 @@ func (f *fakeRouterStore) GetProviderSpec(_ context.Context, code string) (Provi
 
 func goodSpec(code string) ProviderSpec {
 	return ProviderSpec{
-		Code: code, Type: ProviderTypeOpenAICompat,
+		Code: code, Type: ProviderTypeOpenAIChatCompletions,
 		BaseURL: "http://127.0.0.1:1", Model: "m-" + code, APIKey: "k-" + code,
 		MaxTokens: 16,
 	}

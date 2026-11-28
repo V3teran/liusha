@@ -31,7 +31,7 @@ const plaintextInput = ['mock', 'plaintext', 'input'].join('-')
 const PROV: ProviderConfig = {
   code: 'deepseek',
   display_name: ' DeepSeek ',
-  type: 'openai_compat',
+  type: 'openai_chat_completions',
   base_url: 'https://api.deepseek.com',
   default_model: 'deepseek-chat',
   api_key: plaintextInput,
@@ -70,7 +70,7 @@ describe('models API 客户端', () => {
     const body = JSON.parse(init.body)
     expect(body).toEqual({
       display_name: 'DeepSeek',
-      type: 'openai_compat',
+      type: 'openai_chat_completions',
       base_url: 'https://api.deepseek.com',
       default_model: 'deepseek-chat',
       api_key: plaintextInput,
@@ -92,9 +92,9 @@ describe('models API 客户端', () => {
 
   it('saveProvider 携带扩展思考预算：仅 Anthropic 协议生效，其余协议恒为 0', async () => {
     const fn = mockFetch(200, { provider: PROV })
-    await saveProvider({ ...PROV, type: 'anthropic', thinking_budget_tokens: 2048 }, false)
+    await saveProvider({ ...PROV, type: 'anthropic_messages', thinking_budget_tokens: 2048 }, false)
     expect(JSON.parse(fn.mock.calls[0][1].body).thinking_budget_tokens).toBe(2048)
-    await saveProvider({ ...PROV, type: 'openai_compat', thinking_budget_tokens: 2048 }, false)
+    await saveProvider({ ...PROV, type: 'openai_chat_completions', thinking_budget_tokens: 2048 }, false)
     expect(JSON.parse(fn.mock.calls[1][1].body).thinking_budget_tokens).toBe(0)
   })
 

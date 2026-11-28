@@ -55,7 +55,7 @@ func TestToOpenAIMessages_StripsImagesGracefully(t *testing.T) {
 			{Type: "image_url", ImageURL: &ImageContent{MediaType: "image/png", Base64Data: "iVBOR"}},
 		}},
 	}
-	out, err := toOpenAIMessages(msgs, false) // 测降级路径：supportsVision=false → 走 stripImagesToText
+	out, err := toChatCompletionsMessages(msgs, false) // 测降级路径：supportsVision=false → 走 stripImagesToText
 	if err != nil {
 		t.Fatalf("应 graceful degrade 不报错，实际 err=%v", err)
 	}
@@ -82,7 +82,7 @@ func TestToOpenAIMessages_VisionToolImage_SplitToUserMsg(t *testing.T) {
 			{Type: "image_url", ImageURL: &ImageContent{MediaType: "image/png", Base64Data: "iVBOR"}},
 		}},
 	}
-	out, err := toOpenAIMessages(msgs, true) // supportsVision=true
+	out, err := toChatCompletionsMessages(msgs, true) // supportsVision=true
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
@@ -136,7 +136,7 @@ func TestToOpenAIMessages_ParallelToolImages_NoInterleave(t *testing.T) {
 			{Type: "image_url", ImageURL: &ImageContent{MediaType: "image/png", Base64Data: "b"}},
 		}},
 	}
-	out, err := toOpenAIMessages(msgs, true)
+	out, err := toChatCompletionsMessages(msgs, true)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}

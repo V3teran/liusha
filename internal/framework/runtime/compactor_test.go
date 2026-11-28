@@ -28,7 +28,7 @@ func mkToolPair(callID, content string) (llm.Message, llm.Message) {
 }
 
 // assertNoOrphanTool 验证消息序列中每条 tool 消息的 tool_call_id 都能回指
-// 前面的 assistant.tool_calls——这是 openai-compat / anthropic 共同的协议不变式。
+// 前面的 assistant.tool_calls——这是各协议共同的不变式。
 func assertNoOrphanTool(t *testing.T, msgs []llm.Message) {
 	t.Helper()
 	seen := map[string]bool{}

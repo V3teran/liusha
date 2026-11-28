@@ -27,7 +27,7 @@ func TestComplete_PassesRequestMaxTokens(t *testing.T) {
 
 	cfg := openai.DefaultConfig("k")
 	cfg.BaseURL = srv.URL
-	gen, err := NewOpenAICompat(context.Background(), "p", OpenAICompatConfig{Model: "m", Limit: NewClientPool().OutputLimitFor("", "", "m", 8000)}, openai.NewClientWithConfig(cfg))
+	gen, err := NewOpenAIChatCompletions(context.Background(), "p", OpenAIChatCompletionsConfig{Model: "m", Limit: NewClientPool().OutputLimitFor("", "", "m", 8000)}, openai.NewClientWithConfig(cfg))
 	if err != nil {
 		t.Fatal(err)
 	}

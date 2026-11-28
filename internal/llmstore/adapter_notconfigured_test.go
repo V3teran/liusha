@@ -14,7 +14,7 @@ import (
 // 任务据此干净终结并给出配置指引，不进重试（实测缺失时任务永挂 active）。
 func TestRouterStoreAdapter_MissingKeyWrapsNotConfigured(t *testing.T) {
 	f := &fakeLLM{providers: []llmconfig.Provider{{
-		Code: "p1", Type: "openai_compat", BaseURL: "https://x", DefaultModel: "m",
+		Code: "p1", Type: "openai_chat_completions", BaseURL: "https://x", DefaultModel: "m",
 		Enabled: true,
 		// EncryptedAPIKey nil（未设置密钥）→ ResolveAPIKey 报「未设置密钥」
 	}}}

@@ -19,36 +19,56 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
+
+	fwllm "github.com/V3teran/liusha/internal/framework/llm"
 )
+
+// 协议、鉴权方式与输出上限字段的取值是 wire 契约，唯一的出处在框架层（framework/llm）——
+// 库表 CHECK、HTTP 契约与前端都以它为准。这里只是取用，不再各抄一份（各抄一份时协议改名
+// 要改两处，漏一处就对不上）。
 
 // Provider type 常量（与 llm_provider.type CHECK 一致）。
 const (
-	ProviderTypeOpenAICompat = "openai_compat"
-	ProviderTypeAnthropic    = "anthropic"
+	ProviderTypeOpenAIChatCompletions = fwllm.ProviderTypeOpenAIChatCompletions
+	ProviderTypeAnthropicMessages     = fwllm.ProviderTypeAnthropicMessages
 )
 
-// 鉴权方式（与 llm_provider.auth_scheme CHECK、framework/llm.AuthScheme 一致）：
-// 密钥的携带方式，与协议正交，由测试连接实测后记录。
+// ProviderTypes 是全部协议取值，校验提示与校验本身共用这一个出处。
+var ProviderTypes = fwllm.ProviderTypes
+
+// ProtocolLabel 是协议的展示名（厂商 + 接口名），界面文案与提示共用这一个出处。
+func ProtocolLabel(protocol string) string {
+	switch protocol {
+	case ProviderTypeOpenAIChatCompletions:
+		return "OpenAI Chat Completions"
+	case ProviderTypeAnthropicMessages:
+		return "Anthropic Messages"
+	}
+	return protocol
+}
+
+// 鉴权方式：密钥的携带方式，与协议正交，由测试连接实测后记录。
 const (
-	AuthBearer  = "bearer"    // Authorization: Bearer <key>（OpenAI 兼容协议的标准方式）
-	AuthXAPIKey = "x-api-key" // x-api-key: <key>（Anthropic 协议的标准方式）
+	AuthBearer  = string(fwllm.AuthBearer)  // Authorization: Bearer <key>（OpenAI 协议的标准方式）
+	AuthXAPIKey = string(fwllm.AuthXAPIKey) // x-api-key: <key>（Anthropic 协议的标准方式）
 )
 
 // DefaultAuthScheme 返回协议的标准鉴权方式。
 func DefaultAuthScheme(protocol string) string {
-	if protocol == ProviderTypeAnthropic {
+	if protocol == ProviderTypeAnthropicMessages {
 		return AuthXAPIKey
 	}
 	return AuthBearer
 }
 
-// 输出上限字段（与 llm_provider.output_limit_param CHECK、framework/llm.OutputLimitParam 一致）：
-// OpenAI 兼容协议下多数服务认 max_tokens，部分推理模型只认 max_completion_tokens。
+// 输出上限字段：OpenAI Chat Completions 协议下多数服务认 max_tokens，部分推理模型只认
+// max_completion_tokens。
 const (
-	OutputLimitMaxTokens           = "max_tokens"
-	OutputLimitMaxCompletionTokens = "max_completion_tokens"
+	OutputLimitMaxTokens           = string(fwllm.OutputLimitMaxTokens)
+	OutputLimitMaxCompletionTokens = string(fwllm.OutputLimitMaxCompletionTokens)
 )
 
 // Provider 是一个 LLM provider（连接参数 + 能力标志）。SupportsVision/ContextWindow
@@ -73,7 +93,7 @@ type Provider struct {
 	SortOrder        int
 	Enabled          bool
 	// ThinkingBudgetTokens 是扩展思考预算（anthropic thinking.budget_tokens）。
-	// >0 = 开启扩展思考；0 = 不开启。仅 anthropic 协议消费。
+	// >0 = 开启扩展思考；0 = 不开启。仅 Anthropic Messages 协议消费。
 	ThinkingBudgetTokens int64
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
@@ -110,7 +130,7 @@ func conflictf(format string, args ...any) error {
 
 // Normalize 把配置归一为规范形态（HTTP 写入、启动种子、落库共用，幂等）：Base URL 按
 // 协议规则归一（见 NormalizeBaseURL），鉴权方式缺省取协议标准方式，输出上限字段缺省
-// max_tokens（anthropic 协议恒为 max_tokens——该协议只有这一个字段），没填的上下文窗口与
+// max_tokens（Anthropic Messages 协议恒为 max_tokens——该协议只有这一个字段），没填的上下文窗口与
 // 单次最大输出落成缺省值。缺省在入口落定：落库的行恒为正数，库里没有「未设置」的行，
 // 各级缓存读到的都是同一个确定的值。
 func (p *ProviderParams) Normalize() {
@@ -120,7 +140,7 @@ func (p *ProviderParams) Normalize() {
 	if p.AuthScheme == "" {
 		p.AuthScheme = DefaultAuthScheme(p.Type)
 	}
-	if p.OutputLimitParam == "" || p.Type == ProviderTypeAnthropic {
+	if p.OutputLimitParam == "" || p.Type == ProviderTypeAnthropicMessages {
 		p.OutputLimitParam = OutputLimitMaxTokens
 	}
 	if p.ContextWindow == 0 {
@@ -151,7 +171,7 @@ func NormalizeBaseURL(protocol, raw string) string {
 			break
 		}
 	}
-	if protocol == ProviderTypeAnthropic && strings.HasSuffix(strings.ToLower(path), "/v1") {
+	if protocol == ProviderTypeAnthropicMessages && strings.HasSuffix(strings.ToLower(path), "/v1") {
 		path = path[:len(path)-len("/v1")]
 	}
 	u.Path = strings.TrimRight(path, "/")
@@ -161,13 +181,11 @@ func NormalizeBaseURL(protocol, raw string) string {
 
 // Validate 校验 provider 配置——HTTP 写入与 store 落库共用的唯一口径：
 // 协议类型、绝对 http(s) Base URL、显示名称、默认模型、上下文窗口、输出上限，以及扩展思考
-// 预算的协议约束（仅 anthropic；开启时 ≥ MinThinkingBudgetTokens 且小于实际 max_tokens——
+// 预算的协议约束（仅 Anthropic Messages 协议；开启时 ≥ MinThinkingBudgetTokens 且小于实际 max_tokens——
 // 运行期构造 client 时同样校验，不合法的 provider会让整档不可用）。
 func (p ProviderParams) Validate() error {
-	switch p.Type {
-	case ProviderTypeOpenAICompat, ProviderTypeAnthropic:
-	default:
-		return invalidf("非法 provider 协议 %q（应为 openai_compat 或 anthropic）", p.Type)
+	if !slices.Contains(ProviderTypes, p.Type) {
+		return invalidf("非法 provider 协议 %q（应为 %s）", p.Type, strings.Join(ProviderTypes, " 或 "))
 	}
 	if err := ValidateBaseURL(p.BaseURL); err != nil {
 		return err
@@ -194,7 +212,7 @@ func (p ProviderParams) Validate() error {
 		return invalidf("扩展思考预算不能为负")
 	}
 	if p.ThinkingBudgetTokens > 0 {
-		if p.Type != ProviderTypeAnthropic {
+		if p.Type != ProviderTypeAnthropicMessages {
 			return invalidf("扩展思考预算仅适用于 Anthropic 协议")
 		}
 		if p.ThinkingBudgetTokens < MinThinkingBudgetTokens {
@@ -252,7 +270,7 @@ type ProviderParams struct {
 	APIKeyLast4          string // 明文末 4 位；随 EncryptedAPIKey 一起写（KeepExistingKey 时同被 COALESCE 保留）
 	KeepExistingKey      bool   // true：Update 时不改动已存密钥列（忽略 EncryptedAPIKey/APIKeyLast4）
 	AuthScheme           string // 鉴权方式；空 = 协议标准方式（Normalize 填充）
-	OutputLimitParam     string // 输出上限字段；空 = max_tokens（Normalize 填充；anthropic 恒为 max_tokens）
+	OutputLimitParam     string // 输出上限字段；空 = max_tokens（Normalize 填充；Anthropic Messages 恒为 max_tokens）
 	DisplayName          string // 显示名称：必填、不区分大小写唯一（见 Provider.DisplayName）
 	MaxTokens            int
 	SupportsTools        bool

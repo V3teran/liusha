@@ -16,9 +16,9 @@ func TestOperationURL_MatchesSDKRequests(t *testing.T) {
 		path     string // 服务端挂载的前缀路径
 		body     string
 	}{
-		{ProviderTypeOpenAICompat, "/api/paas/v4", openAIOK},
-		{ProviderTypeAnthropic, "/api/anthropic", anthropicSSE},
-		{ProviderTypeAnthropic, "", anthropicSSE},
+		{ProviderTypeOpenAIChatCompletions, "/api/paas/v4", openAIOK},
+		{ProviderTypeAnthropicMessages, "/api/anthropic", anthropicSSE},
+		{ProviderTypeAnthropicMessages, "", anthropicSSE},
 	} {
 		var gotPath string
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +54,7 @@ func TestAnthropic_UnexpectedResponseOnlyWhenNotAMessageStream(t *testing.T) {
 	for body, unexpected := range cases {
 		srv, _ := captureServer(t, body)
 		gen, err := BuildGeneratorWithKey(context.Background(), ProviderSpec{
-			Code: "p", Type: ProviderTypeAnthropic, BaseURL: srv.URL, Model: "m", APIKey: "k", MaxTokens: 8,
+			Code: "p", Type: ProviderTypeAnthropicMessages, BaseURL: srv.URL, Model: "m", APIKey: "k", MaxTokens: 8,
 		}, NewClientPool())
 		if err != nil {
 			t.Fatal(err)

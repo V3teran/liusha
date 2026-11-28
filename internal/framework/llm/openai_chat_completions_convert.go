@@ -9,7 +9,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-func toOpenAIMessages(in []Message, supportsVision bool) ([]openai.ChatCompletionMessage, error) {
+func toChatCompletionsMessages(in []Message, supportsVision bool) ([]openai.ChatCompletionMessage, error) {
 	// 前置验证：防止非法 messages 导致 API 400 错误
 	if len(in) == 0 {
 		return nil, fmt.Errorf("messages 不能为空")
@@ -203,11 +203,11 @@ func stripImagesToText(parts []ContentPart) string {
 	return strings.Join(pieces, "\n")
 }
 
-// toOpenAITools 把内部 ToolSchema 转成 OpenAI Tool。
+// toChatCompletionsTools 把内部 ToolSchema 转成 OpenAI Tool。
 //
 // Parameters（JSON Schema 原样）直接塞给 FunctionDefinition.Parameters
 // （any 字段，sashabaranov 会原样 JSON 编码）。
-func toOpenAITools(tools []ToolSchema) ([]openai.Tool, error) {
+func toChatCompletionsTools(tools []ToolSchema) ([]openai.Tool, error) {
 	if len(tools) == 0 {
 		return nil, nil
 	}
@@ -231,8 +231,8 @@ func toOpenAITools(tools []ToolSchema) ([]openai.Tool, error) {
 	return out, nil
 }
 
-// fromOpenAIResponse 把 ChatCompletionResponse 转成内部 Result。
-func fromOpenAIResponse(resp openai.ChatCompletionResponse, provider, model string) Result {
+// fromChatCompletionsResponse 把 ChatCompletionResponse 转成内部 Result。
+func fromChatCompletionsResponse(resp openai.ChatCompletionResponse, provider, model string) Result {
 	choice := resp.Choices[0]
 	res := Result{
 		Content:      choice.Message.Content,

@@ -184,7 +184,7 @@ func (a attempt) offProtocol() bool {
 // 追加补 /v1 的候选（多数网关的 OpenAI 兼容接口挂在 /v1 下）。
 func baseCandidates(t profileTarget) []string {
 	out := []string{t.baseURL}
-	if t.protocol != llmconfig.ProviderTypeOpenAICompat {
+	if t.protocol != llmconfig.ProviderTypeOpenAIChatCompletions {
 		return out
 	}
 	u, err := url.Parse(t.baseURL)
@@ -258,9 +258,9 @@ func (d *probeRun) reach(ctx context.Context, t profileTarget, scheme fwllm.Auth
 
 // otherProtocol 用另一种协议实测同一地址（按该协议的规则归一），能通则返回建议。
 func (d *probeRun) otherProtocol(ctx context.Context, t profileTarget, rawBase string) *httpapi.DiagnosisSuggestion {
-	other := llmconfig.ProviderTypeAnthropic
-	if t.protocol == llmconfig.ProviderTypeAnthropic {
-		other = llmconfig.ProviderTypeOpenAICompat
+	other := llmconfig.ProviderTypeAnthropicMessages
+	if t.protocol == llmconfig.ProviderTypeAnthropicMessages {
+		other = llmconfig.ProviderTypeOpenAIChatCompletions
 	}
 	alt := t
 	alt.protocol = other
@@ -272,7 +272,7 @@ func (d *probeRun) otherProtocol(ctx context.Context, t profileTarget, rawBase s
 	}
 	return &httpapi.DiagnosisSuggestion{
 		Type: other, BaseURL: reach.baseURL, AuthScheme: string(reach.scheme),
-		Reason: fmt.Sprintf("该地址按 %s 协议可用", protocolLabel(other)),
+		Reason: fmt.Sprintf("该地址按 %s 协议可用", llmconfig.ProtocolLabel(other)),
 	}
 }
 
@@ -350,12 +350,12 @@ func (d *probeRun) modelList(ctx context.Context, t profileTarget, schemes []fwl
 // 选定的模型是否可用仍以对话实测为准。取到非空列表才算成功，返回取到它的实际请求。
 func (d *probeRun) siblingModels(ctx context.Context, t profileTarget) ([]string, string, bool) {
 	for _, base := range siblingListBases(t.protocol, t.baseURL) {
-		sibling := profileTarget{protocol: llmconfig.ProviderTypeOpenAICompat, baseURL: base, key: t.key}
+		sibling := profileTarget{protocol: llmconfig.ProviderTypeOpenAIChatCompletions, baseURL: base, key: t.key}
 		ids, err := d.timedModelIDs(ctx, sibling, fwllm.AuthBearer)
 		if err != nil || len(ids) == 0 {
 			continue
 		}
-		return ids, "GET " + fwllm.OperationURL(llmconfig.ProviderTypeOpenAICompat, base, fwllm.OpModels), true
+		return ids, "GET " + fwllm.OperationURL(llmconfig.ProviderTypeOpenAIChatCompletions, base, fwllm.OpModels), true
 	}
 	return nil, "", false
 }
@@ -365,7 +365,7 @@ func (d *probeRun) siblingModels(ctx context.Context, t profileTarget) ([]string
 // OpenAI 兼容接口。规则只依据这一惯例（地址最后一段含 anthropic），不认具体服务：
 // 去掉该段得到上一级路径，候选 …/v1/models 与 …/models。其余情况没有旁路来源。
 func siblingListBases(protocol, baseURL string) []string {
-	if protocol != llmconfig.ProviderTypeAnthropic {
+	if protocol != llmconfig.ProviderTypeAnthropicMessages {
 		return nil
 	}
 	u, err := url.Parse(strings.TrimRight(baseURL, "/"))
@@ -399,8 +399,8 @@ func (d *probeRun) timedModelIDs(ctx context.Context, t profileTarget, scheme fw
 // modelIDs 经运行期同一个 SDK client 调协议原生的模型列表接口（实测不重试），返回排序去重的模型名。
 func (d *probeRun) modelIDs(ctx context.Context, t profileTarget, scheme fwllm.AuthScheme) ([]string, error) {
 	var ids []string
-	if t.protocol == llmconfig.ProviderTypeAnthropic {
-		cli, err := d.pool.GetOrCreateAnthropic(t.baseURL, t.key, scheme)
+	if t.protocol == llmconfig.ProviderTypeAnthropicMessages {
+		cli, err := d.pool.GetOrCreateAnthropicMessages(t.baseURL, t.key, scheme)
 		if err != nil {
 			return nil, err
 		}
@@ -500,7 +500,7 @@ func failureSteps(attempts []attempt) []httpapi.DiagnosisStep {
 	}
 }
 
-// outputLimitOf 取生成器自适应后的输出上限字段（anthropic 协议没有这一概念，恒为 max_tokens）。
+// outputLimitOf 取生成器自适应后的输出上限字段（Anthropic Messages 协议没有这一概念，恒为 max_tokens）。
 func outputLimitOf(gen fwllm.Generator, fallback fwllm.OutputLimitParam) fwllm.OutputLimitParam {
 	if g, ok := gen.(interface{ OutputLimitParam() fwllm.OutputLimitParam }); ok {
 		return g.OutputLimitParam()
@@ -632,13 +632,6 @@ func schemeLabel(s fwllm.AuthScheme) string {
 		return "x-api-key 头"
 	}
 	return "Authorization: Bearer"
-}
-
-func protocolLabel(protocol string) string {
-	if protocol == llmconfig.ProviderTypeAnthropic {
-		return "Anthropic"
-	}
-	return "OpenAI 兼容"
 }
 
 func boolPtr(v bool) *bool { return &v }

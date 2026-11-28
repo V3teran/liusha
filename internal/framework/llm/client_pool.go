@@ -129,7 +129,7 @@ func (p *ClientPool) GetOrCreateOpenAI(baseURL, apiKey string, scheme AuthScheme
 		return nil, fmt.Errorf("ClientPool: openai apikey 必填")
 	}
 	if scheme == "" {
-		scheme = DefaultAuthScheme(ProviderTypeOpenAICompat)
+		scheme = DefaultAuthScheme(ProviderTypeOpenAIChatCompletions)
 	}
 	key := poolKey(baseURL, apiKey, scheme)
 	p.mu.Lock()
@@ -147,14 +147,14 @@ func (p *ClientPool) GetOrCreateOpenAI(baseURL, apiKey string, scheme AuthScheme
 	return c, nil
 }
 
-// GetOrCreateAnthropic 按 baseURL+apiKey+鉴权方式共享 Anthropic client。
+// GetOrCreateAnthropicMessages 按 baseURL+apiKey+鉴权方式共享 Anthropic client。
 // scheme 空 = x-api-key（协议标准）。
-func (p *ClientPool) GetOrCreateAnthropic(baseURL, apiKey string, scheme AuthScheme) (*anthropic.Client, error) {
+func (p *ClientPool) GetOrCreateAnthropicMessages(baseURL, apiKey string, scheme AuthScheme) (*anthropic.Client, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("ClientPool: anthropic apikey 必填")
 	}
 	if scheme == "" {
-		scheme = DefaultAuthScheme(ProviderTypeAnthropic)
+		scheme = DefaultAuthScheme(ProviderTypeAnthropicMessages)
 	}
 	key := poolKey(baseURL, apiKey, scheme)
 	p.mu.Lock()

@@ -8,9 +8,9 @@ import (
 
 // ─── StreamChat（Provider 桥接用可选能力） ─────────────────────────────────────
 
-func (g *openAICompatGen) StreamChat(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error) {
+func (g *chatCompletionsGen) StreamChat(ctx context.Context, msgs []Message, tools []ToolSchema, maxTokens int) (<-chan StreamEvent, error) {
 	// 1. 准备请求参数
-	creq, err := prepareOpenAICompatRequest(msgs, tools, g.model, g.supportsVision)
+	creq, err := prepareChatCompletionsRequest(msgs, tools, g.model, g.supportsVision)
 	if err != nil {
 		return nil, err
 	}
@@ -22,7 +22,7 @@ func (g *openAICompatGen) StreamChat(ctx context.Context, msgs []Message, tools 
 		g.compat.apply(&creq, limit, nil)
 		stream, err = g.client.CreateChatCompletionStream(ctx, creq)
 		if err != nil {
-			if next, ok := g.limit.rejected(wrapOpenAICompatErr(err), limit); ok {
+			if next, ok := g.limit.rejected(wrapChatCompletionsErr(err), limit); ok {
 				limit = next
 				continue
 			}
@@ -33,12 +33,12 @@ func (g *openAICompatGen) StreamChat(ctx context.Context, msgs []Message, tools 
 		break
 	}
 	if err != nil {
-		return nil, wrapOpenAICompatErr(err)
+		return nil, wrapChatCompletionsErr(err)
 	}
 
 	// 3. 启动异步处理
 	ch := make(chan StreamEvent, 32)
-	go processOpenAICompatStream(ctx, stream, ch)
+	go processChatCompletionsStream(ctx, stream, ch)
 
 	return ch, nil
 }

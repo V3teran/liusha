@@ -3,7 +3,7 @@
 // 分层（Ports & Adapters）：
 //   - 本包定义 Provider 契约（Complete/Stream）与全部线类型
 //     （Message/ToolCall/Usage...），并持有唯一的协议适配器实现
-//     （openai_compat / anthropic，血统为生产验证过的 4 月版本）。
+//     （openai_chat_completions / anthropic_messages，血统为生产验证过的 4 月版本）。
 //   - 业务侧先定档位再走本包 Router：agent 取其生效配置的 complexity，api 侧非 agent
 //     调用者经 llmconfig.RoleComplexity 归档。
 //

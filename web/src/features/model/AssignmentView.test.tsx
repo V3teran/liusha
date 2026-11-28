@@ -31,7 +31,7 @@ function prov(key: string, enabled = true): ProviderConfig {
   return {
     code: key,
     display_name: key,
-    type: 'openai_compat',
+    type: 'openai_chat_completions',
     base_url: 'https://x',
     default_model: 'm',
     key_present: true,

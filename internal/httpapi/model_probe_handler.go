@@ -16,6 +16,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -121,8 +122,12 @@ type diagnoseBody struct {
 
 // validProbeTarget 在边界校验实测目标；不合法时写好 400 并返回 false。
 func validProbeTarget(c *gin.Context, b probeTargetBody) bool {
-	if b.Type != llmconfig.ProviderTypeOpenAICompat && b.Type != llmconfig.ProviderTypeAnthropic {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请先选择协议（OpenAI 兼容或 Anthropic）"})
+	if !slices.Contains(llmconfig.ProviderTypes, b.Type) {
+		names := make([]string, 0, len(llmconfig.ProviderTypes))
+		for _, protocol := range llmconfig.ProviderTypes {
+			names = append(names, llmconfig.ProtocolLabel(protocol))
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请先选择协议（" + strings.Join(names, "、") + "）"})
 		return false
 	}
 	if err := llmconfig.ValidateBaseURL(b.BaseURL); err != nil {

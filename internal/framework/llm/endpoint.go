@@ -16,7 +16,7 @@ const (
 // 不含版本段，SDK 拼 v1/…）。只用于展示与诊断，不参与发请求。
 func OperationURL(protocol, baseURL string, op Operation) string {
 	base := strings.TrimRight(baseURL, "/")
-	if protocol == ProviderTypeAnthropic {
+	if protocol == ProviderTypeAnthropicMessages {
 		if op == OpModels {
 			return base + "/v1/models"
 		}

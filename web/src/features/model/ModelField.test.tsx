@@ -16,7 +16,7 @@ const mList = listProviderModels as unknown as ReturnType<typeof vi.fn>
 
 const base = (): ProviderConfig => ({
   ...blankProvider(),
-  type: 'openai_compat',
+  type: 'openai_chat_completions',
   base_url: 'https://relay.example.com/v1',
   api_key: 'sk',
 })
@@ -61,7 +61,7 @@ describe('ModelField', () => {
     expect(await screen.findByRole('option', { name: 'm-b' })).toBeTruthy()
     expect(screen.getByText('已拉取 2 个模型')).toBeTruthy()
     expect(mList.mock.calls[0][0]).toEqual({
-      code: 'p1', type: 'openai_compat', base_url: 'https://relay.example.com/v1', api_key: 'sk', auth_scheme: 'x-api-key',
+      code: 'p1', type: 'openai_chat_completions', base_url: 'https://relay.example.com/v1', api_key: 'sk', auth_scheme: 'x-api-key',
     })
     expect(current).toEqual(initial)
 

@@ -161,8 +161,8 @@ func (fakeEncrypter) Encrypt(plaintext string) ([]byte, error) {
 // 每条附 key_present（是否已有可用密钥来源）但绝不含密钥值本身（明文或密文）。
 func TestListProviders_ReturnsAllWithKeyPresent(t *testing.T) {
 	fm := &fakeModel{providers: []llmconfig.Provider{
-		{Code: "deepseek", Type: "openai_compat", BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", EncryptedAPIKey: []byte("sealed:x"), ContextWindow: 64000, Enabled: true},
-		{Code: "qwen", Type: "openai_compat", BaseURL: "https://x", DefaultModel: "qwen-max", ContextWindow: 32000, Enabled: false},
+		{Code: "deepseek", Type: "openai_chat_completions", BaseURL: "https://api.deepseek.com", DefaultModel: "deepseek-chat", EncryptedAPIKey: []byte("sealed:x"), ContextWindow: 64000, Enabled: true},
+		{Code: "qwen", Type: "openai_chat_completions", BaseURL: "https://x", DefaultModel: "qwen-max", ContextWindow: 32000, Enabled: false},
 	}}
 	srv := newTestServer(t, Deps{Models: fm})
 	defer srv.Close()
@@ -206,17 +206,17 @@ func TestSaveProvider_ValidationRejects(t *testing.T) {
 		name string
 		body map[string]any
 	}{
-		{"缺显示名称", map[string]any{"type": "openai_compat", "base_url": "https://x", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"缺显示名称", map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "default_model": "m", "api_key": "k", "context_window": 1}},
 		{"type 非法", map[string]any{"type": "foo", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1}},
-		{"缺 base_url", map[string]any{"type": "openai_compat", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1}},
-		{"base_url 非完整地址", map[string]any{"type": "openai_compat", "base_url": "u", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1}},
-		{"新建缺 api_key", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "context_window": 1}},
-		{"context_window 为负", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": -1}},
-		{"max_tokens 为负", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "max_tokens": -1}},
-		{"思考预算用于非 anthropic", map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": 2048}},
-		{"思考预算过小", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 8192, "thinking_budget_tokens": 512}},
-		{"思考预算不小于 max_tokens", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 4096, "thinking_budget_tokens": 4096}},
-		{"思考预算不小于默认 max_tokens", map[string]any{"type": "anthropic", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": llmconfig.DefaultMaxTokens}},
+		{"缺 base_url", map[string]any{"type": "openai_chat_completions", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"base_url 非完整地址", map[string]any{"type": "openai_chat_completions", "base_url": "u", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1}},
+		{"新建缺 api_key", map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "context_window": 1}},
+		{"context_window 为负", map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": -1}},
+		{"max_tokens 为负", map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "max_tokens": -1}},
+		{"思考预算用于非 anthropic", map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": 2048}},
+		{"思考预算过小", map[string]any{"type": "anthropic_messages", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 8192, "thinking_budget_tokens": 512}},
+		{"思考预算不小于 max_tokens", map[string]any{"type": "anthropic_messages", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "max_tokens": 4096, "thinking_budget_tokens": 4096}},
+		{"思考预算不小于默认 max_tokens", map[string]any{"type": "anthropic_messages", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1, "thinking_budget_tokens": llmconfig.DefaultMaxTokens}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -238,7 +238,7 @@ func TestSaveProvider_WiresParams(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
-		"code": "anthropic", "type": "anthropic", "base_url": "https://api.anthropic.com",
+		"code": "anthropic", "type": "anthropic_messages", "base_url": "https://api.anthropic.com",
 		"display_name": "n", "default_model": "claude", "api_key": "sk-real-secret", "context_window": 200000,
 		"supports_vision": true, "enabled": true, "max_tokens": 8192, "thinking_budget_tokens": 4096,
 	})
@@ -264,7 +264,7 @@ func TestSaveProvider_FillsLimitDefaults(t *testing.T) {
 	defer srv.Close()
 
 	code, body := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
-		"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k",
+		"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k",
 	})
 	if code != 200 {
 		t.Fatalf("status=%d (%v)", code, body)
@@ -285,7 +285,7 @@ func TestSaveProvider_GeneratesCode(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
-		"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m",
+		"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m",
 		"api_key": "k", "context_window": 1,
 	})
 	if code != 200 {
@@ -306,7 +306,7 @@ func TestSaveProvider_EditWithoutAPIKeyKeepsExisting(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "PUT", srv.URL+"/api/models/providers/deepseek", map[string]any{
-		"type": "openai_compat", "base_url": "https://api.deepseek.com",
+		"type": "openai_chat_completions", "base_url": "https://api.deepseek.com",
 		"display_name": "n", "default_model": "deepseek-chat", "context_window": 64000, "enabled": true,
 	})
 	if code != 200 {
@@ -324,7 +324,7 @@ func TestSaveProvider_NoEncrypterMeansRouteNotRegistered(t *testing.T) {
 	defer srv.Close()
 
 	code, _ := doJSON(t, "POST", srv.URL+"/api/models/providers", map[string]any{
-		"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1,
+		"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "api_key": "k", "context_window": 1,
 	})
 	if code != 404 {
 		t.Fatalf("缺加密器时写路径应不注册（404），got %d", code)
@@ -425,7 +425,7 @@ func TestDeleteRoleRoute_OK(t *testing.T) {
 // TestProviderWriteSemantics：POST 只新建（重复 code → 409）；PUT 只改路径指向的
 // provider（不存在 → 404、请求体 code 与路径不一致 → 400）。
 func TestProviderWriteSemantics(t *testing.T) {
-	valid := map[string]any{"type": "openai_compat", "base_url": "https://x", "display_name": "n", "default_model": "m", "context_window": 1}
+	valid := map[string]any{"type": "openai_chat_completions", "base_url": "https://x", "display_name": "n", "default_model": "m", "context_window": 1}
 	with := func(extra map[string]any) map[string]any {
 		out := map[string]any{}
 		for k, v := range valid {

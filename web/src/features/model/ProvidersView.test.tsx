@@ -25,7 +25,7 @@ function prov(o: Partial<ProviderConfig> = {}): ProviderConfig {
   return {
     code: 'deepseek',
     display_name: o.code ?? 'deepseek', // 列表按显示名称展示；测试里与 code 同名便于定位
-    type: 'openai_compat',
+    type: 'openai_chat_completions',
     base_url: 'https://api.deepseek.com',
     default_model: 'deepseek-chat',
     key_present: true,
@@ -201,7 +201,7 @@ describe('ProvidersView（对话模型分区，行内下拉展开编辑）', () 
 
     // 有改动：点别处先出确认条
     await open()
-    await userEvent.click(await screen.findByRole('radio', { name: /OpenAI 兼容/ }))
+    await userEvent.click(await screen.findByRole('radio', { name: 'OpenAI Chat Completions' }))
     await userEvent.click(outside)
     expect(await screen.findByText(/有未保存更改——收起将丢弃这些更改/)).toBeTruthy()
     expect(screen.getByText('新建 provider')).toBeTruthy()
@@ -260,7 +260,7 @@ describe('ProvidersView（对话模型分区，行内下拉展开编辑）', () 
     renderView()
     await screen.findByText('deepseek')
     await userEvent.click(screen.getByRole('button', { name: '新建' }))
-    await userEvent.click(await screen.findByRole('radio', { name: /OpenAI 兼容/ }))
+    await userEvent.click(await screen.findByRole('radio', { name: 'OpenAI Chat Completions' }))
     await userEvent.click(await screen.findByRole('button', { name: /测试连接/ }))
     expect(await screen.findByText('请先填写完整的 Base URL')).toBeTruthy()
     expect(mSave).not.toHaveBeenCalled()
