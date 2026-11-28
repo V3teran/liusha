@@ -180,8 +180,10 @@ func invalidValues(c AppConfig) []violation {
 
 	positive("runtime.step_llm_timeout_seconds", int64(c.Runtime.StepLLMTimeoutSeconds))
 	positive("runtime.step_tool_timeout_seconds", int64(c.Runtime.StepToolTimeoutSeconds))
-	positive("runtime.run_tail_bytes", int64(c.Runtime.RunTailBytes))
-	positive("runtime.tool_output_tail_bytes", int64(c.Runtime.ToolOutputTailBytes))
+	positive("runtime.tool_output_window_bytes", int64(c.Runtime.ToolOutputWindowBytes))
+	if v := int64(c.Runtime.ToolOutputWindowBytes); v > MaxToolOutputWindowBytes {
+		add("runtime.tool_output_window_bytes", fmt.Sprintf("须不超过 %d（单条消息的硬上限），当前 %d", MaxToolOutputWindowBytes, v))
+	}
 	for name, r := range map[string]float64{
 		"compaction.planner_context_ratio": c.Compaction.PlannerContextRatio, "compaction.executor_context_ratio": c.Compaction.ExecutorContextRatio,
 		"compaction.evaluator_context_ratio": c.Compaction.EvaluatorContextRatio, "compaction.monitor_context_ratio": c.Compaction.MonitorContextRatio,

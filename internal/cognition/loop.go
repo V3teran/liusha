@@ -139,10 +139,10 @@ type ContextRatios struct {
 // ToolLimits 是工具运行时限制（系统配置 runtime 组快照）。
 type ToolLimits struct {
 	StepToolTimeoutSeconds int // command_run 超时钳制上限秒（LLM 自传 timeout_seconds 的上界）
-	RunTailBytes           int // command_run stdout/stderr 保留尾部字节数
-	// ToolOutputTailBytes 是任意工具输出进 LLM 上下文前的全局尾部保留字节
-	// （ReAct 运行时统一收口，个别工具自身的裁剪先行）。
-	ToolOutputTailBytes int
+	// ToolOutputWindowBytes 是单条工具结果进模型上下文的窗口（字节）：ReAct 运行时统一收口——超过时
+	// 留开头与结尾、中间省略并写明省掉多少；工具自己不裁剪。同一个值交给 command_run 当沙盒的落盘
+	// 阈值：命令输出超过窗口时完整落盘，窗口省掉的部分有处可读。
+	ToolOutputWindowBytes int
 }
 
 // SandboxListener 是沙盒对外可达性契约（config sandbox 组启动期快照）：监听段
@@ -352,9 +352,9 @@ func (d *Deps) assembleStack(
 			Sandbox:      sb,         // command_run/browser_drive 依赖；nil 时这两个工具不注册
 			Skills:       skillsView, // skill_read 依赖；声明为空时不注册
 
-			// command_run 超时钳制与输出尾部保留（系统配置 runtime 组快照）
+			// command_run 超时钳制与工具结果窗口（系统配置 runtime 组快照）
 			StepToolTimeoutSeconds: d.ToolLimits.StepToolTimeoutSeconds,
-			RunTailBytes:           d.ToolLimits.RunTailBytes,
+			OutputWindowBytes:      d.ToolLimits.ToolOutputWindowBytes,
 
 			// 沙盒对外可达性契约（config 启动期快照）：command_run 描述注入
 			ListenerPortStart: d.SandboxListener.PortStart,
@@ -403,7 +403,7 @@ func (d *Deps) assembleStack(
 		WithContextRatio(d.ContextRatios.Planner).
 		WithDistiller(newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger)).
 		WithCompactionTimeouts(d.compactionTimeouts()).
-		WithToolOutputTailBytes(d.ToolLimits.ToolOutputTailBytes).
+		WithToolOutputWindowBytes(d.ToolLimits.ToolOutputWindowBytes).
 		WithExtraTools(plannerTools).
 		WithThoughts(thoughts.TapFor("planner")).
 		WithToolWrapper(reg.WrapTool) // 引擎自有的图读工具入共享审计链（plannerTools 上面已包装）
@@ -430,24 +430,24 @@ func (d *Deps) assembleStack(
 
 	// monitor（LLM 档位 = agent.complexity；provider 每次评估现取，见 monitor.evaluate）
 	monitorAgent := monitor.New(monitor.Config{
-		ContextRatio:        d.ContextRatios.Monitor,
-		Distiller:           newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
-		CompactionTimeouts:  d.compactionTimeouts(),
-		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes,
-		Thoughts:            thoughts.TapFor("monitor"),
-		TaskID:              taskID,
-		AgentRunID:          agentRunID,
-		FunctionTools:       cfgs.monitor.FunctionTools,
-		Charter:             cfgs.monitor.Charter,
-		Scenario:            d.Scenario,
-		MaxIterations:       cfgs.monitor.MaxIterations,
-		Graph:               d.Graph,
-		Replanner:           plannerAgent, // 重规划请求直达规划者
-		Router:              d.Router,
-		Complexity:          cfgs.monitor.Complexity,
-		Interval:            d.MonitorInterval,
-		WrapTool:            reg.WrapTool, // 监察工具入共享审计链（遥测/时间线）
-		Logger:              d.Logger.With().Str("component", "monitor_agent").Logger(),
+		ContextRatio:          d.ContextRatios.Monitor,
+		Distiller:             newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
+		CompactionTimeouts:    d.compactionTimeouts(),
+		ToolOutputWindowBytes: d.ToolLimits.ToolOutputWindowBytes,
+		Thoughts:              thoughts.TapFor("monitor"),
+		TaskID:                taskID,
+		AgentRunID:            agentRunID,
+		FunctionTools:         cfgs.monitor.FunctionTools,
+		Charter:               cfgs.monitor.Charter,
+		Scenario:              d.Scenario,
+		MaxIterations:         cfgs.monitor.MaxIterations,
+		Graph:                 d.Graph,
+		Replanner:             plannerAgent, // 重规划请求直达规划者
+		Router:                d.Router,
+		Complexity:            cfgs.monitor.Complexity,
+		Interval:              d.MonitorInterval,
+		WrapTool:              reg.WrapTool, // 监察工具入共享审计链（遥测/时间线）
+		Logger:                d.Logger.With().Str("component", "monitor_agent").Logger(),
 	})
 
 	return &cognitionStack{
@@ -505,25 +505,25 @@ func (d *Deps) buildExecutorAgent(
 	activity *executor.ActivityTracker,
 ) *executor.Agent {
 	engine := executor.NewEngine(executor.EngineConfig{
-		Router:              d.Router,
-		Graph:               d.Graph,    // observation 落图与持有核对依赖；nil 会在产出观察时空指针崩溃
-		AgentRunID:          agentRunID, // 模型调用归属本轮 run
-		Registry:            execRegistry,
-		FunctionTools:       cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
-		ToolsManifest:       filteredManifest,                                  // CLI 工具清单（白名单过滤后）
-		Skills:              skillCards(ctx, skillsView, d.Logger, "executor"), // Tier 1 skill 索引（正文按需 skill_read）
-		Charter:             cfg.Charter,                                       // 角色章程（生效值）
-		Scenario:            d.Scenario,                                        // 任务场景块（拼在系统提示词末尾）
-		Complexity:          cfg.Complexity,                                    // LLM 档位（agent 生效配置）
-		MaxIterations:       cfg.MaxIterations,                                 // ReAct 迭代上限（0=不设限）
-		ContextRatio:        d.ContextRatios.Executor,                          // 上下文历史预算占比（系统配置 compaction 组）
-		Distiller:           newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
-		CompactionTimeouts:  d.compactionTimeouts(),
-		ToolOutputTailBytes: d.ToolLimits.ToolOutputTailBytes, // 工具输出全局尾部钳制（runtime 收口）
-		Thoughts:            thoughts,                         // 思考流（nil=不流式）
-		Activity:            activity,                         // 每完成一步推理记一次进展
-		Repro:               repro.NewRegistry(httprepro.Kind{}),
-		Logger:              d.Logger,
+		Router:                d.Router,
+		Graph:                 d.Graph,    // observation 落图与持有核对依赖；nil 会在产出观察时空指针崩溃
+		AgentRunID:            agentRunID, // 模型调用归属本轮 run
+		Registry:              execRegistry,
+		FunctionTools:         cfg.FunctionTools,                                 // function_tools 白名单（nil=拒绝，["*"]=全量）
+		ToolsManifest:         filteredManifest,                                  // CLI 工具清单（白名单过滤后）
+		Skills:                skillCards(ctx, skillsView, d.Logger, "executor"), // Tier 1 skill 索引（正文按需 skill_read）
+		Charter:               cfg.Charter,                                       // 角色章程（生效值）
+		Scenario:              d.Scenario,                                        // 任务场景块（拼在系统提示词末尾）
+		Complexity:            cfg.Complexity,                                    // LLM 档位（agent 生效配置）
+		MaxIterations:         cfg.MaxIterations,                                 // ReAct 迭代上限（0=不设限）
+		ContextRatio:          d.ContextRatios.Executor,                          // 上下文历史预算占比（系统配置 compaction 组）
+		Distiller:             newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger),
+		CompactionTimeouts:    d.compactionTimeouts(),
+		ToolOutputWindowBytes: d.ToolLimits.ToolOutputWindowBytes, // 单条工具结果进上下文的窗口（运行时收口）
+		Thoughts:              thoughts,                           // 思考流（nil=不流式）
+		Activity:              activity,                           // 每完成一步推理记一次进展
+		Repro:                 repro.NewRegistry(httprepro.Kind{}),
+		Logger:                d.Logger,
 	})
 
 	return executor.NewAgent(executor.AgentConfig{
@@ -574,7 +574,7 @@ func (d *Deps) buildEvaluatorAgent(
 		WithContextRatio(d.ContextRatios.Evaluator).
 		WithDistiller(newCompactionDistiller(d.Router, taskID, agentRunID, d.Logger)).
 		WithCompactionTimeouts(d.compactionTimeouts()).
-		WithToolOutputTailBytes(d.ToolLimits.ToolOutputTailBytes).
+		WithToolOutputWindowBytes(d.ToolLimits.ToolOutputWindowBytes).
 		WithThoughts(thoughts).
 		WithToolWrapper(reg.WrapTool). // judge 自有的 repro_replay 同入审计链
 		WithExtraTools(extraTools)

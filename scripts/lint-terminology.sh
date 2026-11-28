@@ -267,6 +267,11 @@ FORBIDDEN=(
   #   thinking_budget / ThinkingBudget：按 token 的扩展思考预算换成思考深度档位（reasoning_effort，迁移 0268）。
   'thinking_budget'
   'ThinkingBudget'
+  #   RunTailBytes / ToolOutputTailBytes / tailRunOutput：工具结果进上下文只过运行时的一道窗口
+  #   （tool_output_window_bytes，留开头与结尾），command_run 不再自己裁剪输出；配置键的旧名留在升级文档里。
+  'RunTailBytes'
+  'ToolOutputTailBytes'
+  'tailRunOutput'
 )
 
 # 术语豁免：某条术语在含「豁免串」的行里不算残留。写法是「术语||豁免串」——分隔符用两个竖线，

@@ -18,6 +18,7 @@ const TrafficIngestPath = "/internal/v1/traffic/ingest"
 //   - Command：sh -c 解析的完整命令（支持管道 / 重定向 / $env）
 //   - TimeoutSeconds：本次命令硬超时（秒），超时连同进程组一起被杀
 //   - Tag：运维标签（如 "sqlmap-l5"），仅用于日志 / 诊断，不影响执行
+//   - SaveOutputOverBytes：落盘阈值，见字段说明
 type ExecRequest struct {
 	AssignmentID   string `json:"assignment_id"`
 	TaskID         string `json:"task_id"`
@@ -25,18 +26,32 @@ type ExecRequest struct {
 	Command        string `json:"command"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Tag            string `json:"tag,omitempty"`
+	// SaveOutputOverBytes 是落盘阈值：stdout 与 stderr 合计超过这个字节数时，两个流的完整内容落盘到
+	// 任务工作区的 console/ 目录，路径随响应给出——调用方只把输出的一段交给模型，被省掉的部分
+	// 由此留档，命令可以分段读它。输出本身照常返回，沙盒不按它裁剪；它应当远小于沙盒的响应上限
+	// （否则超过上限的那部分开头不在文件里）。0 = 从不落盘。
+	SaveOutputOverBytes int `json:"save_output_over_bytes,omitempty"`
 }
 
 // ExecResult 是 POST /exec 的响应体。
 //
-// stdout/stderr 完整返回不截尾——截尾在 command_run 工具层做（LLM 上下文管理贴近调用方）。
+// stdout / stderr 原样返回，沙盒不按调用方的需要裁剪（上下文的管理贴近调用方）；只有输出大到
+// 异常、超过沙盒的响应上限时才只带末尾。完整字节数随响应给出；StdoutFile / StderrFile 是完整
+// 输出的落盘路径（交给 agent 的形式），只在请求带了落盘阈值、输出合计确实超过它、且这个流有
+// 内容时才有。
 type ExecResult struct {
-	ExitCode int          `json:"exit_code"`
-	Stdout   string       `json:"stdout"`
-	Stderr   string       `json:"stderr"`
-	TimedOut bool         `json:"timed_out"`
-	Files    []Attachment `json:"files,omitempty"`
-	Warnings []string     `json:"warnings,omitempty"`
+	ExitCode int    `json:"exit_code"`
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	// StdoutBytes / StderrBytes 是两个流的完整字节数。
+	StdoutBytes int64 `json:"stdout_bytes"`
+	StderrBytes int64 `json:"stderr_bytes"`
+	// StdoutFile / StderrFile 是完整输出的落盘路径；没有落盘时为空。
+	StdoutFile string       `json:"stdout_file,omitempty"`
+	StderrFile string       `json:"stderr_file,omitempty"`
+	TimedOut   bool         `json:"timed_out"`
+	Files      []Attachment `json:"files,omitempty"`
+	Warnings   []string     `json:"warnings,omitempty"`
 }
 
 // Attachment 是命令产物（写到 $OUTPUT_DIR 的文件）的 base64 编码。

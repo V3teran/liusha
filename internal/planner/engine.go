@@ -41,10 +41,10 @@ type Engine struct {
 	maxIt      int            // ReAct 迭代上限（agent.max_iterations；0=不设限）
 	// contextRatio 是上下文历史预算占 provider.context_window 的比例（系统配置
 	// compaction 组，任务开始时快照；0=压缩器内置兜底预算）。
-	contextRatio        float64
-	distiller           runtime.Distiller          // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
-	compactionTimeouts  runtime.CompactionTimeouts // 压缩链的时间预算
-	toolOutputTailBytes int                        // 工具输出全局尾部钳制字节（0=不钳）
+	contextRatio          float64
+	distiller             runtime.Distiller          // 上下文压缩纪要蒸馏器（nil=压缩降级纯截断）
+	compactionTimeouts    runtime.CompactionTimeouts // 压缩链的时间预算
+	toolOutputWindowBytes int                        // 单条工具结果进上下文的窗口字节（0=不设窗口，仅测试）
 	// roundBudget 是一轮规划的基准预算：整轮 ReAct 的墙钟上限（装配时给定；0=不设限）。
 	// budget 是当前生效的预算：预算不足型失败后放大，任一次成功即回落到基准。
 	roundBudget time.Duration
@@ -127,9 +127,9 @@ func (e *Engine) WithCompactionTimeouts(t runtime.CompactionTimeouts) *Engine {
 	return e
 }
 
-// WithToolOutputTailBytes 注入工具输出全局尾部钳制字节（0=不钳）。
-func (e *Engine) WithToolOutputTailBytes(n int) *Engine {
-	e.toolOutputTailBytes = n
+// WithToolOutputWindowBytes 注入单条工具结果进上下文的窗口字节（0=不设窗口，仅测试）。
+func (e *Engine) WithToolOutputWindowBytes(n int) *Engine {
+	e.toolOutputWindowBytes = n
 	return e
 }
 
@@ -427,7 +427,7 @@ func (e *Engine) Plan(ctx context.Context, graph *explorationgraph.Store, taskID
 		OnThoughtDelta:             onThoughtDelta,
 		OnThinkingDelta:            onThinkingDelta,
 		MessageModifierChain:       runtime.NewCompactionChain(e.contextBudget(ctx), "planner", e.distiller, e.compactionTimeouts),
-		ToolOutputTailBytes:        e.toolOutputTailBytes,
+		ToolOutputWindowBytes:      e.toolOutputWindowBytes,
 		MiddlewareChain:            middlewareChain,
 		// Planner 的结构化输出格式
 		OutputFormatPrompt: "你是规划者（Planner），需要输出下一批要执行的Action。",

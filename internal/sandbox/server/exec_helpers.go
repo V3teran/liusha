@@ -36,13 +36,19 @@ func validateExecRequest(req *sandbox.ExecRequest, w http.ResponseWriter) bool {
 		writeError(w, http.StatusBadRequest, "timeout_seconds must be > 0")
 		return false
 	}
+	if req.SaveOutputOverBytes < 0 {
+		writeError(w, http.StatusBadRequest, "save_output_over_bytes must be >= 0")
+		return false
+	}
 	return true
 }
 
-// taskDirs 是一个任务的工作区目录（见 exec.go 开头的布局说明）。
+// taskDirs 是一个任务的工作区目录（见 exec.go 开头的布局说明）。console 不在这里建：只有输出
+// 越过落盘阈值时才建（见 exec_capture.go）。
 type taskDirs struct {
 	assignmentID, taskID string
 	work, out, state     string
+	console              string
 }
 
 // ensureTaskDirs 建任务工作区的 work / out / state 目录。ID 须已校验为路径安全。
@@ -51,6 +57,7 @@ func (s *Server) ensureTaskDirs(assignmentID, taskID string) (taskDirs, error) {
 	d := taskDirs{
 		assignmentID: assignmentID, taskID: taskID,
 		work: filepath.Join(root, "work"), out: filepath.Join(root, "out"), state: filepath.Join(root, "state"),
+		console: filepath.Join(root, consoleDirName),
 	}
 	for _, dir := range []string{d.work, d.out, d.state} {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -202,27 +209,45 @@ func hasEnvPrefix(name, prefix string) bool {
 	return len(name) >= len(prefix) && sameEnvName(name[:len(prefix)], prefix)
 }
 
-// executeCommand 运行命令并捕获输出。命令的进程归属到任务（taskProcesses：取消时结束这条
-// 命令的进程，任务释放时结束任务的全部进程；机制按平台而定，见其定义）。
-func (s *Server) executeCommand(cmdCtx context.Context, taskID string, cmd *exec.Cmd) (stdout, stderr string, exitCode int, timedOut bool) {
-	var stdoutBuf, stderrBuf strings.Builder
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+// executeCommand 运行命令并收集输出（见 outputCapture）。命令的进程归属到任务（taskProcesses：
+// 取消时结束这条命令的进程，任务释放时结束任务的全部进程；机制按平台而定，见其定义）。
+func (s *Server) executeCommand(cmdCtx context.Context, taskID string, cmd *exec.Cmd, capture *outputCapture) (streams capturedStreams, exitCode int, timedOut bool) {
+	cmd.Stdout, cmd.Stderr = capture.stdout, capture.stderr
 
 	runErr := s.procs.runGroup(taskID, cmd)
 
-	stdout, stderr = stdoutBuf.String(), stderrBuf.String()
+	streams = capture.finish()
 	if runErr != nil {
 		var ee *exec.ExitError
 		if errors.As(runErr, &ee) {
 			exitCode = ee.ExitCode()
 		} else {
 			exitCode = -1
-			if stderr == "" {
-				stderr = runErr.Error()
+			if streams.stderr == "" {
+				streams.stderr = runErr.Error()
+				streams.stderrBytes = int64(len(streams.stderr))
 			}
 		}
 	}
 	timedOut = errors.Is(cmdCtx.Err(), context.DeadlineExceeded)
-	return stdout, stderr, exitCode, timedOut
+	return streams, exitCode, timedOut
+}
+
+// streamWarnings 把落盘上的问题写成提示：留档失败或有内容没写进文件，这次命令的输出照常返回，
+// 只是完整输出少了一份留档——说明白，不悄悄少。
+func streamWarnings(s capturedStreams) []string {
+	var out []string
+	for _, f := range []struct {
+		name    string
+		err     error
+		unsaved int64
+	}{{"stdout", s.stdoutErr, s.stdoutUnsaved}, {"stderr", s.stderrErr, s.stderrUnsaved}} {
+		switch {
+		case f.err != nil:
+			out = append(out, fmt.Sprintf("full %s output could not be saved to %s/: %v", f.name, consoleDirName, f.err))
+		case f.unsaved > 0:
+			out = append(out, fmt.Sprintf("%s output exceeded the %d-byte limit for %s/ files; %d bytes were not saved", f.name, maxSaveBytes, consoleDirName, f.unsaved))
+		}
+	}
+	return out
 }

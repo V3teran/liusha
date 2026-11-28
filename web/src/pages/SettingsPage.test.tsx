@@ -32,8 +32,7 @@ const compaction: CompactionSettings = {
 const runtime: RuntimeSettings = {
   step_tool_timeout_seconds: 60,
   step_llm_timeout_seconds: 300,
-  run_tail_bytes: 4096,
-  tool_output_tail_bytes: 32768,
+  tool_output_window_bytes: 65536,
 }
 const proxy: ProxyFilterSettings = {
   allow_hosts: ['*.target.com'],

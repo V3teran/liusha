@@ -3,6 +3,8 @@ package cognition
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -156,16 +158,22 @@ func TestToolTimelineInterceptor_PassThroughWithoutConversation(t *testing.T) {
 	}
 }
 
-// 超长输出按 rune 截断（时间线保可读，原文在遥测表）。
-func TestTruncateEventRunes(t *testing.T) {
-	long := string(make([]rune, maxToolEventRunes+10))
-	got := truncateEventRunes(long)
-	want := maxToolEventRunes + len([]rune("…（截断）"))
-	if gotRunes := len([]rune(got)); gotRunes != want {
-		t.Fatalf("截断长度 = %d, want %d", gotRunes, want)
-	}
-	if truncateEventRunes("短文本") != "短文本" {
+// 时间线事件字段过长时留开头与结尾、中间写明省略多少：结尾必须保住——命令结果的退出码与完整
+// 输出的文件路径都在末尾。
+func TestWindowEventRunes(t *testing.T) {
+	if windowEventRunes("短文本") != "短文本" {
 		t.Fatalf("短文本不应截断")
+	}
+	head := strings.Repeat("头", toolEventHeadRunes)
+	middle := strings.Repeat("中", 500)
+	tail := strings.Repeat("尾", toolEventTailRunes)
+	got := windowEventRunes(head + middle + tail)
+	want := head + fmt.Sprintf("…（中间省略 %d 字）…", len([]rune(middle))) + tail
+	if got != want {
+		t.Fatalf("应留开头 %d 字、结尾 %d 字并在中间写明省略 %d 字，实际开头 %q", toolEventHeadRunes, toolEventTailRunes, len([]rune(middle)), got[:24])
+	}
+	if n := len([]rune(got)); n > maxToolEventRunes+40 {
+		t.Fatalf("总长 %d 超出窗口太多", n)
 	}
 }
 

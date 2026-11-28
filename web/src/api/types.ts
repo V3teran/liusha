@@ -728,8 +728,7 @@ export interface CompactionSettings {
 export interface RuntimeSettings {
   step_tool_timeout_seconds: number // command_run 超时钳制上限秒（LLM 自传 timeout_seconds 的上界），>0
   step_llm_timeout_seconds: number // 单步 LLM 看门狗超时秒（审计页超时判定同源），>0
-  run_tail_bytes: number // command_run 输出保留尾部字节数，>0
-  tool_output_tail_bytes: number // 任意工具输出进上下文前的全局尾部保留字节（运行时统一收口），>0
+  tool_output_window_bytes: number // 单条工具结果进上下文的窗口字节：超过时留开头与结尾、中间省略（运行时统一收口），>0 且 ≤100000
 }
 
 // ProxyFilterSettings 代理流量过滤规则（黑白名单 + body 上限）。

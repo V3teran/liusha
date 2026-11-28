@@ -13,8 +13,8 @@ function mockFetch(status: number, json: unknown) {
 }
 
 const detail = {
-  values: { run_tail_bytes: 8192 },
-  defaults: { run_tail_bytes: 8192 },
+  values: { tool_output_window_bytes: 65536 },
+  defaults: { tool_output_window_bytes: 65536 },
   overrides: {},
 }
 
@@ -41,13 +41,13 @@ describe('settings API 客户端', () => {
 
   it('resetSettings DELETE …/overrides[/:field]', async () => {
     const fn = mockFetch(200, detail)
-    await resetSettings('runtime', 'run_tail_bytes')
-    expect(fn.mock.calls[0][0]).toBe('/api/settings/runtime/overrides/run_tail_bytes')
+    await resetSettings('runtime', 'tool_output_window_bytes')
+    expect(fn.mock.calls[0][0]).toBe('/api/settings/runtime/overrides/tool_output_window_bytes')
     expect(fn.mock.calls[0][1].method).toBe('DELETE')
   })
 
   it('getRuntimeSettings 返回生效值（审计页超时判定同源）', async () => {
     mockFetch(200, detail)
-    expect(await getRuntimeSettings()).toEqual({ run_tail_bytes: 8192 })
+    expect(await getRuntimeSettings()).toEqual({ tool_output_window_bytes: 65536 })
   })
 })

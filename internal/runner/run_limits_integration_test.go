@@ -52,7 +52,7 @@ func TestRunLimits_FallBackToFactoryWhenStoreIsUnreadable(t *testing.T) {
 	if got.Compaction != factory.Compaction || got.Runtime != factory.Runtime {
 		t.Fatalf("读不到用户层时应回落到出厂值，实际 %+v %+v", got.Compaction, got.Runtime)
 	}
-	if got.Runtime.StepToolTimeoutSeconds <= 0 || got.Runtime.ToolOutputTailBytes <= 0 || got.Compaction.PlannerContextRatio <= 0 {
+	if got.Runtime.StepToolTimeoutSeconds <= 0 || got.Runtime.ToolOutputWindowBytes <= 0 || got.Compaction.PlannerContextRatio <= 0 {
 		t.Fatalf("回落值不得是零值（零值会让工具输出完全不做长度钳制），实际 %+v %+v", got.Compaction, got.Runtime)
 	}
 

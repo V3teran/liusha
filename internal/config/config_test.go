@@ -36,7 +36,7 @@ func TestLoad_Template(t *testing.T) {
 		t.Fatalf("config.yaml 应可加载: %v", err)
 	}
 	// 可热改旋钮的出厂值钉在这里：系统设置页以它们为底，代码不内置第二份。
-	if r := cfg.Runtime; r != (RuntimeConfig{StepLLMTimeoutSeconds: 300, StepToolTimeoutSeconds: 1800, RunTailBytes: 8192, ToolOutputTailBytes: 32768}) {
+	if r := cfg.Runtime; r != (RuntimeConfig{StepLLMTimeoutSeconds: 300, StepToolTimeoutSeconds: 1800, ToolOutputWindowBytes: 65536}) {
 		t.Fatalf("runtime 段出厂值不符: %+v", r)
 	}
 	if c := cfg.Compaction; c != (CompactionConfig{PlannerContextRatio: 0.6, ExecutorContextRatio: 0.5, EvaluatorContextRatio: 0.5, MonitorContextRatio: 0.5}) {
@@ -158,8 +158,8 @@ func TestLoad_InvalidValueFails(t *testing.T) {
 		{"  min_conns: 2", "  min_conns: 50", "postgres.min_conns"},
 		{"  run_recovery_timeout_seconds: 120", "  run_recovery_timeout_seconds: 60", "runner.run_recovery_timeout_seconds"},
 		{"  step_tool_timeout_seconds: 1800", "  step_tool_timeout_seconds: 0", "runtime.step_tool_timeout_seconds"},
-		{"  run_tail_bytes: 8192", "  run_tail_bytes: -1", "runtime.run_tail_bytes"},
-		{"  tool_output_tail_bytes: 32768", "  tool_output_tail_bytes: 0", "runtime.tool_output_tail_bytes"},
+		{"  tool_output_window_bytes: 65536", "  tool_output_window_bytes: 0", "runtime.tool_output_window_bytes"},
+		{"  tool_output_window_bytes: 65536", "  tool_output_window_bytes: 100001", "runtime.tool_output_window_bytes"},
 		{"  planner_context_ratio: 0.6", "  planner_context_ratio: 0.95", "compaction.planner_context_ratio"},
 		{"  evaluator_context_ratio: 0.5", "  evaluator_context_ratio: 0", "compaction.evaluator_context_ratio"},
 		{"    max_429: 4", "    max_429: 5", "llm.retry.backoff_429_seconds"},
