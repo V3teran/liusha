@@ -1,5 +1,68 @@
 # Changelog
 
+## [0.16.0](https://github.com/V3teran/liusha/compare/v0.15.1...v0.16.0) (2026-11-28)
+
+
+### ⚠ 破坏性变更
+
+* **tools:** 配置删除 runtime.run_tail_bytes；runtime.tool_output_tail_bytes 改名为 runtime.tool_output_window_bytes，含义变为留开头与结尾、缺省 65536、上限 100000，系统设置里对旧键的自定义失效；沙盒镜像需重建才有输出落盘。
+* **models:** provider 的协议新增取值 openai_responses；output_limit_param 新增取值 max_output_tokens（Responses 恒为此值）
+* **models:** provider 的 thinking_budget_tokens 字段删除，改为 reasoning_effort（low / medium / high / max，空串为没设置）
+* **models:** provider 的协议取值 openai_compat、anthropic 改为 openai_chat_completions、anthropic_messages，HTTP 契约同步改名
+* **exploration:** 指派动作的接口 `POST /tasks/:id/actions` 去掉了请求字段 `priority`，调用方不要再传
+* **exploration:** 探索图接口的节点上，线索从 `metadata.opens_deeper` / `metadata.lead_closed` 改为顶层字段 `lead` / `lead_closed`，调用方改读这两个字段
+* **config:** `POST /api/models/providers/diagnose` 要求填写 `default_model`（缺失返回 400），响应不再含 `models`、`models_supported`、`auto_model`；需要模型列表的调用方改调新增的 `POST /api/models/providers/models`
+
+### 新功能
+
+* **config:** 默认模型旁可直接拉取模型列表 ([d9ef33c](https://github.com/V3teran/liusha/commit/d9ef33c19afe287afb417160326a732ed6c6e410))
+* **exploration:** 优先级只留给假设与用户指派的动作 ([0e69224](https://github.com/V3teran/liusha/commit/0e692243484236aec4db36117ca46ef3250b076d))
+* **exploration:** 动作记下自己所属的方向 ([b3038af](https://github.com/V3teran/liusha/commit/b3038af9a4a19fe4dad11c36d3a687bea85926c1))
+* **exploration:** 动作谁先执行由规则定，规划者每轮可加急一个 ([680807f](https://github.com/V3teran/liusha/commit/680807fa9fae44ad2c8355c39590caec7b0fd1eb))
+* **exploration:** 图例只列这张图里有的关系 ([14bb9ac](https://github.com/V3teran/liusha/commit/14bb9acfecb29f79d6d38659f5fa4dcb7ad24181))
+* **exploration:** 探索图不再画「归属」线 ([128f31d](https://github.com/V3teran/liusha/commit/128f31d2a9190465a769847b0d5702cc92905ee4))
+* **exploration:** 点亮节点的整条来路 ([3eaaf51](https://github.com/V3teran/liusha/commit/3eaaf51d6e960ab099d73d2b24669d9c30520a21))
+* **exploration:** 状态筛选只列这张图里有的状态 ([22c2e5a](https://github.com/V3teran/liusha/commit/22c2e5ad648d75d4ec7a1238cf530dd7f31bdd4c))
+* **exploration:** 线索要写清下一步、要弄清什么、能换来什么 ([313ea48](https://github.com/V3teran/liusha/commit/313ea48d87f163543f72c2c2247d214c9bc9f8a2))
+* **exploration:** 线索逐条交代，结局按停止原因结算 ([9e4d1d6](https://github.com/V3teran/liusha/commit/9e4d1d6a1452959c900902e34d0fddfba51ff4d2))
+* **exploration:** 踩通的线索优先深挖，并能在一个动作内推进到结论 ([9d27c13](https://github.com/V3teran/liusha/commit/9d27c13e4db020f9291e76c8b50215bec00e1e99))
+* **models:** 协议取值改为厂商 + 接口名 ([2d9af33](https://github.com/V3teran/liusha/commit/2d9af331d96633da96980173d9216bbd833c158f))
+* **models:** 扩展思考预算换成思考深度 ([4c6c675](https://github.com/V3teran/liusha/commit/4c6c675b3f7fd678e31da49d385c83d11bd8dec1))
+* **models:** 接入 OpenAI Responses 协议 ([3509620](https://github.com/V3teran/liusha/commit/3509620c011c5d10d0f952ddecd639d382847e33))
+* **sandbox:** 命令输出有界收集，超过阈值的完整输出落盘 ([ffd6c29](https://github.com/V3teran/liusha/commit/ffd6c297e810099d9b3b1e4a0d313801b3d6d63a))
+
+
+### 问题修复
+
+* **conversation:** 在途的轮不再并进同一张卡 ([760edaa](https://github.com/V3teran/liusha/commit/760edaaaf2f77c6347cf53e7418ddb7ba7a1a5d9))
+* **evaluator:** 场景写明同一弱点的后续环节不另立主张 ([c6ff717](https://github.com/V3teran/liusha/commit/c6ff717e5d2b05430792e386219127eb96bea721))
+* **evaluator:** 评估者对照已坐实结果判定再次确认，折叠重复主张 ([4daeedf](https://github.com/V3teran/liusha/commit/4daeedfb8b153fdf97422f0ddb37f66ae8c5f5dc))
+* **exploration:** 图例恢复完整，每种关系一个线型 ([c4c368b](https://github.com/V3teran/liusha/commit/c4c368b98d34f28a685077b0a87e60e255e21980))
+* **exploration:** 图变大后规划不再失效，失败不再空转 ([0bfad5c](https://github.com/V3teran/liusha/commit/0bfad5c965edf577cb56c65e9912166d23d10421))
+* **exploration:** 带说明文字的终稿不再被迫重述 ([fabfceb](https://github.com/V3teran/liusha/commit/fabfcebcfd0a6e80d866738fad6ceabb52484ea1))
+* **exploration:** 执行中的线看得见了 ([dfae639](https://github.com/V3teran/liusha/commit/dfae63976fcd6695f77665cb32d5f0f9908618f8))
+* **exploration:** 摘要超预算时线索不丢，规划持续失败带着原因终止 ([5a74395](https://github.com/V3teran/liusha/commit/5a74395ad55403c705d9a980a23ace6291e9428a))
+* **exploration:** 点亮来路时其余节点退到背景 ([9870d9c](https://github.com/V3teran/liusha/commit/9870d9c71af3ff78a7ce674b99694d4094f246fb))
+* **exploration:** 环境清单不再被标成线索 ([342dc3d](https://github.com/V3teran/liusha/commit/342dc3d9ab06a014f31f58ac2a35eeda30d79206))
+* **exploration:** 线索在图上一眼可辨 ([51e6a8d](https://github.com/V3teran/liusha/commit/51e6a8d79d356075f23cabd8c39275d07b4ea831))
+* **exploration:** 规划者章程里线索的说法跟上三样 ([b92f520](https://github.com/V3teran/liusha/commit/b92f5207a05f7a503cd48c17e49f802bf2543049))
+* **exploration:** 评估者不再重复验证，反复超时不再无限重试 ([cd1882e](https://github.com/V3teran/liusha/commit/cd1882ecf3e3491b656803d04fec1fbccbcdee24))
+* **finding:** 坐实的发现不再从台账里消失 ([5d15bc8](https://github.com/V3teran/liusha/commit/5d15bc830a134710aa5061bfc6d4fe7aaf23ba32))
+* **llm:** 流式调用透传协议给出的结束原因 ([540d32d](https://github.com/V3teran/liusha/commit/540d32daf3d420aecd98105afb4607195d8d4ba8))
+* **llm:** 输出上限被上游拒绝时自动下调；Anthropic 适配器只走流式 ([dd48b8c](https://github.com/V3teran/liusha/commit/dd48b8c3693f24a10c8d8936caf27cba62b1876a))
+* **models:** 「显示密钥」按钮的点击区放宽到 32px ([db00781](https://github.com/V3teran/liusha/commit/db0078104823b35a84f50d0483891573be202dbd))
+* **models:** 上下文与输出上限的缺省取旗舰模型的上限，全系统一个出处 ([3019e4d](https://github.com/V3teran/liusha/commit/3019e4db1922fa1276c8a2509ddd1b9f5bc5f5ca))
+* **planner:** 本轮被停掉时的取消不再记作分析的失败 ([65907d6](https://github.com/V3teran/liusha/commit/65907d635e8dc95d6b354f079ea425d6eb0d8c18))
+* **planner:** 规划期间新出现的线索留待下一轮，不再触发追问 ([8f10944](https://github.com/V3teran/liusha/commit/8f10944124d4465535e3b1bbcd6a59086cb3ea66))
+* **runner:** 被回收的 run 及时退出，规划冷却登记为有期限的等待 ([0c90e68](https://github.com/V3teran/liusha/commit/0c90e68e13b8c04ba9a23a7bbe36fb595df022bc))
+* **runtime:** 收尾的输出预算跟随 provider 配置的单次最大输出 ([eee672d](https://github.com/V3teran/liusha/commit/eee672d70cb9171bf08af51314e6dbb5bfc81d5c))
+* **runtime:** 无工具运行里的工具调用回执后直接收尾 ([fc4a66a](https://github.com/V3teran/liusha/commit/fc4a66a6f5add578e09c3eb286dbc38b49dccd61))
+* **runtime:** 输出被上限截断时如实告知模型并直接收尾 ([d11bc3c](https://github.com/V3teran/liusha/commit/d11bc3c0b718c3b51572eedae45598bb52bf2156))
+* **sandbox:** 没落盘的输出流不再被报成「未留档」 ([b989c8d](https://github.com/V3teran/liusha/commit/b989c8dec40be6c6573a09eb0300c8f21594faa7))
+* **timeline:** 工具过程事件的落库有自己的时限，不随工具调用作废 ([3f7f096](https://github.com/V3teran/liusha/commit/3f7f096d215a53aaf6d8cb2cc193c9443cb50a78))
+* **timeline:** 时间线与审计预览留头尾并写明省略多少 ([fd5fd84](https://github.com/V3teran/liusha/commit/fd5fd84dd0596b510417c5d6d031831bc7a15189))
+* **tools:** 工具结果进上下文只过运行时的一道窗口，命令工具不再截断 ([99c2a74](https://github.com/V3teran/liusha/commit/99c2a749b4f90f6da18c71abf992b1aaa8600fc8))
+
 ## [0.15.1](https://github.com/V3teran/liusha/compare/v0.15.0...v0.15.1) (2026-11-25)
 
 
